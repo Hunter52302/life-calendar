@@ -49,13 +49,13 @@ export default function CategoriesMenu({
 
   return (
     <div className="relative flex items-center gap-1.5" ref={panelRef}>
-      {/* Pinned category legend — dot + name, hidden when a filter chip is active */}
+      {/* Pinned category legend — dot + name, hidden on mobile, hidden when a filter chip is active */}
       {!activeFilterCat && pinnedCats.length > 0 && (
         <>
           {pinnedCats.map(cat => (
             <span
               key={cat.id}
-              className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
+              className="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
             >
               <span
                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -64,8 +64,8 @@ export default function CategoriesMenu({
               <span className="max-w-[72px] truncate">{cat.label}</span>
             </span>
           ))}
-          {/* Divider between legend and Categories button */}
-          <span className="w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mx-0.5" />
+          {/* Divider between legend and Categories button — only on desktop where legend is visible */}
+          <span className="hidden sm:block w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mx-0.5" />
         </>
       )}
 
