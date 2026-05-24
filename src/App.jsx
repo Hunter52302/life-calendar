@@ -170,6 +170,9 @@ export default function App() {
   const [livePrecision, setLivePrecision] = useState(1);
   const [exportFormat, setExportFormat] = useState('csv');
   const [showTutorial, setShowTutorial] = useState(false);
+  const [mobileDefaultView, setMobileDefaultView] = useState(
+    () => localStorage.getItem('lc-mobile-default-view') || 'month'
+  );
   const [exporting, setExporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null); // cal id or '__legacy_plan' / '__legacy_actual'
@@ -185,6 +188,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lc-fab-visible',   String(fabVisible));   }, [fabVisible]);
   useEffect(() => { localStorage.setItem('lc-fab-draggable', String(fabDraggable)); }, [fabDraggable]);
   useEffect(() => { localStorage.setItem('lc-timezones', JSON.stringify(timezones)); }, [timezones]);
+  useEffect(() => { localStorage.setItem('lc-mobile-default-view', mobileDefaultView); }, [mobileDefaultView]);
   useEffect(() => {
     if (searchKeybind) localStorage.setItem('lc-search-keybind', JSON.stringify(searchKeybind));
     else localStorage.removeItem('lc-search-keybind');
@@ -380,7 +384,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
@@ -535,6 +539,30 @@ export default function App() {
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                               </label>
                             )}
+                            {/* ── Mobile default view ── */}
+                            {sv(['mobile', 'phone', 'default', 'view']) && (
+                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Mobile default view</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">What view opens first on phones</p>
+                                <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
+                                  {[{ id: 'day', label: 'Day' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }].map(v => (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => setMobileDefaultView(v.id)}
+                                      className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors ${
+                                        mobileDefaultView === v.id
+                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {v.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* ── Floating Button Options ── */}
                             {sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
@@ -1499,6 +1527,7 @@ export default function App() {
               pinnedCategories={pinnedCategories}
               onTogglePin={togglePin}
               onManageCategories={openManageCategories}
+              mobileDefaultView={mobileDefaultView}
               onAddEvent={addEvent}
               onAddEvents={addEvents}
               onUpdateEvent={updateEvent}
@@ -1522,6 +1551,7 @@ export default function App() {
               showWeekNumbers={showWeekNumbers}
               pinnedCategories={pinnedCategories}
               onTogglePin={togglePin}
+              mobileDefaultView={mobileDefaultView}
               onManageCategories={openManageCategories}
               onAddEvent={addEvent}
               onAddEvents={addEvents}

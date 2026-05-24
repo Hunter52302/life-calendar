@@ -16,9 +16,9 @@ export default function ActualView({
   planEvents, actualEvents, weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
-  jumpTo = null,
+  jumpTo = null, mobileDefaultView = 'month',
 }) {
-  const [view, setView] = useState(() => window.innerWidth < 640 ? 'day' : 'week');
+  const [view, setView] = useState(() => window.innerWidth < 640 ? mobileDefaultView : 'week');
   const [activeDay, setActiveDay] = useState(new Date().getDay());
   const [formState, setFormState] = useState(null);
   const [viewDate, setViewDate] = useState(() => new Date(weekStart + 'T00:00:00'));
@@ -130,9 +130,9 @@ export default function ActualView({
 
   return (
     <div className="flex flex-col h-full dark:bg-gray-900">
-      <div className="relative flex items-center px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+      <div className="relative flex flex-wrap items-center px-4 py-2 gap-y-1.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
         {/* Left: view switcher + precision (day/week only) */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 order-1">
           <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
             {visibleViews.map(v => (
               <button key={v} type="button" onClick={() => setView(v)}
@@ -149,17 +149,8 @@ export default function ActualView({
           {!isMultiMonth && <PrecisionToggle precision={precision} onChange={onPrecisionChange} />}
         </div>
 
-        {/* Center: period navigator — absolutely centered over the calendar */}
-        {isMultiMonth && (
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1">
-            <button onClick={() => navigatePeriod(-1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">←</button>
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-32 text-center">{getPeriodLabel()}</span>
-            <button onClick={() => navigatePeriod(1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">→</button>
-          </div>
-        )}
-
         {/* Right: categories menu */}
-        <div className="ml-auto flex-shrink-0">
+        <div className="ml-auto flex-shrink-0 order-2">
           <CategoriesMenu
             allCategories={allCategories}
             pinnedCategories={pinnedCategories}
@@ -170,6 +161,15 @@ export default function ActualView({
             onManage={onManageCategories}
           />
         </div>
+
+        {/* Period navigator — own row on mobile (order-3), absolutely centered on desktop */}
+        {isMultiMonth && (
+          <div className="w-full flex justify-center items-center gap-1 order-3 sm:order-none sm:w-auto sm:absolute sm:left-1/2 sm:-translate-x-1/2">
+            <button onClick={() => navigatePeriod(-1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">←</button>
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-32 text-center">{getPeriodLabel()}</span>
+            <button onClick={() => navigatePeriod(1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">→</button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-hidden overflow-x-auto">
