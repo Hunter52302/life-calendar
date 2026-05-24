@@ -443,16 +443,16 @@ export default function App() {
             </button>
           </div>
 
-          {/* Center tab label */}
-          <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none hidden sm:block">
+          {/* Center tab label — visible when tab pills are hidden (< lg) */}
+          <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none hidden sm:block lg:hidden">
             <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
               {activeTab === 'plan' ? 'Plan' : activeTab === 'actual' ? 'Live' : 'See Your Life'}
             </span>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Tab switcher — mobile: dropdown, desktop: pills */}
-            <div className="relative sm:hidden">
+            {/* Tab switcher — mobile/tablet: dropdown, wide desktop: pills */}
+            <div className="relative lg:hidden">
               <button
                 type="button"
                 onClick={() => setShowTabMenu(s => !s)}
@@ -485,7 +485,7 @@ export default function App() {
                 </>
               )}
             </div>
-            <nav className="hidden sm:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+            <nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
               {TABS.map(tab => (
                 <button
                   key={tab.id}

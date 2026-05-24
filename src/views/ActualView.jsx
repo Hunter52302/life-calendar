@@ -133,8 +133,8 @@ export default function ActualView({
       <div className="relative flex flex-wrap items-center px-4 py-2 gap-y-1.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
         {/* Left: view switcher + precision (day/week only) */}
         <div className="flex items-center gap-2 flex-shrink-0 order-1">
-          {/* Mobile: dropdown */}
-          <div className="relative sm:hidden">
+          {/* Mobile/tablet: dropdown */}
+          <div className="relative lg:hidden">
             <button
               type="button"
               onClick={() => setShowViewMenu(s => !s)}
@@ -167,8 +167,8 @@ export default function ActualView({
               </>
             )}
           </div>
-          {/* Desktop: pills */}
-          <div className="hidden sm:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+          {/* Wide desktop: pills */}
+          <div className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
             {visibleViews.map(v => (
               <button key={v} type="button" onClick={() => setView(v)}
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
@@ -196,9 +196,9 @@ export default function ActualView({
           />
         </div>
 
-        {/* Period navigator — own row on mobile (order-3), absolutely centered on desktop */}
+        {/* Period navigator — own row on mobile/tablet, absolutely centered on wide screens */}
         {isMultiMonth && (
-          <div className="w-full flex justify-center items-center gap-1 order-3 sm:order-none sm:w-auto sm:absolute sm:left-1/2 sm:-translate-x-1/2">
+          <div className="w-full flex justify-center items-center gap-1 order-3 lg:order-none lg:w-auto lg:absolute lg:left-1/2 lg:-translate-x-1/2">
             <button onClick={() => navigatePeriod(-1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">←</button>
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-32 text-center">{getPeriodLabel()}</span>
             <button onClick={() => navigatePeriod(1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">→</button>

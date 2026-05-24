@@ -55,7 +55,7 @@ export default function CategoriesMenu({
           {pinnedCats.map(cat => (
             <span
               key={cat.id}
-              className="hidden sm:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
+              className="hidden lg:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
             >
               <span
                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -64,8 +64,8 @@ export default function CategoriesMenu({
               <span className="max-w-[72px] truncate">{cat.label}</span>
             </span>
           ))}
-          {/* Divider between legend and Categories button — only on desktop where legend is visible */}
-          <span className="hidden sm:block w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mx-0.5" />
+          {/* Divider between legend and Categories button — only on wide screens where legend is visible */}
+          <span className="hidden lg:block w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mx-0.5" />
         </>
       )}
 
