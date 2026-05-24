@@ -16,6 +16,7 @@ export default function PlanView({
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
   jumpTo = null, mobileDefaultView = 'month',
+  showPrecisionToggle = true, showCategoriesMenu = true,
 }) {
   const [view, setView] = useState(() => window.innerWidth < 640 ? mobileDefaultView : 'week');
   const [activeDay, setActiveDay] = useState(new Date().getDay());
@@ -145,11 +146,11 @@ export default function PlanView({
               </button>
             ))}
           </div>
-          {!isMultiMonth && <PrecisionToggle precision={precision} onChange={onPrecisionChange} />}
+          {!isMultiMonth && showPrecisionToggle && <PrecisionToggle precision={precision} onChange={onPrecisionChange} />}
         </div>
 
         {/* Right: categories menu */}
-        <div className="ml-auto flex-shrink-0 order-2">
+        {showCategoriesMenu && <div className="ml-auto flex-shrink-0 order-2">
           <CategoriesMenu
             allCategories={allCategories}
             pinnedCategories={pinnedCategories}
@@ -159,7 +160,7 @@ export default function PlanView({
             onSetFilter={setCategoryFilter}
             onManage={onManageCategories}
           />
-        </div>
+        </div>}
 
         {/* Period navigator — own row on mobile/tablet, absolutely centered on wide screens */}
         {isMultiMonth && (
