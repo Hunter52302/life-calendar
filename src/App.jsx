@@ -63,6 +63,8 @@ import DiffView from './views/DiffView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
+import AuthGate from './components/AuthGate';
+import { useAuth } from './hooks/useAuth';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -97,6 +99,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
+  const { authState, setup, login, logout, continueOffline } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
@@ -270,7 +273,8 @@ export default function App() {
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
-  } = useEvents();
+    syncing = false,
+  } = useEvents(authState);
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -399,6 +403,20 @@ export default function App() {
   function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
   const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
 
+  // Show auth screen when not yet authenticated
+  if (['checking', 'setup', 'login', 'offline'].includes(authState)) {
+    return (
+      <AuthGate
+        authState={authState}
+        onSetup={setup}
+        onLogin={login}
+        onContinueOffline={continueOffline}
+        theme={theme}
+      />
+    );
+  }
+  // authState === 'ready' or 'offline-ok' → render the full app below
+
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
       {importNotice && (
@@ -425,6 +443,12 @@ export default function App() {
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">PLS Calendar</span>
+            {syncing && (
+              <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
+            )}
+            {authState === 'offline-ok' && (
+              <span title="Offline — data saved locally" className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+            )}
             {/* Search button */}
             <button
               type="button"

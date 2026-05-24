@@ -33,3 +33,5 @@ dist-ssr
 
 # Claude Code session data
 .claude
+data/
+.env
