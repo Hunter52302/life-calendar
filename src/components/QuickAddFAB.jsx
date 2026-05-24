@@ -1,0 +1,629 @@
+/**
+ * QuickAddFAB — Floating Action Button
+ *
+ * Three quick-add actions:
+ *   • Add Event → Plan
+ *   • Add Event → Live
+ *   • Drive Time → Live
+ *
+ * Supports multi-day events (start date ≠ end date — stored as day segments).
+ * Respects militaryTime prop for consistent time display.
+ */
+
+import { useState, useRef, useEffect } from 'react';
+import { getWeekStart, todayStr } from '../lib/utils';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const FAB_SIZE    = 56;
+const DRAG_THRESH = 5;
+const LS_POS_KEY  = 'lc-fab-pos';
+
+// ── Time helpers ──────────────────────────────────────────────────────────────
+function nextHourStr() {
+  const h = (new Date().getHours() + 1) % 24;
+  return `${String(h).padStart(2, '0')}:00`;
+}
+function addOneHour(t) {
+  const [h, m] = t.split(':').map(Number);
+  return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function timeToSlot(t) {           // "HH:MM" → half-hour slot index
+  const [h, m] = t.split(':').map(Number);
+  return h * 2 + (m >= 30 ? 1 : 0);
+}
+function slotToTimeStr(s) {        // half-hour slot → "HH:MM"
+  const mins = s * 30;
+  return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+function dateToWeekData(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return { week_start: getWeekStart(d), day_of_week: d.getDay() };
+}
+
+/** Format "HH:MM" as 12h or 24h string */
+function fmtTime(hhmm, military) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (military) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const ap  = h < 12 ? 'AM' : 'PM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${ap}`;
+}
+
+/** Add one calendar day to a YYYY-MM-DD string */
+function addDayStr(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00'); // noon avoids DST edge cases
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+/** Human-readable duration string between two date+time pairs */
+function calcDurLabel(sd, st, ed, et) {
+  const start = new Date(`${sd}T${st}:00`);
+  const end   = new Date(`${ed}T${et}:00`);
+  const ms = end - start;
+  if (ms <= 0) return '—';
+  const totalMins = Math.round(ms / 60000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/**
+ * Split a date+time range into per-day slot segments.
+ * Each segment: { date: "YYYY-MM-DD", slotStart, slotDuration }
+ */
+function buildSegments(startDate, startTime, endDate, endTime) {
+  const startDt = new Date(`${startDate}T${startTime}:00`);
+  const endDt   = new Date(`${endDate}T${endTime}:00`);
+
+  if (endDt <= startDt) {
+    // Degenerate: force 1 slot
+    return [{ date: startDate, slotStart: timeToSlot(startTime), slotDuration: 1 }];
+  }
+
+  if (startDate === endDate) {
+    const s = timeToSlot(startTime);
+    const e = timeToSlot(endTime);
+    return [{ date: startDate, slotStart: s, slotDuration: Math.max(1, e - s) }];
+  }
+
+  const segments = [];
+
+  // First day: start → midnight
+  const s = timeToSlot(startTime);
+  if (48 - s > 0) segments.push({ date: startDate, slotStart: s, slotDuration: 48 - s });
+
+  // Middle full days
+  let cur = addDayStr(startDate);
+  while (cur < endDate) {
+    segments.push({ date: cur, slotStart: 0, slotDuration: 48 });
+    cur = addDayStr(cur);
+  }
+
+  // Last day: midnight → end time
+  const e = timeToSlot(endTime);
+  if (e > 0) segments.push({ date: endDate, slotStart: 0, slotDuration: e });
+
+  return segments;
+}
+
+// ── Shared UI primitives ──────────────────────────────────────────────────────
+const inputCls =
+  'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 ' +
+  'dark:placeholder-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none ' +
+  'focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+
+function Field({ label, children, className = '' }) {
+  return (
+    <div className={className}>
+      <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">
+        {label}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function FormShell({ title, accent, onClose, children }) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-end sm:items-center justify-center z-[150] p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700"
+          style={{ borderTopWidth: 3, borderTopColor: accent, borderTopStyle: 'solid' }}
+        >
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+          <button
+            type="button" onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+          >×</button>
+        </div>
+        <div className="px-5 py-4 space-y-4 max-h-[80vh] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SaveRow({ onClose, onSave, disabled, label, color }) {
+  return (
+    <div className="flex justify-end gap-2 pt-1">
+      <button
+        type="button" onClick={onClose}
+        className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+      >Cancel</button>
+      <button
+        type="button" onClick={onSave} disabled={disabled}
+        className="px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors hover:opacity-90"
+        style={{ backgroundColor: color }}
+      >{label}</button>
+    </div>
+  );
+}
+
+function CategoryPills({ allCategories, value, onChange }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {allCategories.map(cat => (
+        <button
+          key={cat.id} type="button" onClick={() => onChange(cat.id)}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+            value === cat.id
+              ? 'text-white border-transparent'
+              : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+          }`}
+          style={value === cat.id ? { backgroundColor: cat.color } : {}}
+        >
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+          {cat.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Time row: time picker + formatted hint ────────────────────────────────────
+function TimeRow({ startDate, startTime, endDate, endTime, onStartChange, onEndChange, militaryTime }) {
+  const durLabel = calcDurLabel(startDate, startTime, endDate, endTime);
+  return (
+    <div className="flex gap-2">
+      <Field label="Start" className="flex-1">
+        <input type="time" value={startTime} onChange={e => onStartChange(e.target.value)} className={inputCls} />
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 px-0.5 tabular-nums">
+          {fmtTime(startTime, militaryTime)}
+        </p>
+      </Field>
+      <Field label="End" className="flex-1">
+        <input type="time" value={endTime} onChange={e => onEndChange(e.target.value)} className={inputCls} />
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 px-0.5 tabular-nums">
+          {fmtTime(endTime, militaryTime)}
+        </p>
+      </Field>
+      <Field label="Duration" className="flex-shrink-0">
+        <div className={`${inputCls} bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400 whitespace-nowrap cursor-default`}>
+          {durLabel}
+        </div>
+      </Field>
+    </div>
+  );
+}
+
+// ── Multi-day date row ────────────────────────────────────────────────────────
+function DateRow({ startDate, endDate, onStartChange, onEndChange }) {
+  const isMultiDay = endDate > startDate;
+  const segCount   = isMultiDay ? buildSegments(startDate, '00:00', endDate, '01:00').length : 1;
+
+  return (
+    <>
+      <div className="flex gap-2">
+        <Field label="Start date" className="flex-1">
+          <input type="date" value={startDate} onChange={e => onStartChange(e.target.value)} className={inputCls} />
+        </Field>
+        <Field label="End date" className="flex-1">
+          <input
+            type="date" value={endDate} min={startDate}
+            onChange={e => onEndChange(e.target.value)}
+            className={`${inputCls}${isMultiDay ? ' ring-2 ring-amber-400/40 dark:ring-amber-500/40' : ''}`}
+          />
+        </Field>
+      </div>
+      {isMultiDay && (
+        <p className="text-[11px] text-amber-500 dark:text-amber-400 -mt-1 px-0.5">
+          Spans {segCount} day{segCount !== 1 ? 's' : ''} — saved as {segCount} calendar segment{segCount !== 1 ? 's' : ''}
+        </p>
+      )}
+    </>
+  );
+}
+
+// ── Event form (Plan or Live) ─────────────────────────────────────────────────
+const EVENT_CONFIG = {
+  plan:   { title: 'Quick Add Event — Plan', accent: '#3B82F6', btnLabel: 'Add to Plan' },
+  actual: { title: 'Quick Add Event — Live', accent: '#10B981', btnLabel: 'Add to Live' },
+};
+
+function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onSave, onClose }) {
+  const cfg   = EVENT_CONFIG[calendar] ?? EVENT_CONFIG.plan;
+  const start = nextHourStr();
+
+  const [label,     setLabel]     = useState('');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate,   setEndDate]   = useState(todayStr());
+  const [startTime, setStartTime] = useState(start);
+  const [endTime,   setEndTime]   = useState(addOneHour(start));
+  const [catId,     setCatId]     = useState(allCategories[0]?.id ?? 'personal');
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  function handleStartDateChange(val) {
+    setStartDate(val);
+    if (endDate < val) setEndDate(val);
+  }
+  function handleStartTimeChange(val) {
+    setStartTime(val);
+    // Only force end-time forward when on the same day
+    if (endDate === startDate && timeToSlot(endTime) <= timeToSlot(val)) {
+      setEndTime(slotToTimeStr(timeToSlot(val) + 2));
+    }
+  }
+
+  function handleSave() {
+    if (!label.trim()) return;
+    const segments = buildSegments(startDate, startTime, endDate, endTime);
+    const cat = allCategories.find(c => c.id === catId);
+    for (const seg of segments) {
+      const { week_start, day_of_week } = dateToWeekData(seg.date);
+      onSave({
+        label: label.trim(), category: catId, color: cat?.color ?? '#6B7280',
+        week_start, day_of_week,
+        slot_start: seg.slotStart, slot_duration: seg.slotDuration,
+        precision: 0.5, calendar, source: 'manual', is_all_day: false,
+      });
+    }
+    onClose();
+  }
+
+  return (
+    <FormShell title={cfg.title} accent={cfg.accent} onClose={onClose}>
+      <Field label="Event name">
+        <input
+          ref={inputRef} type="text" value={label}
+          onChange={e => setLabel(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
+          placeholder="e.g. Team meeting, Dentist…" className={inputCls}
+        />
+      </Field>
+      <DateRow
+        startDate={startDate} endDate={endDate}
+        onStartChange={handleStartDateChange}
+        onEndChange={setEndDate}
+      />
+      <TimeRow
+        startDate={startDate} startTime={startTime}
+        endDate={endDate}    endTime={endTime}
+        onStartChange={handleStartTimeChange}
+        onEndChange={setEndTime}
+        militaryTime={militaryTime}
+      />
+      <Field label="Category">
+        <CategoryPills allCategories={allCategories} value={catId} onChange={setCatId} />
+      </Field>
+      <SaveRow
+        onClose={onClose} onSave={handleSave}
+        disabled={!label.trim()} label={cfg.btnLabel} color={cfg.accent}
+      />
+    </FormShell>
+  );
+}
+
+// ── Drive Time form ───────────────────────────────────────────────────────────
+const DRIVE_CAT_ID    = 'drive-time';
+const DRIVE_CAT_COLOR = '#F97316';
+
+function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
+  const start = nextHourStr();
+
+  const [label,     setLabel]     = useState('🚗 Drive Time');
+  const [from,      setFrom]      = useState(homeAddress || '');
+  const [to,        setTo]        = useState('');
+  const [startDate, setStartDate] = useState(todayStr());
+  const [endDate,   setEndDate]   = useState(todayStr());
+  const [startTime, setStartTime] = useState(start);
+  const [endTime,   setEndTime]   = useState(addOneHour(start));
+  const toRef = useRef(null);
+  useEffect(() => { toRef.current?.focus(); }, []);
+
+  function handleStartDateChange(val) {
+    setStartDate(val);
+    if (endDate < val) setEndDate(val);
+  }
+  function handleStartTimeChange(val) {
+    setStartTime(val);
+    if (endDate === startDate && timeToSlot(endTime) <= timeToSlot(val)) {
+      setEndTime(slotToTimeStr(timeToSlot(val) + 2));
+    }
+  }
+
+  function handleSave() {
+    if (!label.trim()) return;
+    const segments = buildSegments(startDate, startTime, endDate, endTime);
+    for (const seg of segments) {
+      const { week_start, day_of_week } = dateToWeekData(seg.date);
+      onSave({
+        label: label.trim(),
+        category: DRIVE_CAT_ID, color: DRIVE_CAT_COLOR,
+        week_start, day_of_week,
+        slot_start: seg.slotStart, slot_duration: seg.slotDuration,
+        precision: 0.5, calendar: 'actual', source: 'manual', is_all_day: false,
+        _driveFrom: from.trim(), _driveTo: to.trim(),
+      });
+    }
+    onClose();
+  }
+
+  return (
+    <FormShell title="Quick Add Drive Time" accent={DRIVE_CAT_COLOR} onClose={onClose}>
+      <Field label="Event label">
+        <input type="text" value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="🚗 Drive Time" className={inputCls} />
+      </Field>
+      <div className="flex gap-2">
+        <Field label="From" className="flex-1">
+          <input type="text" value={from} onChange={e => setFrom(e.target.value)}
+            placeholder="Start location" className={inputCls} />
+        </Field>
+        <Field label="To" className="flex-1">
+          <input ref={toRef} type="text" value={to} onChange={e => setTo(e.target.value)}
+            placeholder="Destination" className={inputCls} />
+        </Field>
+      </div>
+      <DateRow
+        startDate={startDate} endDate={endDate}
+        onStartChange={handleStartDateChange}
+        onEndChange={setEndDate}
+      />
+      <TimeRow
+        startDate={startDate} startTime={startTime}
+        endDate={endDate}    endTime={endTime}
+        onStartChange={handleStartTimeChange}
+        onEndChange={setEndTime}
+        militaryTime={militaryTime}
+      />
+      <SaveRow
+        onClose={onClose} onSave={handleSave}
+        disabled={!label.trim()} label="Add to Live" color={DRIVE_CAT_COLOR}
+      />
+    </FormShell>
+  );
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+function CalIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+    </svg>
+  );
+}
+function CarIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 17H16M6 10l1.5-4.5A1 1 0 0 1 8.447 5h7.106a1 1 0 0 1 .947.672L18 10M6 10H4a1 1 0 0 0-1 1v3a1 1 0 0 0 1 1h1m14-5h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1M6.5 17a1.5 1.5 0 1 0 3 0 1.5 1.5 0 0 0-3 0zm8 0a1.5 1.5 0 1 0 3 0 1.5 1.5 0 0 0-3 0z" />
+    </svg>
+  );
+}
+
+// ── Action chip ───────────────────────────────────────────────────────────────
+function ActionChip({ icon, label, sublabel, color, onClick }) {
+  return (
+    <button
+      type="button" onClick={onClick}
+      className="flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full shadow-lg text-white text-sm font-medium transition-all duration-150 hover:scale-105 active:scale-95 focus:outline-none whitespace-nowrap"
+      style={{ backgroundColor: color }}
+    >
+      <span className="flex-shrink-0">{icon}</span>
+      <span>{label}</span>
+      <span className="text-white/70 text-xs font-normal">{sublabel}</span>
+    </button>
+  );
+}
+
+// ── Clamp helper ──────────────────────────────────────────────────────────────
+function clampToViewport(p) {
+  if (!p) return null;
+  return {
+    x: Math.max(0, Math.min(window.innerWidth  - FAB_SIZE, p.x)),
+    y: Math.max(0, Math.min(window.innerHeight - FAB_SIZE, p.y)),
+  };
+}
+
+// ── Main FAB ──────────────────────────────────────────────────────────────────
+export default function QuickAddFAB({
+  allCategories = [],
+  homeAddress   = '',
+  militaryTime  = false,
+  draggable     = false,
+  posResetKey   = 0,
+  onAddEvent,
+  onAddActual,
+  onSwitchTab,
+}) {
+  const [pos,  setPos]  = useState(() => {
+    try {
+      const s = localStorage.getItem(LS_POS_KEY);
+      if (s) {
+        const p = JSON.parse(s);
+        if (typeof p.x === 'number' && typeof p.y === 'number') return clampToViewport(p);
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'drive'
+
+  const isDragging   = useRef(false);
+  const hasDragged   = useRef(false);
+  const dragOrigin   = useRef({ mx: 0, my: 0, px: 0, py: 0 });
+  const posRef       = useRef(pos);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (posResetKey === 0) return;
+    setPos(null); posRef.current = null;
+    localStorage.removeItem(LS_POS_KEY);
+  }, [posResetKey]); // eslint-disable-line
+
+  useEffect(() => {
+    function getClient(e) {
+      return e.touches ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+                       : { x: e.clientX, y: e.clientY };
+    }
+    function onMove(e) {
+      if (!isDragging.current) return;
+      if (e.cancelable) e.preventDefault();
+      const { x, y } = getClient(e);
+      const dx = x - dragOrigin.current.mx;
+      const dy = y - dragOrigin.current.my;
+      if (Math.hypot(dx, dy) > DRAG_THRESH) hasDragged.current = true;
+      if (!hasDragged.current) return;
+      const newX = Math.max(0, Math.min(window.innerWidth  - FAB_SIZE, dragOrigin.current.px + dx));
+      const newY = Math.max(0, Math.min(window.innerHeight - FAB_SIZE, dragOrigin.current.py + dy));
+      const next = { x: newX, y: newY };
+      posRef.current = next; setPos(next); setOpen(false);
+    }
+    function onUp() {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      if (posRef.current) localStorage.setItem(LS_POS_KEY, JSON.stringify(posRef.current));
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend',  onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend',  onUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleResize() {
+      setPos(prev => {
+        if (!prev) return null;
+        const clamped = clampToViewport(prev);
+        if (clamped.x === prev.x && clamped.y === prev.y) return prev;
+        localStorage.setItem(LS_POS_KEY, JSON.stringify(clamped));
+        posRef.current = clamped;
+        return clamped;
+      });
+    }
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  function handlePointerDown(e) {
+    if (!draggable) return;
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    const { x, y } = e.touches
+      ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      : { x: e.clientX, y: e.clientY };
+    const currentPos = posRef.current ?? {
+      x: window.innerWidth  - FAB_SIZE - 24,
+      y: window.innerHeight - FAB_SIZE - 24,
+    };
+    if (!posRef.current) { posRef.current = currentPos; setPos(currentPos); }
+    isDragging.current = true;
+    hasDragged.current = false;
+    dragOrigin.current = { mx: x, my: y, px: currentPos.x, py: currentPos.y };
+  }
+
+  function handleFABClick() {
+    if (hasDragged.current) { hasDragged.current = false; return; }
+    setOpen(v => !v);
+  }
+
+  function openMode(m) { setMode(m); setOpen(false); }
+
+  function handleAddPlanEvent(event)  { onAddEvent(event);  onSwitchTab('plan');   }
+  function handleAddLiveEvent(event)  { onAddActual(event); onSwitchTab('actual'); }
+  function handleAddDrive(event)      { onAddActual(event); onSwitchTab('actual'); }
+
+  const wrapperStyle = pos
+    ? { position: 'fixed', left: pos.x, top: pos.y, bottom: 'auto', right: 'auto' }
+    : {};
+  const wrapperCls = pos ? 'z-[120]' : 'fixed bottom-6 right-6 z-[120]';
+  const nearTop    = pos ? pos.y < 160 : false;
+  const chipsAbove = !nearTop;
+  const cursorCls  = draggable ? (isDragging.current ? 'cursor-grabbing' : 'cursor-grab') : '';
+
+  return (
+    <>
+      <div ref={containerRef} className={wrapperCls} style={wrapperStyle}>
+
+        {/* Chips — above FAB */}
+        {open && chipsAbove && (
+          <div className="absolute bottom-full right-0 mb-3 flex flex-col items-end gap-2">
+            <ActionChip icon={<CarIcon />} label="Drive Time" sublabel="→ Live" color="#F97316" onClick={() => openMode('drive')} />
+            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Live" color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Plan" color="#3B82F6" onClick={() => openMode('event-plan')} />
+          </div>
+        )}
+
+        {/* FAB button */}
+        <button
+          type="button"
+          onMouseDown={handlePointerDown}
+          onTouchStart={handlePointerDown}
+          onClick={handleFABClick}
+          className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 select-none ${cursorCls}`}
+          style={{ background: 'linear-gradient(135deg, #3B82F6, #6366F1)' }}
+          aria-label="Quick add"
+          title={draggable ? 'Drag to move · Click to open' : 'Quick add'}
+        >
+          <svg className={`w-6 h-6 transition-transform duration-200 ${open ? 'rotate-45' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+
+        {/* Chips — below FAB (near top of screen) */}
+        {open && !chipsAbove && (
+          <div className="absolute top-full right-0 mt-3 flex flex-col items-end gap-2">
+            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Plan" color="#3B82F6" onClick={() => openMode('event-plan')} />
+            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Live" color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CarIcon />} label="Drive Time" sublabel="→ Live" color="#F97316" onClick={() => openMode('drive')} />
+          </div>
+        )}
+
+        {draggable && (
+          <div className="absolute inset-0 rounded-full border-2 border-dashed border-white/40 pointer-events-none" />
+        )}
+      </div>
+
+      {/* Forms */}
+      {mode === 'event-plan' && (
+        <EventForm allCategories={allCategories} calendar="plan" militaryTime={militaryTime}
+          onSave={handleAddPlanEvent} onClose={() => setMode(null)} />
+      )}
+      {mode === 'event-live' && (
+        <EventForm allCategories={allCategories} calendar="actual" militaryTime={militaryTime}
+          onSave={handleAddLiveEvent} onClose={() => setMode(null)} />
+      )}
+      {mode === 'drive' && (
+        <DriveForm homeAddress={homeAddress} militaryTime={militaryTime}
+          onSave={handleAddDrive} onClose={() => setMode(null)} />
+      )}
+    </>
+  );
+}
