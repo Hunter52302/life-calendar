@@ -65,6 +65,7 @@ import TutorialModal from './components/TutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
+import InstallPrompt from './components/InstallPrompt';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -1631,6 +1632,9 @@ export default function App() {
             />
           )}
         </main>
+
+        {/* Install prompt — "Add to Home Screen" banner */}
+        <InstallPrompt />
 
         {/* Floating quick-add button */}
         {fabVisible && (
