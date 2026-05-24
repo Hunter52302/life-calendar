@@ -9,6 +9,7 @@ import MultiMonthView from './MultiMonthView';
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
 const OPTIONAL_VIEWS = new Set(['quarter', 'half']);
 const VIEW_LABELS = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarter', half: 'Half Year', year: 'Year' };
+const VIEW_SHORT_LABELS = { day: 'Day', week: 'Wk', month: 'Mo', quarter: 'Q', half: 'H', year: 'Yr' };
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function PlanView({
@@ -17,7 +18,7 @@ export default function PlanView({
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
   jumpTo = null,
 }) {
-  const [view, setView] = useState('week');
+  const [view, setView] = useState(() => window.innerWidth < 640 ? 'day' : 'week');
   const [activeDay, setActiveDay] = useState(new Date().getDay());
   const [formState, setFormState] = useState(null);
   const [viewDate, setViewDate] = useState(() => new Date(weekStart + 'T00:00:00'));
@@ -105,7 +106,8 @@ export default function PlanView({
                     ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                 }`}>
-                {VIEW_LABELS[v]}
+                <span className="sm:hidden">{VIEW_SHORT_LABELS[v]}</span>
+                <span className="hidden sm:inline">{VIEW_LABELS[v]}</span>
               </button>
             ))}
           </div>
@@ -135,7 +137,7 @@ export default function PlanView({
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-y-hidden overflow-x-auto">
         {(view === 'day' || view === 'week') && (
           <CalendarGrid
             events={weekEvents} weekStart={weekStart} precision={precision}

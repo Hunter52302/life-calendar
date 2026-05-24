@@ -415,7 +415,7 @@ export default function App() {
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
       )}
-      <div className="flex flex-col h-screen bg-white dark:bg-gray-900 overflow-hidden">
+      <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden">
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
           <div className="flex items-center gap-2 min-w-0">
@@ -478,7 +478,7 @@ export default function App() {
               {showSettings && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }} />
-                  <div className="absolute right-0 top-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-4 z-50 w-72 max-h-[80vh] overflow-y-auto">
+                  <div className="absolute right-0 top-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-4 z-50 w-72 max-w-[calc(100vw-0.5rem)] max-h-[80vh] overflow-y-auto">
                     <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Settings</p>
 
                     {/* Settings search filter */}
