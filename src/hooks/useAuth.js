@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
+import { storage } from '../lib/storage.js';
 
 /**
  * Manages authentication state.
@@ -30,18 +31,18 @@ export function useAuth() {
 
   async function setup(password) {
     const { token } = await api.auth.setup(password);
-    localStorage.setItem('lc-auth-token', token);
+    storage.setToken(token);
     setAuthState('ready');
   }
 
   async function login(password) {
     const { token } = await api.auth.login(password);
-    localStorage.setItem('lc-auth-token', token);
+    storage.setToken(token);
     setAuthState('ready');
   }
 
   function logout() {
-    localStorage.removeItem('lc-auth-token');
+    storage.removeToken();
     setAuthState('login');
   }
 

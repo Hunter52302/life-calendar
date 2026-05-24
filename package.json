@@ -1,14 +1,19 @@
 {
-  "name": "cuserszaclife-calendar",
+  "name": "pls-calendar-root",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "shared",
+    "mobile"
+  ],
   "scripts": {
     "dev": "vite",
     "server": "node --watch server/index.js",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mobile": "npm run start --workspace=mobile"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

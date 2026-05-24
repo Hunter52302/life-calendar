@@ -35,3 +35,13 @@ dist-ssr
 .claude
 data/
 .env
+
+# Mobile app
+mobile/.env
+mobile/.env.local
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+
+# Shared package build artifacts
+shared/dist/

@@ -1,18 +1,10 @@
-/**
- * Thin HTTP client for the PLS Calendar API.
- * All requests automatically include the stored auth token.
- * Throws on non-2xx responses so callers can catch network/auth errors.
- */
+import { storage } from './storage.js';
 
-const BASE = '/api';
-
-function getToken() {
-  return localStorage.getItem('lc-auth-token');
-}
+const BASE = import.meta.env.VITE_API_URL ?? '/api';
 
 async function request(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
-  const token = getToken();
+  const token = storage.getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${BASE}${path}`, {
