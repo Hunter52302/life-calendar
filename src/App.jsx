@@ -73,6 +73,19 @@ const TABS = [
   { id: 'reality', label: 'See Your Life' },
 ];
 
+const FONT_PRESETS = [
+  { key: 'system',       label: 'System (Default)',      value: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", googleUrl: null,        group: 'Default' },
+  { key: 'opendyslexic', label: 'OpenDyslexic',          value: "'OpenDyslexic', sans-serif",          googleUrl: 'https://fonts.cdnfonts.com/css/opendyslexic',                                                     group: 'Accessibility' },
+  { key: 'atkinson',     label: 'Atkinson Hyperlegible', value: "'Atkinson Hyperlegible', sans-serif",  googleUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap',        group: 'Accessibility' },
+  { key: 'lexend',       label: 'Lexend',                value: "'Lexend', sans-serif",                 googleUrl: 'https://fonts.googleapis.com/css2?family=Lexend:wght@400;600&display=swap',                       group: 'Accessibility' },
+  { key: 'inter',        label: 'Inter',                 value: "'Inter', sans-serif",                  googleUrl: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap',                        group: 'Sans-serif' },
+  { key: 'nunito',       label: 'Nunito',                value: "'Nunito', sans-serif",                 googleUrl: 'https://fonts.googleapis.com/css2?family=Nunito:wght@400;600&display=swap',                       group: 'Sans-serif' },
+  { key: 'opensans',     label: 'Open Sans',             value: "'Open Sans', sans-serif",              googleUrl: 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap',                    group: 'Sans-serif' },
+  { key: 'merriweather', label: 'Merriweather',          value: "'Merriweather', serif",                googleUrl: 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',                 group: 'Serif' },
+  { key: 'lora',         label: 'Lora',                  value: "'Lora', serif",                        googleUrl: 'https://fonts.googleapis.com/css2?family=Lora:wght@400;600&display=swap',                         group: 'Serif' },
+  { key: 'jetbrains',    label: 'JetBrains Mono',        value: "'JetBrains Mono', monospace",          googleUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap',               group: 'Monospace' },
+];
+
 function fmtKeybind(kb) {
   if (!kb) return '';
   const parts = [];
@@ -150,6 +163,12 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchJump, setSearchJump] = useState(null); // { tab, dayOfWeek, _id }
   const [fabVisible, setFabVisible]   = useState(() => localStorage.getItem('lc-fab-visible') !== 'false');
+  // ── Font picker ─────────────────────────────────────────────────────────
+  const [fontKey, setFontKey] = useState(() => localStorage.getItem('lc-font-key') || 'system');
+  const [customFont, setCustomFont] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('lc-custom-font') || 'null'); } catch { return null; }
+  });
+  const [fontSearch, setFontSearch] = useState('');
   // ── Minimalist mode ──────────────────────────────────────────────────────
   const [minimalistMode,      setMinimalistMode]      = useState(() => localStorage.getItem('lc-minimalist')         === 'true');
   const [showLiveTab,         setShowLiveTab]         = useState(() => localStorage.getItem('lc-show-live-tab')      !== 'false');
@@ -205,6 +224,30 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lc-show-search',      String(searchBarVisible));  }, [searchBarVisible]);
   useEffect(() => { localStorage.setItem('lc-show-precision',   String(precisionVisible));  }, [precisionVisible]);
   useEffect(() => { localStorage.setItem('lc-show-categories',  String(categoriesVisible)); }, [categoriesVisible]);
+  useEffect(() => { localStorage.setItem('lc-font-key', fontKey); }, [fontKey]);
+  useEffect(() => {
+    if (customFont) localStorage.setItem('lc-custom-font', JSON.stringify(customFont));
+    else localStorage.removeItem('lc-custom-font');
+  }, [customFont]);
+  // Apply selected font to the whole app via CSS variable
+  useEffect(() => {
+    const preset = FONT_PRESETS.find(f => f.key === fontKey);
+    if (fontKey === 'custom' && customFont) {
+      let styleEl = document.getElementById('lc-custom-font-style');
+      if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'lc-custom-font-style'; document.head.appendChild(styleEl); }
+      styleEl.textContent = `@font-face { font-family: 'LCCustom'; src: url('${customFont.dataUrl}'); }`;
+      document.documentElement.style.setProperty('--lc-font', "'LCCustom', sans-serif");
+    } else if (preset) {
+      let linkEl = document.getElementById('lc-font-link');
+      if (preset.googleUrl) {
+        if (!linkEl) { linkEl = document.createElement('link'); linkEl.id = 'lc-font-link'; linkEl.rel = 'stylesheet'; document.head.appendChild(linkEl); }
+        linkEl.href = preset.googleUrl;
+      } else {
+        document.getElementById('lc-font-link')?.remove();
+      }
+      document.documentElement.style.setProperty('--lc-font', preset.value);
+    }
+  }, [fontKey, customFont]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { localStorage.setItem('lc-timezones', JSON.stringify(timezones)); }, [timezones]);
   useEffect(() => { localStorage.setItem('lc-mobile-default-view', mobileDefaultView); }, [mobileDefaultView]);
   useEffect(() => {
@@ -277,6 +320,18 @@ export default function App() {
   useEffect(() => {
     if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
   }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleFontUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setCustomFont({ name: file.name.replace(/\.[^.]+$/, ''), dataUrl: ev.target.result });
+      setFontKey('custom');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
 
   function togglePin(catId) {
     setPinnedCategories(prev =>
@@ -425,7 +480,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
@@ -682,6 +737,76 @@ export default function App() {
                                 </div>
                               </div>
                             )}
+                            {/* ── Font Picker ── */}
+                            {sv(['font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload']) && (
+                              <div className={`space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Font</p>
+                                {/* Search */}
+                                <div className="relative">
+                                  <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                                  </svg>
+                                  <input
+                                    type="text"
+                                    placeholder="Search fonts…"
+                                    value={fontSearch}
+                                    onChange={e => setFontSearch(e.target.value)}
+                                    className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-700 border border-transparent focus:border-blue-400 text-gray-800 dark:text-gray-200 placeholder-gray-400 outline-none"
+                                  />
+                                </div>
+                                {/* Preset list */}
+                                <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                                  {FONT_PRESETS
+                                    .filter(f => !fontSearch || f.label.toLowerCase().includes(fontSearch.toLowerCase()) || f.group.toLowerCase().includes(fontSearch.toLowerCase()))
+                                    .map(f => (
+                                      <button
+                                        key={f.key}
+                                        type="button"
+                                        onClick={() => { setFontKey(f.key); setFontSearch(''); }}
+                                        className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
+                                          fontKey === f.key
+                                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                            : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className={`w-3 h-3 rounded-full flex-shrink-0 border-2 ${fontKey === f.key ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-500'}`} />
+                                          <span className="text-xs truncate">{f.label}</span>
+                                          <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">{f.group}</span>
+                                        </div>
+                                        <span className="text-sm flex-shrink-0" style={{ fontFamily: f.value }}>Abc</span>
+                                      </button>
+                                    ))
+                                  }
+                                  {/* Custom font row */}
+                                  {(!fontSearch || 'custom upload'.includes(fontSearch.toLowerCase())) && (
+                                    <div className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md ${fontKey === 'custom' ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className={`w-3 h-3 rounded-full flex-shrink-0 border-2 ${fontKey === 'custom' ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-500'}`} />
+                                        <span className="text-xs text-gray-700 dark:text-gray-300 truncate">
+                                          {customFont ? customFont.name : 'Upload custom…'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        {customFont && (
+                                          <button
+                                            type="button"
+                                            onClick={() => { setCustomFont(null); setFontKey('system'); }}
+                                            className="text-[10px] text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                            title="Remove custom font"
+                                          >✕</button>
+                                        )}
+                                        <label className="cursor-pointer text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                                          {customFont ? 'Replace' : 'Upload'}
+                                          <input type="file" accept=".ttf,.otf,.woff,.woff2" className="hidden" onChange={handleFontUpload} />
+                                        </label>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
                             <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
                             {sv(['dark', 'mode', 'theme']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
