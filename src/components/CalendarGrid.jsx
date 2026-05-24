@@ -102,7 +102,7 @@ export default function CalendarGrid({
   }
 
   return (
-    <div className="flex flex-col h-full select-none dark:bg-gray-900">
+    <div className="flex flex-col h-full select-none dark:bg-gray-900" style={view === 'week' ? { minWidth: '480px' } : undefined}>
       <div className="overflow-y-auto flex-1">
         {/* Sticky header (day names + all-day row) */}
         <div className="sticky top-0 z-20 bg-white dark:bg-gray-900">

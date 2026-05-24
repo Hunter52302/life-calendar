@@ -1,17 +1,98 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    VitePWA({
+      // 'prompt' means we control when the new SW activates (via UpdatePrompt)
+      registerType: 'prompt',
+
+      // Which static assets to include in the precache manifest
+      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
+
+      // Web App Manifest — replaces public/manifest.json
+      manifest: {
+        name: 'PLS Calendar',
+        short_name: 'PLS Cal',
+        description: 'Plan your time, track your life, see the difference.',
+        theme_color: '#863bff',
+        background_color: '#0f172a',   // dark splash screen matches dark mode
+        display: 'standalone',
+        orientation: 'portrait-primary',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          {
+            src: '/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
+          {
+            src: '/favicon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+        ],
+      },
+
+      workbox: {
+        // Precache all JS/CSS/HTML/font/image assets produced by Vite
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+
+        // Runtime caching rules
+        runtimeCaching: [
+          {
+            // API calls: try network first, fall back to cache (10s timeout)
+            urlPattern: /^\/api\//,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              networkTimeoutSeconds: 10,
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 }, // 1 day
+            },
+          },
+          {
+            // Google Fonts (if ever added)
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
+        ],
+
+        // Serve the app shell for any navigation request when offline
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//],
+      },
+    }),
+  ],
+
   optimizeDeps: {
     exclude: ['jspdf', 'jspdf-autotable'],
   },
+
   server: {
     proxy: {
-      // Forward /api/* from the Vite dev server (port 5173) to the
-      // Express server (port 3001) so the frontend never has to think
-      // about two different ports during development.
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
