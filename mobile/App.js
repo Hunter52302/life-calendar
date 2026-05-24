@@ -1,39 +1,99 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { api } from './src/lib/api.js';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
+
+import { AppContext } from './src/context/AppContext.js';
+import { useAuth } from './src/hooks/useAuth.js';
+import { useEvents } from './src/hooks/useEvents.js';
+import { getWeekStart, addDays } from './src/lib/utils.js';
+import { useState } from 'react';
+
+import AuthScreen from './src/screens/AuthScreen.jsx';
+import PlanScreen from './src/screens/PlanScreen.jsx';
+import LiveScreen from './src/screens/LiveScreen.jsx';
+import RealityScreen from './src/screens/RealityScreen.jsx';
+
+const Tab = createBottomTabNavigator();
+
+const TAB_ICONS = {
+  Plan:          'calendar-outline',
+  Live:          'time-outline',
+  'See Your Life': 'bar-chart-outline',
+};
 
 export default function App() {
-  const [status, setStatus] = useState('checking');
+  const auth       = useAuth();
+  const eventsData = useEvents(auth.authState);
+  const [weekStart, setWeekStart] = useState(getWeekStart());
 
-  useEffect(() => {
-    api.health()
-      .then(() => setStatus('connected'))
-      .catch(() => setStatus('unreachable'));
-  }, []);
+  // Loading
+  if (auth.authState === 'checking') {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator color="#7C3AED" size="large" />
+        <StatusBar style="dark" />
+      </View>
+    );
+  }
+
+  // Auth required
+  if (auth.authState === 'setup' || auth.authState === 'login' || auth.authState === 'offline') {
+    return (
+      <SafeAreaProvider>
+        <AuthScreen
+          authState={auth.authState}
+          onSetup={auth.setup}
+          onLogin={auth.login}
+          onContinueOffline={auth.continueOffline}
+          onRetry={auth.retry}
+        />
+        <StatusBar style="dark" />
+      </SafeAreaProvider>
+    );
+  }
+
+  const ctx = {
+    auth,
+    events:   eventsData,
+    weekStart,
+    prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
+    nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
+  };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>PLS Calendar</Text>
-      <Text style={styles.subtitle}>Mobile App</Text>
-      {status === 'checking'    && <ActivityIndicator color="#863bff" style={styles.indicator} />}
-      {status === 'connected'   && <Text style={styles.ok}>Backend reachable ✓</Text>}
-      {status === 'unreachable' && (
-        <Text style={styles.err}>
-          Cannot reach backend.{'\n'}
-          Check EXPO_PUBLIC_API_URL in mobile/.env
-        </Text>
-      )}
-      <StatusBar style="light" />
-    </View>
+    <AppContext.Provider value={ctx}>
+      <SafeAreaProvider>
+        <NavigationContainer>
+          <Tab.Navigator
+            screenOptions={({ route }) => ({
+              headerShown: false,
+              tabBarIcon: ({ color, size }) => (
+                <Ionicons name={TAB_ICONS[route.name]} size={size} color={color} />
+              ),
+              tabBarActiveTintColor:   '#7C3AED',
+              tabBarInactiveTintColor: '#9CA3AF',
+              tabBarStyle: {
+                backgroundColor:  '#fff',
+                borderTopColor:   '#E5E7EB',
+                borderTopWidth:   StyleSheet.hairlineWidth,
+              },
+              tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+            })}
+          >
+            <Tab.Screen name="Plan"          component={PlanScreen} />
+            <Tab.Screen name="Live"          component={LiveScreen} />
+            <Tab.Screen name="See Your Life" component={RealityScreen} />
+          </Tab.Navigator>
+        </NavigationContainer>
+        <StatusBar style="dark" />
+      </SafeAreaProvider>
+    </AppContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  container:  { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0f172a' },
-  title:      { color: '#ffffff', fontSize: 24, fontWeight: 'bold' },
-  subtitle:   { color: '#94a3b8', fontSize: 14, marginBottom: 24 },
-  indicator:  { marginTop: 8 },
-  ok:         { color: '#22c55e', marginTop: 8 },
-  err:        { color: '#ef4444', marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9FAFB' },
 });
