@@ -298,6 +298,11 @@ export const habits = {
   delete: (userId, id) => {
     db.prepare('DELETE FROM habits WHERE id = ? AND user_id = ?').run(id, userId);
   },
+
+  getById: (userId, id) => {
+    const row = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?').get(id, userId);
+    return row ? { ...row, active: row.active === 1, target_days: JSON.parse(row.target_days) } : null;
+  },
 };
 
 // ── Habit Completions ─────────────────────────────────────────────────────────
@@ -337,5 +342,151 @@ export const timeBudgets = {
 
   delete: (userId, categoryId) => {
     db.prepare('DELETE FROM time_budgets WHERE user_id = ? AND category_id = ?').run(userId, categoryId);
+  },
+};
+
+// ── User Integrations ─────────────────────────────────────────────────────────
+
+export const userIntegrations = {
+  getAll: (userId) =>
+    db.prepare('SELECT * FROM user_integrations WHERE user_id = ? ORDER BY created_at ASC').all(userId)
+      .map(r => ({ ...r, enabled: r.enabled === 1, include_hints: r.include_hints === 1 })),
+
+  create: (userId, integration) => {
+    db.prepare(`
+      INSERT INTO user_integrations (id, user_id, type, label, endpoint_url, push_token, include_hints, enabled)
+      VALUES (@id, @user_id, @type, @label, @endpoint_url, @push_token, @include_hints, @enabled)
+    `).run({
+      id: integration.id,
+      user_id: userId,
+      type: integration.type,
+      label: integration.label ?? null,
+      endpoint_url: integration.endpoint_url ?? null,
+      push_token: integration.push_token ?? null,
+      include_hints: integration.include_hints ? 1 : 0,
+      enabled: integration.enabled !== false ? 1 : 0,
+    });
+  },
+
+  update: (userId, id, updates) => {
+    const fields = [];
+    const vals = { id, user_id: userId };
+    if (updates.label       !== undefined) { fields.push('label = @label');             vals.label = updates.label; }
+    if (updates.endpoint_url !== undefined) { fields.push('endpoint_url = @endpoint_url'); vals.endpoint_url = updates.endpoint_url; }
+    if (updates.push_token  !== undefined) { fields.push('push_token = @push_token');   vals.push_token = updates.push_token; }
+    if (updates.include_hints !== undefined) { fields.push('include_hints = @include_hints'); vals.include_hints = updates.include_hints ? 1 : 0; }
+    if (updates.enabled     !== undefined) { fields.push('enabled = @enabled');         vals.enabled = updates.enabled ? 1 : 0; }
+    if (!fields.length) return;
+    fields.push('updated_at = unixepoch()');
+    db.prepare(`UPDATE user_integrations SET ${fields.join(', ')} WHERE id = @id AND user_id = @user_id`).run(vals);
+  },
+
+  delete: (userId, id) =>
+    db.prepare('DELETE FROM user_integrations WHERE id = ? AND user_id = ?').run(id, userId),
+
+  getById: (userId, id) =>
+    db.prepare('SELECT * FROM user_integrations WHERE id = ? AND user_id = ?').get(id, userId),
+};
+
+// ── Notification Schedules ────────────────────────────────────────────────────
+
+export const notificationSchedules = {
+  getAll: (userId) =>
+    db.prepare('SELECT * FROM notification_schedules WHERE user_id = ? ORDER BY created_at ASC').all(userId)
+      .map(r => ({ ...r, enabled: r.enabled === 1, days_of_week: JSON.parse(r.days_of_week) })),
+
+  getAllActive: (userId) =>
+    db.prepare('SELECT * FROM notification_schedules WHERE user_id = ? AND enabled = 1').all(userId)
+      .map(r => ({ ...r, enabled: true, days_of_week: JSON.parse(r.days_of_week) })),
+
+  create: (userId, sched) => {
+    db.prepare(`
+      INSERT INTO notification_schedules
+        (id, user_id, integration_id, trigger_type, offset_minutes, time_of_day, days_of_week, enabled)
+      VALUES (@id, @user_id, @integration_id, @trigger_type, @offset_minutes, @time_of_day, @days_of_week, @enabled)
+    `).run({
+      id: sched.id,
+      user_id: userId,
+      integration_id: sched.integration_id ?? null,
+      trigger_type: sched.trigger_type,
+      offset_minutes: sched.offset_minutes ?? -30,
+      time_of_day: sched.time_of_day ?? null,
+      days_of_week: JSON.stringify(sched.days_of_week ?? [0,1,2,3,4,5,6]),
+      enabled: sched.enabled !== false ? 1 : 0,
+    });
+  },
+
+  update: (userId, id, updates) => {
+    const fields = [];
+    const vals = { id, user_id: userId };
+    if (updates.trigger_type    !== undefined) { fields.push('trigger_type = @trigger_type');       vals.trigger_type = updates.trigger_type; }
+    if (updates.offset_minutes  !== undefined) { fields.push('offset_minutes = @offset_minutes');   vals.offset_minutes = updates.offset_minutes; }
+    if (updates.time_of_day     !== undefined) { fields.push('time_of_day = @time_of_day');         vals.time_of_day = updates.time_of_day; }
+    if (updates.days_of_week    !== undefined) { fields.push('days_of_week = @days_of_week');       vals.days_of_week = JSON.stringify(updates.days_of_week); }
+    if (updates.enabled         !== undefined) { fields.push('enabled = @enabled');                 vals.enabled = updates.enabled ? 1 : 0; }
+    if (updates.integration_id  !== undefined) { fields.push('integration_id = @integration_id');   vals.integration_id = updates.integration_id; }
+    if (!fields.length) return;
+    db.prepare(`UPDATE notification_schedules SET ${fields.join(', ')} WHERE id = @id AND user_id = @user_id`).run(vals);
+  },
+
+  delete: (userId, id) =>
+    db.prepare('DELETE FROM notification_schedules WHERE id = ? AND user_id = ?').run(id, userId),
+};
+
+// ── Notification Log ──────────────────────────────────────────────────────────
+
+export const notificationLog = {
+  wasFiredToday: (integrationId, entityId, triggerType) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const row = db.prepare(`
+      SELECT 1 FROM notification_log
+      WHERE integration_id = ? AND entity_id = ? AND trigger_type = ?
+        AND date(fired_at, 'unixepoch') = ?
+    `).get(integrationId, entityId ?? '', triggerType, today);
+    return !!row;
+  },
+
+  record: (id, userId, integrationId, triggerType, entityId, status = 'sent') => {
+    db.prepare(`
+      INSERT INTO notification_log (id, user_id, integration_id, trigger_type, entity_id, status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, userId, integrationId, triggerType, entityId ?? null, status);
+  },
+};
+
+// ── Push Subscriptions ────────────────────────────────────────────────────────
+
+export const pushSubscriptions = {
+  getAll: (userId) =>
+    db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId)
+      .map(r => ({ ...r, subscription: JSON.parse(r.subscription) })),
+
+  upsert: (userId, id, subscription) => {
+    const endpoint = subscription.endpoint;
+    db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND json_extract(subscription, \'$.endpoint\') = ?')
+      .run(userId, endpoint);
+    db.prepare('INSERT INTO push_subscriptions (id, user_id, subscription) VALUES (?, ?, ?)')
+      .run(id, userId, JSON.stringify(subscription));
+  },
+
+  deleteByEndpoint: (userId, endpoint) => {
+    db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND json_extract(subscription, \'$.endpoint\') = ?')
+      .run(userId, endpoint);
+  },
+};
+
+// ── Users (ZK extension) ──────────────────────────────────────────────────────
+
+export const userZk = {
+  getStatus: (userId) =>
+    db.prepare('SELECT kdf_salt, zk_enabled, zk_verify, user_timezone FROM users WHERE id = ?').get(userId),
+
+  enableZk: (userId, kdfSalt, zkVerify) => {
+    db.prepare('UPDATE users SET kdf_salt = ?, zk_enabled = 1, zk_verify = ? WHERE id = ?')
+      .run(kdfSalt, zkVerify, userId);
+  },
+
+  setTimezone: (userId, tz) => {
+    db.prepare('UPDATE users SET user_timezone = ? WHERE id = ?').run(tz, userId);
   },
 };

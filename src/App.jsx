@@ -57,6 +57,9 @@ import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, genera
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
+import { useIntegrations } from './hooks/useIntegrations';
+import { useCrypto } from './context/CryptoContext';
+import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField } from './lib/crypto';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -137,6 +140,16 @@ export default function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [zkOpen, setZkOpen] = useState(false);
+  const [zkEnabling, setZkEnabling] = useState(false);
+  const [zkPassword, setZkPassword] = useState('');
+  const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
+  const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
+  const [newIntType, setNewIntType] = useState('discord_webhook');
+  const [newIntLabel, setNewIntLabel] = useState('');
+  const [newIntUrl, setNewIntUrl] = useState('');
+  const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   // ── User profile ─────────────────────────────────────────────────────────
   const [profile, setProfile] = useState(() => {
     try {
@@ -325,6 +338,71 @@ export default function App() {
     if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
   }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function handleEnableZk() {
+    if (!zkPassword.trim()) return;
+    setZkProgress('deriving');
+    try {
+      const salt = generateSalt();
+      const key  = await deriveKey(zkPassword, salt);
+      const blob = await generateVerifyBlob(key);
+      setZkProgress('encrypting');
+      // Encrypt existing events and habits
+      const allEvents  = getEvents('plan').concat(getEvents('actual'));
+      for (const ev of allEvents) {
+        const encLabel = ev.label ? await encryptField(key, ev.label) : ev.label;
+        const encNotes = ev.notes ? await encryptField(key, ev.notes) : ev.notes;
+        if (encLabel !== ev.label || encNotes !== ev.notes) {
+          updateEvent(ev.id, { label: encLabel, notes: encNotes });
+        }
+      }
+      for (const h of habits) {
+        const encLabel = h.label ? await encryptField(key, h.label) : h.label;
+        if (encLabel !== h.label) updateHabit(h.id, { label: encLabel });
+      }
+      await api.auth.enableZk(salt, blob);
+      setMasterKey(key);
+      setIsZkEnabled(true);
+      setZkProgress('done');
+      setZkPassword('');
+    } catch (err) {
+      console.error('ZK enable failed:', err);
+      setZkProgress('error');
+    }
+  }
+
+  async function handleTestIntegration(id) {
+    setIntTestState(s => ({ ...s, [id]: 'testing' }));
+    try {
+      await testIntegration(id);
+      setIntTestState(s => ({ ...s, [id]: 'ok' }));
+      setTimeout(() => setIntTestState(s => { const n = {...s}; delete n[id]; return n; }), 3000);
+    } catch {
+      setIntTestState(s => ({ ...s, [id]: 'error' }));
+      setTimeout(() => setIntTestState(s => { const n = {...s}; delete n[id]; return n; }), 4000);
+    }
+  }
+
+  async function handleAddIntegration() {
+    if (!newIntLabel.trim()) return;
+    const data = { type: newIntType, label: newIntLabel.trim() };
+    if (['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType)) {
+      if (!newIntUrl.trim()) return;
+      data.endpoint_url = newIntUrl.trim();
+    }
+    await addIntegration(data);
+    setNewIntLabel(''); setNewIntUrl(''); setAddIntegrationOpen(false);
+  }
+
+  async function handleEnablePush() {
+    try {
+      await subscribePush();
+      await addSchedule({ trigger_type: 'event_reminder', offset_minutes: -30 });
+      await addSchedule({ trigger_type: 'habit_reminder', time_of_day: '20:00' });
+    } catch (err) {
+      console.warn('Push setup failed:', err);
+    }
+  }
+
   function handleFontUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -373,6 +451,8 @@ export default function App() {
 
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
+  const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
+  const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -494,8 +574,10 @@ export default function App() {
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
-    habits:     ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
-    budgets:    ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
+    habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
+    budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
+    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
+    zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -1434,6 +1516,179 @@ export default function App() {
                                 </button>
                               </div>
                             ))}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Notifications & Integrations (collapsible) ── */}
+                      {sv(SECTION_KWS.notifications) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button" onClick={() => setNotificationsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Notifications & Integrations</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(notificationsOpen, SECTION_KWS.notifications) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(notificationsOpen, SECTION_KWS.notifications) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                              Get reminders via Discord, Slack, or browser push. The app only sends timing info — event labels stay private unless you set an Integration Hint.
+                            </p>
+
+                            {/* Browser push */}
+                            {'Notification' in window && (
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <span className="text-sm text-gray-700 dark:text-gray-200">Browser Push</span>
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                                    {Notification.permission === 'granted' ? 'Enabled' : Notification.permission === 'denied' ? 'Blocked in browser settings' : 'Not enabled'}
+                                  </p>
+                                </div>
+                                {Notification.permission !== 'denied' && (
+                                  <button type="button" onClick={handleEnablePush}
+                                    className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors flex-shrink-0">
+                                    {Notification.permission === 'granted' ? 'Refresh' : 'Enable'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Existing integrations */}
+                            {integrations.length > 0 && (
+                              <div className="space-y-1.5">
+                                {integrations.map(intg => (
+                                  <div key={intg.id} className="flex items-center gap-2 py-0.5">
+                                    <span className="text-lg leading-none flex-shrink-0">
+                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : '🔗'}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-sm text-gray-700 dark:text-gray-200 truncate block">{intg.label || intg.type}</span>
+                                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{intg.enabled ? 'Active' : 'Disabled'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      {intTestState[intg.id] === 'ok'      && <span className="text-[10px] text-green-500">✓ sent</span>}
+                                      {intTestState[intg.id] === 'error'   && <span className="text-[10px] text-red-500">✗ failed</span>}
+                                      {intTestState[intg.id] === 'testing' && <span className="text-[10px] text-gray-400">sending…</span>}
+                                      <button type="button" onClick={() => handleTestIntegration(intg.id)}
+                                        className="text-[10px] px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Test</button>
+                                      <Toggle checked={intg.enabled} onChange={() => updateIntegration(intg.id, { enabled: !intg.enabled })} />
+                                      <button type="button" onClick={() => deleteIntegration(intg.id)}
+                                        className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Add integration form */}
+                            {addIntegrationOpen ? (
+                              <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <select value={newIntType} onChange={e => setNewIntType(e.target.value)}
+                                  className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none">
+                                  <option value="discord_webhook">Discord Webhook</option>
+                                  <option value="slack_webhook">Slack Webhook</option>
+                                  <option value="generic_webhook">Custom Webhook</option>
+                                </select>
+                                <input value={newIntLabel} onChange={e => setNewIntLabel(e.target.value)}
+                                  placeholder="Nickname (e.g. My Discord)"
+                                  className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                {['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType) && (
+                                  <input value={newIntUrl} onChange={e => setNewIntUrl(e.target.value)}
+                                    placeholder="Webhook URL"
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                )}
+                                <div className="flex gap-2">
+                                  <button type="button" onClick={() => setAddIntegrationOpen(false)}
+                                    className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition-colors">Cancel</button>
+                                  <button type="button" onClick={handleAddIntegration}
+                                    className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors">Add</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => setAddIntegrationOpen(true)}
+                                className="w-full text-left text-sm text-violet-500 hover:text-violet-600 dark:text-violet-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                + Add Discord / Slack / Webhook
+                              </button>
+                            )}
+
+                            {/* Notification schedules summary */}
+                            {schedules.length > 0 && (
+                              <div className="border-t border-gray-100 dark:border-gray-700 pt-2 space-y-1">
+                                <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Active Schedules</p>
+                                {schedules.filter(s => s.enabled).map(s => (
+                                  <div key={s.id} className="flex items-center justify-between gap-2 text-xs text-gray-600 dark:text-gray-400">
+                                    <span>{s.trigger_type === 'event_reminder' ? `Event reminder (${Math.abs(s.offset_minutes)}min before)` : s.trigger_type === 'habit_reminder' ? `Habit reminder at ${s.time_of_day}` : s.trigger_type === 'daily_summary' ? `Daily summary at ${s.time_of_day}` : s.trigger_type}</span>
+                                    <button type="button" onClick={() => deleteSchedule(s.id)} className="text-gray-400 hover:text-red-500 transition-colors">✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Zero-Knowledge Encryption (collapsible) ── */}
+                      {sv(SECTION_KWS.zk) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button" onClick={() => setZkOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Zero-Knowledge Encryption</span>
+                            {isZkEnabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ON</span>}
+                          </div>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(zkOpen, SECTION_KWS.zk) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(zkOpen, SECTION_KWS.zk) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            {isZkEnabled ? (
+                              <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                                <span className="text-lg">🔒</span>
+                                <div>
+                                  <p className="text-sm font-semibold text-green-800 dark:text-green-300">Encryption is active</p>
+                                  <p className="text-[11px] text-green-700 dark:text-green-400 mt-0.5 leading-snug">Your event names and habit labels are encrypted. The server cannot read your content.</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 space-y-1">
+                                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Before you enable</p>
+                                  <ul className="text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 leading-snug list-disc pl-3">
+                                    <li>Your password becomes your encryption key — if you forget it, your data is permanently unreadable</li>
+                                    <li>All existing events and habits will be encrypted (one-time migration)</li>
+                                    <li>Discord/Slack reminders will show generic text unless you set Integration Hints</li>
+                                    <li>This cannot be undone without a full data export and re-import</li>
+                                  </ul>
+                                </div>
+                                {zkProgress === 'done' ? (
+                                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">✓ Encryption enabled successfully</p>
+                                ) : zkProgress === 'error' ? (
+                                  <p className="text-sm text-red-500">Something went wrong. Please try again.</p>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="password"
+                                      value={zkPassword}
+                                      onChange={e => setZkPassword(e.target.value)}
+                                      placeholder="Confirm your password to enable encryption"
+                                      className="w-full text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
+                                    />
+                                    <button type="button"
+                                      disabled={!zkPassword.trim() || zkProgress === 'deriving' || zkProgress === 'encrypting'}
+                                      onClick={handleEnableZk}
+                                      className="w-full text-sm px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-semibold transition-colors">
+                                      {zkProgress === 'deriving'   ? 'Deriving key…' :
+                                       zkProgress === 'encrypting' ? 'Encrypting data…' :
+                                       'Enable Zero-Knowledge Encryption'}
+                                    </button>
+                                  </>
+                                )}
+                              </>
+                            )}
                           </div>
                         )}
                       </div>

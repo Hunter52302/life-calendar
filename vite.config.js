@@ -57,6 +57,10 @@ export default defineConfig({
         // Precache all JS/CSS/HTML/font/image assets produced by Vite
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
 
+        // Inject push notification handlers into the generated SW
+        additionalManifestEntries: [],
+        importScripts: ['/sw-push.js'],
+
         // Runtime caching rules
         runtimeCaching: [
           {

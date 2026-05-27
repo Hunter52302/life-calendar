@@ -15,10 +15,13 @@ import geocodeGoogleRoute   from './routes/geocodeGoogle.js';
 import geocodeNominatimRoute from './routes/geocodeNominatim.js';
 import habitsRoute          from './routes/habits.js';
 import budgetsRoute         from './routes/budgets.js';
+import integrationsRoute    from './routes/integrations.js';
+import pushRoute            from './routes/push.js';
+import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets } from './db/queries.js';
+import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -55,6 +58,8 @@ app.use('/api/geocode/google',  geocodeGoogleRoute);
 app.use('/api/geocode/nominatim', geocodeNominatimRoute);
 app.use('/api/habits',          habitsRoute);
 app.use('/api/budgets',         budgetsRoute);
+app.use('/api/integrations',    integrationsRoute);
+app.use('/api/push',            pushRoute);
 
 /**
  * GET /api/sync
@@ -71,6 +76,8 @@ app.get('/api/sync', requireAuth, (req, res) => {
     habits:            habits.getAll(req.userId),
     habitCompletions:  habitCompletions.getAll(req.userId),
     budgets:           timeBudgets.getAll(req.userId),
+    integrations:      userIntegrations.getAll(req.userId),
+    schedules:         notificationSchedules.getAll(req.userId),
   });
 });
 
@@ -83,4 +90,6 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.listen(PORT, () => {
   console.log(`PLS Calendar API  →  http://localhost:${PORT}`);
   console.log(`Google Maps key   →  ${process.env.GOOGLE_MAPS_API_KEY ? '✓ loaded' : '✗ MISSING'}`);
+  console.log(`VAPID push        →  ${process.env.VAPID_PUBLIC_KEY ? '✓ configured' : '✗ not set (push notifications disabled)'}`);
+  startScheduler();
 });

@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { users } from '../db/queries.js';
+import { users, userZk } from '../db/queries.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 const SECRET = process.env.JWT_SECRET;
@@ -20,13 +21,23 @@ router.get('/status', (req, res) => {
   const isSetup = users.count() > 0;
   const header = req.headers.authorization;
   let tokenValid = false;
+  let zkData = null;
   if (header?.startsWith('Bearer ')) {
     try {
-      jwt.verify(header.slice(7), SECRET);
+      const payload = jwt.verify(header.slice(7), SECRET);
       tokenValid = true;
+      const zk = userZk.getStatus(payload.userId);
+      if (zk) {
+        zkData = {
+          zk_enabled:    zk.zk_enabled === 1,
+          kdf_salt:      zk.kdf_salt ?? null,
+          zk_verify:     zk.zk_verify ?? null,
+          user_timezone: zk.user_timezone ?? 'UTC',
+        };
+      }
     } catch { /* expired or invalid */ }
   }
-  res.json({ isSetup, tokenValid });
+  res.json({ isSetup, tokenValid, ...(zkData ?? {}) });
 });
 
 /**
@@ -63,6 +74,32 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Incorrect password.' });
   }
   res.json({ token: makeToken(user.id) });
+});
+
+/**
+ * PUT /api/auth/zk-enable
+ * Enables zero-knowledge encryption for the authenticated user.
+ * Body: { kdf_salt: hex string, zk_verify: base64 string }
+ */
+router.put('/zk-enable', requireAuth, (req, res) => {
+  const { kdf_salt, zk_verify } = req.body;
+  if (!kdf_salt || !zk_verify) {
+    return res.status(400).json({ error: 'kdf_salt and zk_verify are required' });
+  }
+  userZk.enableZk(req.userId, kdf_salt, zk_verify);
+  res.json({ ok: true });
+});
+
+/**
+ * PUT /api/auth/timezone
+ * Updates the user's timezone for notification scheduling.
+ * Body: { timezone: IANA string }
+ */
+router.put('/timezone', requireAuth, (req, res) => {
+  const { timezone } = req.body;
+  if (!timezone) return res.status(400).json({ error: 'timezone required' });
+  userZk.setTimezone(req.userId, timezone);
+  res.json({ ok: true });
 });
 
 export default router;

@@ -23,9 +23,11 @@ async function request(method, path, body) {
 
 export const api = {
   auth: {
-    status:  ()         => request('GET',  '/auth/status'),
-    setup:   (password) => request('POST', '/auth/setup',  { password }),
-    login:   (password) => request('POST', '/auth/login',  { password }),
+    status:      ()                    => request('GET',  '/auth/status'),
+    setup:       (password)            => request('POST', '/auth/setup',     { password }),
+    login:       (password)            => request('POST', '/auth/login',     { password }),
+    enableZk:    (kdf_salt, zk_verify) => request('PUT',  '/auth/zk-enable', { kdf_salt, zk_verify }),
+    setTimezone: (timezone)            => request('PUT',  '/auth/timezone',  { timezone }),
   },
 
   /** Full data snapshot — called once on startup */
@@ -63,4 +65,24 @@ export const api = {
     set:    (categoryId, weeklyHours) => request('PUT',    `/budgets/${categoryId}`, { weeklyHours }),
     delete: (categoryId)              => request('DELETE', `/budgets/${categoryId}`),
   },
+
+  integrations: {
+    list:           ()         => request('GET',    '/integrations'),
+    create:         (data)     => request('POST',   '/integrations',              data),
+    update:         (id, data) => request('PUT',    `/integrations/${id}`,        data),
+    delete:         (id)       => request('DELETE', `/integrations/${id}`),
+    test:           (id)       => request('POST',   `/integrations/${id}/test`),
+    listSchedules:  ()         => request('GET',    '/integrations/schedules'),
+    createSchedule: (data)     => request('POST',   '/integrations/schedules',    data),
+    updateSchedule: (id, data) => request('PUT',    `/integrations/schedules/${id}`, data),
+    deleteSchedule: (id)       => request('DELETE', `/integrations/schedules/${id}`),
+  },
+
+  push: {
+    getVapidKey: ()           => request('GET',    '/push/vapid-public-key'),
+    subscribe:   (sub)        => request('POST',   '/push/subscribe',   { subscription: sub }),
+    unsubscribe: (endpoint)   => request('DELETE', '/push/subscribe',   { endpoint }),
+    expoToken:   (token)      => request('POST',   '/push/expo-token',  { token }),
+  },
+
 };

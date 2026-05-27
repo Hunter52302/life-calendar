@@ -101,5 +101,73 @@ export function runMigrations(db) {
       PRIMARY KEY (user_id, category_id),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS user_integrations (
+      id            TEXT PRIMARY KEY,
+      user_id       TEXT NOT NULL,
+      type          TEXT NOT NULL,
+      label         TEXT,
+      endpoint_url  TEXT,
+      push_token    TEXT,
+      include_hints INTEGER NOT NULL DEFAULT 0,
+      enabled       INTEGER NOT NULL DEFAULT 1,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_schedules (
+      id             TEXT PRIMARY KEY,
+      user_id        TEXT NOT NULL,
+      integration_id TEXT,
+      trigger_type   TEXT NOT NULL,
+      offset_minutes INTEGER NOT NULL DEFAULT -30,
+      time_of_day    TEXT,
+      days_of_week   TEXT NOT NULL DEFAULT '[0,1,2,3,4,5,6]',
+      enabled        INTEGER NOT NULL DEFAULT 1,
+      created_at     INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id)        REFERENCES users(id)              ON DELETE CASCADE,
+      FOREIGN KEY (integration_id) REFERENCES user_integrations(id)  ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id             TEXT PRIMARY KEY,
+      user_id        TEXT NOT NULL,
+      integration_id TEXT NOT NULL,
+      trigger_type   TEXT NOT NULL,
+      entity_id      TEXT,
+      fired_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+      status         TEXT NOT NULL DEFAULT 'sent',
+      FOREIGN KEY (user_id)        REFERENCES users(id)              ON DELETE CASCADE,
+      FOREIGN KEY (integration_id) REFERENCES user_integrations(id)  ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id           TEXT PRIMARY KEY,
+      user_id      TEXT NOT NULL,
+      subscription TEXT NOT NULL,
+      created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS discord_bot_users (
+      discord_user_id TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL,
+      paired_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
+
+  // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors
+  const alters = [
+    `ALTER TABLE users  ADD COLUMN user_timezone TEXT NOT NULL DEFAULT 'UTC'`,
+    `ALTER TABLE users  ADD COLUMN kdf_salt      TEXT`,
+    `ALTER TABLE users  ADD COLUMN zk_enabled    INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users  ADD COLUMN zk_verify     TEXT`,
+    `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
+    `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
+  ];
+  for (const sql of alters) {
+    try { db.exec(sql); } catch { /* column already exists — ignore */ }
+  }
 }
