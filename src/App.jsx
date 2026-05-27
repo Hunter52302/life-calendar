@@ -637,9 +637,9 @@ export default function App() {
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
       )}
-      <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden">
+      <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
-        <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
+        <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">PLS Calendar</span>
             {syncing && (
@@ -2362,7 +2362,7 @@ export default function App() {
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 overflow-hidden pb-safe">
           {activeTab === 'plan' && (
             <PlanView
               events={planEvents}

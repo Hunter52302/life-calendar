@@ -2,7 +2,7 @@ import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
 import { slotToTime, addDays, formatShortDate } from '../lib/utils';
 import EventBlock from './EventBlock';
 
-const TIME_COL_WIDTH = 60;
+const TIME_COL_WIDTH = 48;
 const TOP_PAD = 12;
 
 export default function CalendarGrid({
@@ -102,7 +102,7 @@ export default function CalendarGrid({
   }
 
   return (
-    <div className="flex flex-col h-full select-none dark:bg-gray-900" style={view === 'week' ? { minWidth: '480px' } : undefined}>
+    <div className="flex flex-col h-full select-none dark:bg-gray-900">
       <div className="overflow-y-auto flex-1">
         {/* Sticky header (day names + all-day row) */}
         <div className="sticky top-0 z-20 bg-white dark:bg-gray-900">
@@ -119,11 +119,13 @@ export default function CalendarGrid({
                 }`}
                 onClick={view === 'week' && onDayHeaderClick ? () => onDayHeaderClick(dayIndex) : undefined}
               >
-                <div className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider font-medium">
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide font-medium leading-tight">
                   {DAYS_SHORT[dayIndex]}
                 </div>
-                <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">
-                  {formatShortDate(addDays(weekStart, dayIndex))}
+                <div className={`font-semibold text-gray-800 dark:text-gray-200 leading-tight ${view === 'week' ? 'text-xs' : 'text-sm'}`}>
+                  {view === 'week'
+                    ? parseInt(addDays(weekStart, dayIndex).slice(-2), 10)
+                    : formatShortDate(addDays(weekStart, dayIndex))}
                 </div>
               </div>
             ))}
@@ -135,7 +137,7 @@ export default function CalendarGrid({
               style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }}
               className="flex-shrink-0 flex items-start justify-end pr-2 pt-1"
             >
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide leading-none">all-day</span>
+              <span className="text-[9px] text-gray-400 dark:text-gray-500 uppercase tracking-wide leading-none">all‑day</span>
             </div>
             {dayIndices.map(dayIndex => {
               const dayAllDay = allDayByDay[dayIndex] || [];
@@ -179,7 +181,7 @@ export default function CalendarGrid({
               return (
                 <div
                   key={i}
-                  className="absolute right-2 text-xs text-gray-400 dark:text-gray-500 leading-none"
+                  className="absolute right-1.5 text-[10px] text-gray-400 dark:text-gray-500 leading-none"
                   style={{ top: TOP_PAD + i * SLOT_HEIGHT - 7 }}
                 >
                   {slotToTime(i, precision, militaryTime)}

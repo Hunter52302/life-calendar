@@ -130,7 +130,7 @@ function Field({ label, children, className = '' }) {
 function FormShell({ title, accent, onClose, children }) {
   return (
     <div
-      className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-end sm:items-center justify-center z-[150] p-4"
+      className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-end sm:items-center justify-center z-[150] p-4 pb-safe-4 sm:pb-4"
       onClick={onClose}
     >
       <div
@@ -562,14 +562,15 @@ export default function QuickAddFAB({
   const wrapperStyle = pos
     ? { position: 'fixed', left: pos.x, top: pos.y, bottom: 'auto', right: 'auto' }
     : {};
-  const wrapperCls = pos ? 'z-[120]' : 'fixed bottom-6 right-6 z-[120]';
+  const wrapperStyle2 = pos ? {} : { bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))', right: 'max(1.5rem, env(safe-area-inset-right, 0px))' };
+  const wrapperCls = pos ? 'z-[120]' : 'fixed z-[120]';
   const nearTop    = pos ? pos.y < 160 : false;
   const chipsAbove = !nearTop;
   const cursorCls  = draggable ? (isDragging.current ? 'cursor-grabbing' : 'cursor-grab') : '';
 
   return (
     <>
-      <div ref={containerRef} className={wrapperCls} style={wrapperStyle}>
+      <div ref={containerRef} className={wrapperCls} style={{ ...wrapperStyle, ...wrapperStyle2 }}>
 
         {/* Chips — above FAB */}
         {open && chipsAbove && (
