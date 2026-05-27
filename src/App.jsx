@@ -70,6 +70,7 @@ import TutorialModal from './components/TutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
+import { useProfile } from './hooks/useProfile';
 import InstallPrompt from './components/InstallPrompt';
 
 const TABS = [
@@ -151,21 +152,25 @@ export default function App() {
   const [newIntUrl, setNewIntUrl] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   // ── User profile ─────────────────────────────────────────────────────────
-  const [profile, setProfile] = useState(() => {
-    try {
-      const s = localStorage.getItem('lc-profile');
-      return s ? JSON.parse(s) : { birthday: '', homeAddress: '', otherAddresses: [] };
-    } catch { return { birthday: '', homeAddress: '', otherAddresses: [] }; }
-  });
+  const { profile, setProfile, syncProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
-  const [birthdayDraft, setBirthdayDraft] = useState(profile.birthday || '');
-  const [homeAddrDraft, setHomeAddrDraft] = useState(profile.homeAddress || '');
+  const [birthdayDraft,    setBirthdayDraft]    = useState(profile.birthday    || '');
+  const [homeAddrDraft,    setHomeAddrDraft]    = useState(profile.homeAddress || '');
+  const [usernameDraft,    setUsernameDraft]    = useState(profile.username    || '');
+  const [displayNameDraft, setDisplayNameDraft] = useState(profile.displayName || '');
+  const [emailDraft,       setEmailDraft]       = useState(profile.email       || '');
   const [addingAddr, setAddingAddr] = useState(false);
   const [newAddrLabel, setNewAddrLabel] = useState('');
   const [newAddrValue, setNewAddrValue] = useState('');
   const [editingAddrId, setEditingAddrId] = useState(null);
   const [editAddrDraft, setEditAddrDraft] = useState({ label: '', address: '' });
   const [pendingDeleteAddr, setPendingDeleteAddr] = useState(null);
+  const [addingPhone, setAddingPhone] = useState(false);
+  const [newPhoneLabel, setNewPhoneLabel] = useState('');
+  const [newPhoneValue, setNewPhoneValue] = useState('');
+  const [editingPhoneId, setEditingPhoneId] = useState(null);
+  const [editPhoneDraft, setEditPhoneDraft] = useState({ label: '', number: '' });
+  const [pendingDeletePhone, setPendingDeletePhone] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState(null);
@@ -232,7 +237,7 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
   useEffect(() => { localStorage.setItem('lc-week-numbers', showWeekNumbers); }, [showWeekNumbers]);
   useEffect(() => { localStorage.setItem('lc-pinned-cats', JSON.stringify(pinnedCategories)); }, [pinnedCategories]);
-  useEffect(() => { localStorage.setItem('lc-profile', JSON.stringify(profile)); }, [profile]);
+  // lc-profile localStorage is managed by useProfile hook
   useEffect(() => { localStorage.setItem('lc-fab-visible',   String(fabVisible));   }, [fabVisible]);
   useEffect(() => { localStorage.setItem('lc-fab-draggable', String(fabDraggable)); }, [fabDraggable]);
   useEffect(() => { localStorage.setItem('lc-minimalist',       String(minimalistMode));    }, [minimalistMode]);
@@ -359,9 +364,21 @@ export default function App() {
         const encLabel = h.label ? await encryptField(key, h.label) : h.label;
         if (encLabel !== h.label) updateHabit(h.id, { label: encLabel });
       }
+      // Encrypt profile fields (username stays plaintext)
+      const encProfile = {
+        username:       profile.username || null,
+        displayName:    profile.displayName ? await encryptField(key, profile.displayName) : null,
+        email:          profile.email       ? await encryptField(key, profile.email)       : null,
+        phones:         profile.phones?.length      ? await encryptField(key, JSON.stringify(profile.phones))          : profile.phones,
+        birthday:       profile.birthday    ? await encryptField(key, profile.birthday)    : null,
+        homeAddress:    profile.homeAddress ? await encryptField(key, profile.homeAddress) : null,
+        otherAddresses: profile.otherAddresses?.length ? await encryptField(key, JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
+      };
+      await api.profile.set(encProfile);
       await api.auth.enableZk(salt, blob);
       setMasterKey(key);
       setIsZkEnabled(true);
+      await syncProfile(key);
       setZkProgress('done');
       setZkPassword('');
     } catch (err) {
@@ -571,7 +588,7 @@ export default function App() {
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
-    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home'],
+    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'username', 'display', 'name', 'email', 'phone', 'phones'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
@@ -1766,6 +1783,72 @@ export default function App() {
                               {so(profileOpen, SECTION_KWS.account) && (
                               <div className="px-2 pb-2 space-y-4">
 
+                            {/* ── Username ── */}
+                            {sv(['username', 'handle', 'user']) && (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Username</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={usernameDraft}
+                                  onChange={e => setUsernameDraft(e.target.value)}
+                                  placeholder="@handle"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={usernameDraft.trim() === (profile.username || '')}
+                                  onClick={() => setProfile(p => ({ ...p, username: usernameDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
+
+                            {/* ── Display Name ── */}
+                            {sv(['display', 'name', 'profile']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Display Name</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={displayNameDraft}
+                                  onChange={e => setDisplayNameDraft(e.target.value)}
+                                  placeholder="Your preferred name"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={displayNameDraft.trim() === (profile.displayName || '')}
+                                  onClick={() => setProfile(p => ({ ...p, displayName: displayNameDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
+
+                            {/* ── Email ── */}
+                            {sv(['email', 'contact']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Email</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={emailDraft}
+                                  onChange={e => setEmailDraft(e.target.value)}
+                                  placeholder="you@example.com"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={emailDraft.trim() === (profile.email || '')}
+                                  onClick={() => setProfile(p => ({ ...p, email: emailDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
+
                             {/* ── Birthday ── */}
                             {sv(['birthday', 'birth']) && (
                             <div className="space-y-1.5">
@@ -1933,6 +2016,127 @@ export default function App() {
                                   onClick={() => { setAddingAddr(true); setNewAddrLabel(''); setNewAddrValue(''); setPendingDeleteAddr(null); setEditingAddrId(null); }}
                                   className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                                   + Add address
+                                </button>
+                              )}
+                            </div>
+                            )}
+
+                            {/* ── Phone Numbers ── */}
+                            {sv(['phone', 'phones', 'number', 'contact']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Phone Numbers</p>
+
+                              {profile.phones.length === 0 && !addingPhone && (
+                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved numbers yet.</p>
+                              )}
+
+                              <div className="space-y-1">
+                                {profile.phones.map(phone => {
+                                  const isEditing    = editingPhoneId === phone.id;
+                                  const isConfirming = pendingDeletePhone === phone.id;
+                                  return (
+                                    <div key={phone.id} className="rounded-lg">
+                                      {isEditing ? (
+                                        <div className="space-y-1.5 py-1">
+                                          <input
+                                            autoFocus
+                                            value={editPhoneDraft.label}
+                                            onChange={e => setEditPhoneDraft(d => ({ ...d, label: e.target.value }))}
+                                            placeholder="Label (e.g. Mobile)"
+                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
+                                          />
+                                          <input
+                                            value={editPhoneDraft.number}
+                                            onChange={e => setEditPhoneDraft(d => ({ ...d, number: e.target.value }))}
+                                            placeholder="Phone number"
+                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
+                                          />
+                                          <div className="flex gap-1.5">
+                                            <button type="button" onClick={() => setEditingPhoneId(null)}
+                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                            <button type="button"
+                                              disabled={!editPhoneDraft.label.trim() || !editPhoneDraft.number.trim()}
+                                              onClick={() => {
+                                                setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === phone.id ? { ...ph, label: editPhoneDraft.label.trim(), number: editPhoneDraft.number.trim() } : ph) }));
+                                                setEditingPhoneId(null);
+                                              }}
+                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-start gap-1.5 py-1">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{phone.label}</p>
+                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{phone.number}</p>
+                                          </div>
+                                          {!isConfirming && (
+                                            <>
+                                              <button type="button"
+                                                onClick={() => { setEditingPhoneId(phone.id); setEditPhoneDraft({ label: phone.label, number: phone.number }); setPendingDeletePhone(null); }}
+                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
+                                                title="Edit">✏</button>
+                                              <button type="button"
+                                                onClick={() => setPendingDeletePhone(phone.id)}
+                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
+                                                title="Delete">×</button>
+                                            </>
+                                          )}
+                                        </div>
+                                      )}
+                                      {isConfirming && (
+                                        <div className="flex items-center gap-2 pb-1.5">
+                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{phone.label}"?</span>
+                                          <button type="button" onClick={() => setPendingDeletePhone(null)}
+                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                          <button type="button"
+                                            onClick={() => { setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== phone.id) })); setPendingDeletePhone(null); }}
+                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {addingPhone ? (
+                                <div className="space-y-1.5 pt-1">
+                                  <input
+                                    autoFocus
+                                    value={newPhoneLabel}
+                                    onChange={e => setNewPhoneLabel(e.target.value)}
+                                    placeholder="Label (e.g. Mobile, Work)"
+                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                  />
+                                  <input
+                                    value={newPhoneValue}
+                                    onChange={e => setNewPhoneValue(e.target.value)}
+                                    placeholder="Phone number"
+                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter' && newPhoneLabel.trim() && newPhoneValue.trim()) {
+                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
+                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
+                                      }
+                                      if (e.key === 'Escape') { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }
+                                    }}
+                                  />
+                                  <div className="flex gap-1.5">
+                                    <button type="button" onClick={() => { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }}
+                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                    <button type="button"
+                                      disabled={!newPhoneLabel.trim() || !newPhoneValue.trim()}
+                                      onClick={() => {
+                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
+                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
+                                      }}
+                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button type="button"
+                                  onClick={() => { setAddingPhone(true); setNewPhoneLabel(''); setNewPhoneValue(''); setPendingDeletePhone(null); setEditingPhoneId(null); }}
+                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                  + Add phone number
                                 </button>
                               )}
                             </div>

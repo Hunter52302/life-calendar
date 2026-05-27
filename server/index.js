@@ -17,11 +17,12 @@ import habitsRoute          from './routes/habits.js';
 import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
+import profileRoute         from './routes/profile.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules } from './db/queries.js';
+import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -60,6 +61,7 @@ app.use('/api/habits',          habitsRoute);
 app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
+app.use('/api/profile',         profileRoute);
 
 /**
  * GET /api/sync
@@ -78,6 +80,7 @@ app.get('/api/sync', requireAuth, (req, res) => {
     budgets:           timeBudgets.getAll(req.userId),
     integrations:      userIntegrations.getAll(req.userId),
     schedules:         notificationSchedules.getAll(req.userId),
+    profile:           userProfile.get(req.userId),
   });
 });
 

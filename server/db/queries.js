@@ -475,6 +475,52 @@ export const pushSubscriptions = {
   },
 };
 
+// ── User Profile ─────────────────────────────────────────────────────────────
+
+export const userProfile = {
+  get: (userId) => {
+    db.prepare('INSERT OR IGNORE INTO user_profile (user_id) VALUES (?)').run(userId);
+    const row = db.prepare(
+      'SELECT username, display_name, email, phone_numbers, birthday, home_address, other_addresses FROM user_profile WHERE user_id = ?'
+    ).get(userId);
+    if (!row) return { username: null, displayName: null, email: null, phones: [], birthday: null, homeAddress: null, otherAddresses: [] };
+    return {
+      username:       row.username        ?? null,
+      displayName:    row.display_name    ?? null,
+      email:          row.email           ?? null,
+      phones:         row.phone_numbers   ? JSON.parse(row.phone_numbers)   : [],
+      birthday:       row.birthday        ?? null,
+      homeAddress:    row.home_address    ?? null,
+      otherAddresses: row.other_addresses ? JSON.parse(row.other_addresses) : [],
+    };
+  },
+
+  set: (userId, data) => {
+    db.prepare(`
+      INSERT INTO user_profile (user_id, username, display_name, email, phone_numbers, birthday, home_address, other_addresses, updated_at)
+      VALUES (@user_id, @username, @display_name, @email, @phone_numbers, @birthday, @home_address, @other_addresses, unixepoch())
+      ON CONFLICT(user_id) DO UPDATE SET
+        username        = excluded.username,
+        display_name    = excluded.display_name,
+        email           = excluded.email,
+        phone_numbers   = excluded.phone_numbers,
+        birthday        = excluded.birthday,
+        home_address    = excluded.home_address,
+        other_addresses = excluded.other_addresses,
+        updated_at      = unixepoch()
+    `).run({
+      user_id:         userId,
+      username:        data.username       ?? null,
+      display_name:    data.displayName    ?? null,
+      email:           data.email          ?? null,
+      phone_numbers:   data.phones         != null ? JSON.stringify(data.phones)         : null,
+      birthday:        data.birthday       ?? null,
+      home_address:    data.homeAddress    ?? null,
+      other_addresses: data.otherAddresses != null ? JSON.stringify(data.otherAddresses) : null,
+    });
+  },
+};
+
 // ── Users (ZK extension) ──────────────────────────────────────────────────────
 
 export const userZk = {

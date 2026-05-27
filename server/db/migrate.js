@@ -156,6 +156,19 @@ export function runMigrations(db) {
       paired_at       INTEGER NOT NULL DEFAULT (unixepoch()),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS user_profile (
+      user_id         TEXT PRIMARY KEY,
+      username        TEXT,
+      display_name    TEXT,
+      email           TEXT,
+      phone_numbers   TEXT,
+      birthday        TEXT,
+      home_address    TEXT,
+      other_addresses TEXT,
+      updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors

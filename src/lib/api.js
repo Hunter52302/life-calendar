@@ -85,4 +85,9 @@ export const api = {
     expoToken:   (token)      => request('POST',   '/push/expo-token',  { token }),
   },
 
+  profile: {
+    get: ()     => request('GET', '/profile'),
+    set: (data) => request('PUT', '/profile', data),
+  },
+
 };
