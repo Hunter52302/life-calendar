@@ -55,6 +55,8 @@ const PRESET_COLORS = [
 ];
 import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
+import { useHabits } from './hooks/useHabits';
+import { useBudgets } from './hooks/useBudgets';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -133,6 +135,8 @@ export default function App() {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [habitsOpen, setHabitsOpen] = useState(false);
+  const [budgetsOpen, setBudgetsOpen] = useState(false);
   // ── User profile ─────────────────────────────────────────────────────────
   const [profile, setProfile] = useState(() => {
     try {
@@ -367,6 +371,9 @@ export default function App() {
     syncing = false,
   } = useEvents(authState);
 
+  const { budgets, setBudget, deleteBudget } = useBudgets(authState);
+  const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
+
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
     .map(cat => ({ ...cat, ...(categoryOverrides[cat.id] || {}) }))
@@ -487,6 +494,8 @@ export default function App() {
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
+    habits:     ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
+    budgets:    ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -1337,6 +1346,99 @@ export default function App() {
                       </div>
                       )}
 
+                      {/* ── Time Budgets (collapsible) ── */}
+                      {sv(SECTION_KWS.budgets) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setBudgetsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Budgets</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(budgetsOpen, SECTION_KWS.budgets) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(budgetsOpen, SECTION_KWS.budgets) && (
+                          <div className="px-2 pb-2 space-y-1">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
+                              Set weekly hour targets per category. They appear as progress bars in the See Your Life tab.
+                            </p>
+                            {allCategories.map(cat => {
+                              const val = budgets[cat.id] ?? '';
+                              return (
+                                <div key={cat.id} className="flex items-center gap-2 py-0.5">
+                                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{cat.label}</span>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="168"
+                                      step="0.5"
+                                      value={val}
+                                      onChange={e => {
+                                        const n = parseFloat(e.target.value);
+                                        if (e.target.value === '' || isNaN(n)) deleteBudget(cat.id);
+                                        else setBudget(cat.id, n);
+                                      }}
+                                      placeholder="—"
+                                      className="w-16 text-sm text-right bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400"
+                                    />
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">h/wk</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Habit Tracker Settings (collapsible) ── */}
+                      {sv(SECTION_KWS.habits) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setHabitsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Habit Tracker</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(habitsOpen, SECTION_KWS.habits) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(habitsOpen, SECTION_KWS.habits) && (
+                          <div className="px-2 pb-2 space-y-1">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
+                              Manage your daily habits. You can also add, edit, and check off habits directly in the See Your Life tab.
+                            </p>
+                            {habits.length === 0 && (
+                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-2">No habits yet.</p>
+                            )}
+                            {habits.map(habit => (
+                              <div key={habit.id} className="flex items-center gap-2 py-0.5">
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: habit.color }} />
+                                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{habit.label}</span>
+                                <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                                  {(habit.target_days ?? [0,1,2,3,4,5,6]).length === 7 ? 'Daily' :
+                                   JSON.stringify(habit.target_days) === '[1,2,3,4,5]' ? 'Weekdays' :
+                                   JSON.stringify(habit.target_days) === '[0,6]' ? 'Weekends' :
+                                   `${(habit.target_days ?? []).length}d/wk`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteHabit(habit.id)}
+                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors flex-shrink-0"
+                                  title="Delete habit"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
                       {/* ── Connected Calendars (collapsible) ── */}
                       {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
@@ -1862,6 +1964,13 @@ export default function App() {
               allCategories={allCategories}
               linkedCalendars={linkedCalendars}
               onDiffChange={state => { diffStateRef.current = state; }}
+              budgets={budgets}
+              habitsWithStreaks={habitsWithStreaks}
+              completions={completions}
+              onToggleHabit={toggleCompletion}
+              onAddHabit={addHabit}
+              onUpdateHabit={updateHabit}
+              onDeleteHabit={deleteHabit}
             />
           )}
         </main>

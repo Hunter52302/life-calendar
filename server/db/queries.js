@@ -261,3 +261,81 @@ export const linkedCalendars = {
     db.prepare('DELETE FROM linked_calendars WHERE id = ? AND user_id = ?').run(id, userId);
   },
 };
+
+// ── Habits ────────────────────────────────────────────────────────────────────
+
+export const habits = {
+  getAll: (userId) =>
+    db.prepare('SELECT * FROM habits WHERE user_id = ? ORDER BY sort_order, created_at').all(userId)
+      .map(r => ({ ...r, active: r.active === 1, target_days: JSON.parse(r.target_days) })),
+
+  create: (userId, habit) => {
+    db.prepare(`
+      INSERT INTO habits (id, user_id, label, color, target_days, active, sort_order)
+      VALUES (?, ?, ?, ?, ?, 1, ?)
+    `).run(habit.id, userId, habit.label, habit.color ?? '#7C3AED',
+           JSON.stringify(habit.target_days ?? [0,1,2,3,4,5,6]), habit.sort_order ?? 0);
+    const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(habit.id);
+    return { ...row, active: row.active === 1, target_days: JSON.parse(row.target_days) };
+  },
+
+  update: (userId, id, updates) => {
+    const allowed = ['label', 'color', 'target_days', 'active', 'sort_order'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const params = { id, user_id: userId };
+    for (const f of fields) {
+      params[f] = f === 'active' ? (updates[f] ? 1 : 0)
+                : f === 'target_days' ? JSON.stringify(updates[f])
+                : updates[f];
+    }
+    const setClause = fields.map(f => `${f} = @${f}`).join(', ');
+    db.prepare(`UPDATE habits SET ${setClause} WHERE id = @id AND user_id = @user_id`).run(params);
+    const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
+    return row ? { ...row, active: row.active === 1, target_days: JSON.parse(row.target_days) } : null;
+  },
+
+  delete: (userId, id) => {
+    db.prepare('DELETE FROM habits WHERE id = ? AND user_id = ?').run(id, userId);
+  },
+};
+
+// ── Habit Completions ─────────────────────────────────────────────────────────
+
+export const habitCompletions = {
+  getAll: (userId) =>
+    db.prepare('SELECT id, habit_id, date FROM habit_completions WHERE user_id = ?').all(userId),
+
+  upsert: (userId, habitId, completionId, date) => {
+    db.prepare(`
+      INSERT OR IGNORE INTO habit_completions (id, habit_id, user_id, date)
+      VALUES (?, ?, ?, ?)
+    `).run(completionId, habitId, userId, date);
+  },
+
+  delete: (userId, habitId, date) => {
+    db.prepare('DELETE FROM habit_completions WHERE habit_id = ? AND user_id = ? AND date = ?')
+      .run(habitId, userId, date);
+  },
+};
+
+// ── Time Budgets ──────────────────────────────────────────────────────────────
+
+export const timeBudgets = {
+  getAll: (userId) => {
+    const rows = db.prepare('SELECT category_id, weekly_hours FROM time_budgets WHERE user_id = ?').all(userId);
+    return Object.fromEntries(rows.map(r => [r.category_id, r.weekly_hours]));
+  },
+
+  set: (userId, categoryId, weeklyHours) => {
+    db.prepare(`
+      INSERT INTO time_budgets (user_id, category_id, weekly_hours)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id, category_id) DO UPDATE SET weekly_hours = excluded.weekly_hours, updated_at = unixepoch()
+    `).run(userId, categoryId, weeklyHours);
+  },
+
+  delete: (userId, categoryId) => {
+    db.prepare('DELETE FROM time_budgets WHERE user_id = ? AND category_id = ?').run(userId, categoryId);
+  },
+};

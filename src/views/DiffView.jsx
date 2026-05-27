@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { computeDiff } from '../lib/diffEngine';
 import DiffSummary from '../components/DiffSummary';
 import DiffDayBars from '../components/DiffDayBars';
+import HabitTracker from '../components/HabitTracker';
 import { addDays, todayStr, getWeekStart } from '../lib/utils';
 
 // Named presets — id is what gets stored in activePreset
@@ -27,7 +28,7 @@ function presetDates(id) {
   return { start: addDays(today, -(id - 1)), end: today };
 }
 
-export default function DiffView({ planEvents, actualEvents, allCategories, linkedCalendars = [], onDiffChange }) {
+export default function DiffView({ planEvents, actualEvents, allCategories, linkedCalendars = [], onDiffChange, budgets = {}, habitsWithStreaks = [], completions = [], onToggleHabit, onAddHabit, onUpdateHabit, onDeleteHabit }) {
   const init = presetDates(30);
   const [startDate, setStartDate] = useState(init.start);
   const [endDate, setEndDate] = useState(init.end);
@@ -166,7 +167,7 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
           <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
             Summary
           </h2>
-          <DiffSummary diff={diff} />
+          <DiffSummary diff={diff} budgets={budgets} />
         </section>
 
         {Object.keys(diff.byDay).length > 0 && (
@@ -177,6 +178,20 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
             <DiffDayBars diff={diff} />
           </section>
         )}
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+            Habit Tracker
+          </h2>
+          <HabitTracker
+            habitsWithStreaks={habitsWithStreaks}
+            completions={completions}
+            onToggle={onToggleHabit}
+            onAdd={onAddHabit}
+            onUpdate={onUpdateHabit}
+            onDelete={onDeleteHabit}
+          />
+        </section>
       </div>
     </div>
   );

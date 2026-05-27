@@ -50,4 +50,17 @@ export const api = {
     update:  (id, updates) => request('PUT',    `/linked-calendars/${id}`, updates),
     delete:  (id)          => request('DELETE', `/linked-calendars/${id}`),
   },
+
+  habits: {
+    create:         (habit)     => request('POST',   '/habits',                     habit),
+    update:         (id, upd)   => request('PUT',    `/habits/${id}`,               upd),
+    delete:         (id)        => request('DELETE', `/habits/${id}`),
+    complete:       (id, date, completionId) => request('POST', `/habits/${id}/complete`, { date, completionId }),
+    uncomplete:     (id, date)  => request('DELETE', `/habits/${id}/complete/${date}`),
+  },
+
+  budgets: {
+    set:    (categoryId, weeklyHours) => request('PUT',    `/budgets/${categoryId}`, { weeklyHours }),
+    delete: (categoryId)              => request('DELETE', `/budgets/${categoryId}`),
+  },
 };

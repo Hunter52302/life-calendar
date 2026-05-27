@@ -13,10 +13,12 @@ import linkedCalendarsRoute from './routes/linkedCalendars.js';
 import driveTimeRoute       from './routes/driveTime.js';
 import geocodeGoogleRoute   from './routes/geocodeGoogle.js';
 import geocodeNominatimRoute from './routes/geocodeNominatim.js';
+import habitsRoute          from './routes/habits.js';
+import budgetsRoute         from './routes/budgets.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars } from './db/queries.js';
+import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,6 +53,8 @@ app.use('/api/linked-calendars', linkedCalendarsRoute);
 app.use('/api/drive-time',      driveTimeRoute);
 app.use('/api/geocode/google',  geocodeGoogleRoute);
 app.use('/api/geocode/nominatim', geocodeNominatimRoute);
+app.use('/api/habits',          habitsRoute);
+app.use('/api/budgets',         budgetsRoute);
 
 /**
  * GET /api/sync
@@ -59,11 +63,14 @@ app.use('/api/geocode/nominatim', geocodeNominatimRoute);
  */
 app.get('/api/sync', requireAuth, (req, res) => {
   res.json({
-    events:           events.getAll(req.userId),
-    customCategories: customCategories.getAll(req.userId),
+    events:            events.getAll(req.userId),
+    customCategories:  customCategories.getAll(req.userId),
     categoryOverrides: categoryOverrides.getAll(req.userId),
-    linkedCalendars:  linkedCalendars.getAll(req.userId),
+    linkedCalendars:   linkedCalendars.getAll(req.userId),
     deletedDefaultIds: deletedDefaults.getAll(req.userId),
+    habits:            habits.getAll(req.userId),
+    habitCompletions:  habitCompletions.getAll(req.userId),
+    budgets:           timeBudgets.getAll(req.userId),
   });
 });
 
