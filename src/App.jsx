@@ -69,6 +69,7 @@ import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import TodoTutorialModal from './components/TodoTutorialModal';
+import AdminSecrets from './components/AdminSecrets';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
@@ -151,7 +152,8 @@ export default function App() {
   const [calUrlName, setCalUrlName] = useState('');
   const [calUrl, setCalUrl] = useState('');
   const [subscribing, setSubscribing] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountOpen,    setAccountOpen]    = useState(false);
+  const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -682,6 +684,7 @@ export default function App() {
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
+    noTouchy:      ['no touchy', 'admin', 'api key', 'api keys', 'secrets', 'key', 'infisical', 'vault', 'credentials', 'token', 'expiry', 'expiration', 'rotate'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -2529,6 +2532,25 @@ export default function App() {
                         </div>
                       );
                     })()}
+
+                      {/* ── No Touchy (Admin Secrets) ── */}
+                      {sv(SECTION_KWS.noTouchy) && (
+                        <div className="rounded-lg overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setNoTouchyOpen(v => !v)}
+                            className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">🔑 No Touchy</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(noTouchyOpen, SECTION_KWS.noTouchy) ? '▲' : '▼'}</span>
+                          </button>
+                          {so(noTouchyOpen, SECTION_KWS.noTouchy) && (
+                            <div className="mt-1">
+                              <AdminSecrets />
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {/* ── Tutorial (page-specific) ── */}
                       <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">

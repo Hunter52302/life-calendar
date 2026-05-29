@@ -32,6 +32,7 @@
  */
 
 import { Router } from 'express';
+import { getSecret } from '../lib/secrets.js';
 
 const router = Router();
 
@@ -45,11 +46,11 @@ const GOOGLE_STATUS_MSG = {
 };
 
 router.post('/', async (req, res) => {
-  // ── Guard: API key ────────────────────────────────────────────────────────
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  // ── Guard: API key (resolves from Infisical → process.env) ───────────────
+  const apiKey = await getSecret('GOOGLE_MAPS_API_KEY');
   if (!apiKey) {
     return res.status(500).json({
-      error: 'GOOGLE_MAPS_API_KEY is not set. Add it to your .env file.',
+      error: 'GOOGLE_MAPS_API_KEY is not set. Add it via the No Touchy admin panel or your .env file.',
     });
   }
 

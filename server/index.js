@@ -18,6 +18,8 @@ import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
+import adminRoute           from './routes/admin.js';
+import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
@@ -62,6 +64,9 @@ app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
+app.use('/api/admin',           adminRoute);
+
+await initializeInfisical();
 
 /**
  * GET /api/sync
