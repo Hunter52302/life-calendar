@@ -23,6 +23,30 @@ const STEPS = [
   {
     icon: (
       <svg className="w-10 h-10" viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="15" r="8" className="fill-indigo-100 dark:fill-indigo-900/40" />
+        <circle cx="20" cy="15" r="5" className="fill-indigo-400" />
+        <path d="M20 12v3l2 1.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="6" y="27" width="28" height="8" rx="3" className="fill-indigo-50 dark:fill-indigo-900/30" />
+        <rect x="9" y="30" width="10" height="2" rx="1" className="fill-indigo-300 dark:fill-indigo-600" />
+        <circle cx="30" cy="31" r="2.5" className="fill-green-400" />
+        <path d="M29 31l1 1 1.5-1.5" stroke="white" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+    title: 'Your Account',
+    body: (
+      <>
+        <p className="mb-2">PLS Calendar saves your data to a local database so nothing is lost if you clear your browser.</p>
+        <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">First run</span> — you'll be prompted to create a password. This protects your data and enables sync.</li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Cross-device sync</span> — once logged in, your Plan and Live events are the same everywhere you open the app.</li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Offline mode</span> — if the server is unreachable, you can continue using the app and changes will sync when you reconnect.</li>
+        </ul>
+      </>
+    ),
+  },
+  {
+    icon: (
+      <svg className="w-10 h-10" viewBox="0 0 40 40" fill="none">
         <rect x="3" y="10" width="10" height="22" rx="3" className="fill-blue-400" />
         <rect x="15" y="10" width="10" height="22" rx="3" className="fill-green-400" />
         <rect x="27" y="10" width="10" height="22" rx="3" className="fill-purple-400" />
@@ -163,6 +187,34 @@ const STEPS = [
   {
     icon: (
       <svg className="w-10 h-10" viewBox="0 0 40 40" fill="none">
+        {/* Phone */}
+        <rect x="4" y="6" width="16" height="26" rx="3" className="fill-gray-100 dark:fill-gray-700" stroke="#A5B4FC" strokeWidth="1.5" />
+        <rect x="8" y="10" width="8" height="14" rx="1" className="fill-indigo-100 dark:fill-indigo-900/40" />
+        <circle cx="12" cy="27" r="1.5" className="fill-indigo-300 dark:fill-indigo-600" />
+        {/* Download arrow into phone */}
+        <path d="M20 19h8M24 15v8" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" />
+        <path d="M21 23l3 3 3-3" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Desktop hint */}
+        <rect x="26" y="26" width="10" height="8" rx="1.5" className="fill-indigo-400/60 dark:fill-indigo-600/60" />
+        <rect x="29" y="34" width="4" height="1.5" rx="0.75" className="fill-indigo-300 dark:fill-indigo-600" />
+      </svg>
+    ),
+    title: 'Install the App',
+    body: (
+      <>
+        <p className="mb-2">PLS Calendar can be installed as a native-feeling app on any device — no App Store required.</p>
+        <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">iPhone / iPad</span> — open in Safari, tap the Share button, then <span className="italic">Add to Home Screen</span></li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Android</span> — tap the browser menu and choose <span className="italic">Add to Home Screen</span> or <span className="italic">Install App</span></li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Mac / Windows</span> — look for the install icon (⊕) in your browser's address bar</li>
+        </ul>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Once installed it opens full-screen with no browser chrome, works offline, and gets updates automatically.</p>
+      </>
+    ),
+  },
+  {
+    icon: (
+      <svg className="w-10 h-10" viewBox="0 0 40 40" fill="none">
         <circle cx="20" cy="20" r="14" className="fill-gray-100 dark:fill-gray-700" />
         <circle cx="20" cy="20" r="5" className="fill-gray-400 dark:fill-gray-500" />
         <circle cx="20" cy="20" r="2" className="fill-white dark:fill-gray-300" />
@@ -175,12 +227,12 @@ const STEPS = [
       <>
         <p className="mb-2">Open Settings (⚙ top-right) to customize the app:</p>
         <ul className="space-y-0.5 text-left text-sm text-gray-600 dark:text-gray-400">
-          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Appearance</span> — dark mode, 24h time, week numbers, FAB button</li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Appearance</span> — dark mode, 24h time, week numbers, minimalist mode, font picker</li>
           <li><span className="font-semibold text-gray-800 dark:text-gray-200">Search Options</span> — change the keyboard shortcut</li>
           <li><span className="font-semibold text-gray-800 dark:text-gray-200">Time Zones</span> — track up to 5 time zones at once</li>
           <li><span className="font-semibold text-gray-800 dark:text-gray-200">Manage Categories</span> — add, rename, or recolor categories</li>
           <li><span className="font-semibold text-gray-800 dark:text-gray-200">Connected Calendars</span> — import/export .ics files</li>
-          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Account</span> — set your birthday and saved addresses</li>
+          <li><span className="font-semibold text-gray-800 dark:text-gray-200">Account</span> — birthday, saved addresses, and profile details</li>
         </ul>
         <p className="mt-3 text-xs text-gray-400 dark:text-gray-500">You can reopen this tutorial anytime from <span className="font-medium text-gray-500 dark:text-gray-400">Settings → Tutorial</span>.</p>
       </>
