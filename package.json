@@ -13,7 +13,13 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "mobile": "npm run start --workspace=mobile"
+    "mobile": "npm run start --workspace=mobile",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "tauri:icons": "node scripts/generate-tauri-icons.js",
+    "cap:sync": "cap sync",
+    "cap:ios": "cap open ios",
+    "cap:android": "cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.4",

@@ -70,6 +70,7 @@ import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import TodoTutorialModal from './components/TodoTutorialModal';
 import AdminSecrets from './components/AdminSecrets';
+import DownloadModal from './components/DownloadModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
@@ -154,6 +155,7 @@ export default function App() {
   const [subscribing, setSubscribing] = useState(false);
   const [accountOpen,    setAccountOpen]    = useState(false);
   const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
+  const [showDownload,   setShowDownload]   = useState(false);
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -724,6 +726,9 @@ export default function App() {
           onClose={() => setShowSearch(false)}
         />
       )}
+      {showDownload && (
+        <DownloadModal onClose={() => setShowDownload(false)} />
+      )}
       {showTodoTutorial && (
         <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
       )}
@@ -868,6 +873,19 @@ export default function App() {
                 </button>
               ))}
             </nav>)}
+
+            {/* Download button */}
+            <button
+              type="button"
+              onClick={() => setShowDownload(true)}
+              title="Download desktop app"
+              className="p-2 rounded-lg transition-colors text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              aria-label="Download desktop app"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
 
             {/* Settings button */}
             <div className="relative">
