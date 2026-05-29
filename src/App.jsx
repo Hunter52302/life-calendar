@@ -2677,7 +2677,7 @@ export default function App() {
                             className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Download Desktop App</span>
-                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{downloadOpen ? '▲' : '▼'}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{downloadOpen ? '▲' : 'Windows · Linux'}</span>
                           </button>
                           {downloadOpen && (
                             <div className="px-2 pb-2 space-y-0.5">

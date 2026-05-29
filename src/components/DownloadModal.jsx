@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const GITHUB_RELEASES = 'https://github.com/your-username/life-calendar/releases/latest';
+const GITHUB_RELEASES = 'https://github.com/Hunter52302/life-calendar/releases/latest';
 
 const PLATFORMS = [
   {
@@ -31,17 +31,14 @@ const PLATFORMS = [
   },
   {
     name: 'macOS',
+    comingSoon: true,
     icon: (
       <svg className="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
       </svg>
     ),
-    file: 'PLS-Calendar_aarch64.dmg',
-    label: 'macOS App (.dmg)',
-    note: 'Apple Silicon (M1/M2/M3)',
-    altFile: 'PLS-Calendar_x64.dmg',
-    altLabel: 'Intel Mac (.dmg)',
-    color: 'text-gray-500',
+    note: 'Coming soon',
+    color: 'text-gray-300 dark:text-gray-600',
   },
 ];
 
@@ -66,7 +63,7 @@ export default function DownloadModal({ onClose }) {
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 dark:border-gray-800 flex items-start justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">Download PLS Calendar</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Native desktop app for Windows, Linux, and macOS</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Native desktop app for Windows and Linux · macOS coming soon</p>
           </div>
           <button
             type="button"
@@ -82,51 +79,50 @@ export default function DownloadModal({ onClose }) {
         {/* Platform cards */}
         <div className="p-6 space-y-3">
           {PLATFORMS.map(p => (
-            <div key={p.name} className="rounded-xl border border-gray-100 dark:border-gray-800 p-4">
+            <div key={p.name} className={`rounded-xl border p-4 ${p.comingSoon ? 'border-gray-100 dark:border-gray-800 opacity-50' : 'border-gray-100 dark:border-gray-800'}`}>
               <div className="flex items-center gap-3 mb-3">
                 <span className={p.color}>{p.icon}</span>
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-gray-100">{p.name}</p>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`font-semibold ${p.comingSoon ? 'text-gray-400 dark:text-gray-600' : 'text-gray-900 dark:text-gray-100'}`}>{p.name}</p>
+                    {p.comingSoon && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 uppercase tracking-wide">Coming Soon</span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-400 dark:text-gray-500">{p.note}</p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href={`${GITHUB_RELEASES}/download/${p.file}`}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90 transition-opacity"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {p.label}
-                </a>
-                {p.altFile && (
+              {!p.comingSoon && (
+                <div className="flex flex-wrap gap-2">
                   <a
-                    href={`${GITHUB_RELEASES}/download/${p.altFile}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    href={`${GITHUB_RELEASES}/download/${p.file}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-medium hover:opacity-90 transition-opacity"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {p.altLabel}
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {p.label}
                   </a>
-                )}
-              </div>
+                  {p.altFile && (
+                    <a
+                      href={`${GITHUB_RELEASES}/download/${p.altFile}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {p.altLabel}
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         {/* Footer */}
         <div className="px-6 pb-6 space-y-3">
-          <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/40">
-            <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              <strong>macOS:</strong> Right-click → Open the first time to bypass Gatekeeper (app is unsigned).
-            </p>
-          </div>
           <div className="flex items-center gap-2">
             <a
               href={GITHUB_RELEASES}
