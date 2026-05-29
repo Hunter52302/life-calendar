@@ -2079,6 +2079,78 @@ export default function App() {
                                   </p>
                                 </div>
                               )}
+
+                              {/* ── Linked Calendars list ── */}
+                              {(() => {
+                                const legacyPlan   = events.filter(e => e.calendar === 'plan'   && !e.source_calendar_id && e.source !== 'manual').length;
+                                const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
+                                if (linkedCalendars.length === 0 && legacyPlan === 0 && legacyActual === 0) return null;
+                                return (
+                                  <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+                                    <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pb-0.5">Linked Calendars</p>
+                                    {[...linkedCalendars].reverse().map(cal => {
+                                      const count = events.filter(e => e.source_calendar_id === cal.id).length;
+                                      const isConfirming = pendingDelete === cal.id;
+                                      const calColor = cal.color || '#6B7280';
+                                      const isPickingColor = editingCalColor === cal.id;
+                                      return (
+                                        <div key={cal.id} className="rounded-lg overflow-hidden">
+                                          <div className="flex items-start gap-2 py-1">
+                                            <button type="button" title="Change color" onClick={() => setEditingCalColor(isPickingColor ? null : cal.id)}
+                                              className="flex-shrink-0 mt-1.5 w-3.5 h-3.5 rounded-full border-2 border-white/30 dark:border-gray-700 shadow-sm hover:scale-125 transition-transform"
+                                              style={{ backgroundColor: calColor }} />
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className={`inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${cal.calendar === 'plan' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'}`}>
+                                                  {cal.calendar === 'plan' ? 'Plan' : 'Live'}
+                                                </span>
+                                                <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">{cal.name}</span>
+                                              </div>
+                                              <div className="flex items-center justify-between mt-0.5">
+                                                <p className="text-xs text-gray-400 dark:text-gray-500">{count} event{count !== 1 ? 's' : ''} · {cal.importedAt}</p>
+                                                {/* Skip SYL toggle */}
+                                                <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                                                  <label className="flex items-center gap-1 cursor-pointer" title="When checked, this calendar's events are excluded from See Your Life stats and charts">
+                                                    <input type="checkbox" checked={!!cal.excludeFromReality} onChange={e => updateLinkedCalendarExclude(cal.id, e.target.checked)} className="w-3 h-3 rounded accent-blue-500" />
+                                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">Skip SYL</span>
+                                                  </label>
+                                                  <span className="text-gray-300 dark:text-gray-600 text-[10px]" title="Skip SYL — exclude this calendar from the See Your Life tab stats and charts">ⓘ</span>
+                                                </div>
+                                              </div>
+                                              {isPickingColor && (
+                                                <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+                                                  {IMPORT_COLORS.map(c => (
+                                                    <button key={c} type="button" onClick={() => { updateLinkedCalendarColor(cal.id, c); setEditingCalColor(null); }}
+                                                      className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-110 ${c === calColor ? 'border-gray-300 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-gray-500'}`}
+                                                      style={{ backgroundColor: c }} />
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                            {!isConfirming && (
+                                              <button type="button" onClick={() => { setEditingCalColor(null); setPendingDelete(cal.id); }}
+                                                className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none" title="Remove calendar">×</button>
+                                            )}
+                                          </div>
+                                          {isConfirming && (
+                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
+                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {count} event{count !== 1 ? 's' : ''}?</span>
+                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                              <button type="button" onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    {/* Skip SYL explainer */}
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug px-1 pt-0.5">
+                                      <span className="font-semibold">Skip SYL</span> — excludes this calendar's events from the{' '}
+                                      <button type="button" onClick={() => { setActiveTab('reality'); setShowSettings(false); }} className="text-blue-500 dark:text-blue-400 hover:underline font-medium">See Your Life</button>
+                                      {' '}stats and charts. Useful for imported holidays or read-only feeds you don't want skewing your totals.
+                                    </p>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -2515,158 +2587,13 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Linked Calendars — always visible when any exist */}
+                    {/* Linked Calendars — now lives inside Connected Calendars above */}
                     {(() => {
                       const legacyPlan = events.filter(e => e.calendar === 'plan' && !e.source_calendar_id && e.source !== 'manual').length;
                       const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
                       const hasAny = linkedCalendars.length > 0 || legacyPlan > 0 || legacyActual > 0;
                       if (activePage !== 'calendar' || !hasAny || !sv(SECTION_KWS.linked)) return null;
-                      return (
-                        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-                          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-                            Linked Calendars
-                          </p>
-                          <div className="space-y-1">
-                            {[...linkedCalendars].reverse().map(cal => {
-                              const count = events.filter(e => e.source_calendar_id === cal.id).length;
-                              const isConfirming = pendingDelete === cal.id;
-                              const calColor = cal.color || '#6B7280';
-                              const isPickingColor = editingCalColor === cal.id;
-                              return (
-                                <div key={cal.id} className="rounded-lg overflow-hidden">
-                                  <div className="flex items-start gap-2 py-1">
-                                    {/* Color dot — click to toggle inline picker */}
-                                    <button
-                                      type="button"
-                                      title="Change color"
-                                      onClick={() => setEditingCalColor(isPickingColor ? null : cal.id)}
-                                      className="flex-shrink-0 mt-1.5 w-3.5 h-3.5 rounded-full border-2 border-white/30 dark:border-gray-700 shadow-sm hover:scale-125 transition-transform"
-                                      style={{ backgroundColor: calColor }}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className={`inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${
-                                          cal.calendar === 'plan'
-                                            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
-                                            : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
-                                        }`}>
-                                          {cal.calendar === 'plan' ? 'Plan' : 'Live'}
-                                        </span>
-                                        <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">
-                                          {cal.name}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center justify-between mt-0.5">
-                                        <p className="text-xs text-gray-400 dark:text-gray-500">
-                                          {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
-                                        </p>
-                                        <label className="flex items-center gap-1 cursor-pointer flex-shrink-0 ml-2" title="Exclude this calendar from Reality Check">
-                                          <input
-                                            type="checkbox"
-                                            checked={!!cal.excludeFromReality}
-                                            onChange={e => updateLinkedCalendarExclude(cal.id, e.target.checked)}
-                                            className="w-3 h-3 rounded accent-blue-500"
-                                          />
-                                          <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">Skip RC</span>
-                                        </label>
-                                      </div>
-                                      {/* Inline color swatches */}
-                                      {isPickingColor && (
-                                        <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
-                                          {IMPORT_COLORS.map(c => (
-                                            <button
-                                              key={c}
-                                              type="button"
-                                              onClick={() => { updateLinkedCalendarColor(cal.id, c); setEditingCalColor(null); }}
-                                              className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-110 ${c === calColor ? 'border-gray-300 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-gray-500'}`}
-                                              style={{ backgroundColor: c }}
-                                            />
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                    {!isConfirming && (
-                                      <button
-                                        type="button"
-                                        onClick={() => { setEditingCalColor(null); setPendingDelete(cal.id); }}
-                                        className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                        title="Remove calendar"
-                                      >×</button>
-                                    )}
-                                  </div>
-                                  {isConfirming && (
-                                    <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                      <span className="text-xs text-red-500 dark:text-red-400 flex-1">
-                                        Remove {count} event{count !== 1 ? 's' : ''}?
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(null)}
-                                        className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                      >Cancel</button>
-                                      <button
-                                        type="button"
-                                        onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }}
-                                        className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
-                                      >Delete</button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-
-                            {/* Legacy / untracked rows */}
-                            {[
-                              { key: '__legacy_plan', label: 'Unlinked plan events', count: legacyPlan, calendar: 'plan' },
-                              { key: '__legacy_actual', label: 'Unlinked live events', count: legacyActual, calendar: 'actual' },
-                            ].filter(r => r.count > 0).map(row => {
-                              const isConfirming = pendingDelete === row.key;
-                              return (
-                                <div key={row.key} className="rounded-lg overflow-hidden">
-                                  <div className="flex items-start gap-2 py-1 opacity-70">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                          {row.calendar === 'plan' ? 'Plan' : 'Live'}
-                                        </span>
-                                        <span className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">{row.label}</span>
-                                      </div>
-                                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-0.5">
-                                        {row.count} event{row.count !== 1 ? 's' : ''} · not linked to a source
-                                      </p>
-                                    </div>
-                                    {!isConfirming && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(row.key)}
-                                        className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                        title="Remove unlinked events"
-                                      >×</button>
-                                    )}
-                                  </div>
-                                  {isConfirming && (
-                                    <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                      <span className="text-xs text-red-500 dark:text-red-400 flex-1">
-                                        Remove {row.count} unlinked event{row.count !== 1 ? 's' : ''}?
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(null)}
-                                        className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                      >Cancel</button>
-                                      <button
-                                        type="button"
-                                        onClick={() => { clearLegacyEvents(row.calendar); setPendingDelete(null); }}
-                                        className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
-                                      >Delete</button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
+                      return null; // Linked calendars now shown inside Connected Calendars
                     })()}
 
                       {/* ── Download Desktop App ── */}
