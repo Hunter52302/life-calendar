@@ -156,6 +156,8 @@ export default function App() {
   const [accountOpen,    setAccountOpen]    = useState(false);
   const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
   const [showDownload,   setShowDownload]   = useState(false);
+  const [addingHabit,    setAddingHabit]    = useState(false);
+  const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -1716,14 +1718,25 @@ export default function App() {
                         </button>
                         {so(habitsOpen, SECTION_KWS.habits) && (
                           <div className="px-2 pb-2 space-y-1">
+                            {/* Link to See Your Life */}
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
-                              Manage your daily habits. You can also add, edit, and check off habits directly in the See Your Life tab.
+                              Add and check off habits directly in the{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setActiveTab('reality'); setShowSettings(false); }}
+                                className="text-indigo-500 dark:text-indigo-400 hover:underline font-medium"
+                              >
+                                See Your Life
+                              </button>
+                              {' '}tab.
                             </p>
+
+                            {/* Habit list */}
                             {habits.length === 0 && (
-                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-2">No habits yet.</p>
+                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-1">No habits yet.</p>
                             )}
                             {habits.map(habit => (
-                              <div key={habit.id} className="flex items-center gap-2 py-0.5">
+                              <div key={habit.id} className="flex items-center gap-2 py-0.5 group/habit">
                                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: habit.color }} />
                                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{habit.label}</span>
                                 <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
@@ -1735,7 +1748,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => deleteHabit(habit.id)}
-                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors flex-shrink-0"
+                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-300 dark:text-gray-600 hover:text-red-500 transition-colors flex-shrink-0"
                                   title="Delete habit"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1744,6 +1757,74 @@ export default function App() {
                                 </button>
                               </div>
                             ))}
+
+                            {/* Add habit inline form */}
+                            {(() => {
+                              const HABIT_COLORS = ['#7C3AED','#3B82F6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#F97316'];
+                              function submitHabit() {
+                                if (!habitDraft.label.trim()) return;
+                                addHabit({ label: habitDraft.label.trim(), color: habitDraft.color, target_days: habitDraft.target_days });
+                                setHabitDraft({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
+                                setAddingHabit(false);
+                              }
+                              return addingHabit ? (
+                                <div className="rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-gray-800 p-2.5 space-y-2 mt-1">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={habitDraft.label}
+                                    onChange={e => setHabitDraft(d => ({ ...d, label: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === 'Enter') submitHabit(); if (e.key === 'Escape') setAddingHabit(false); }}
+                                    placeholder="Habit name…"
+                                    className="w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 pb-1 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-400"
+                                  />
+                                  {/* Color picker */}
+                                  <div className="flex gap-1.5 flex-wrap">
+                                    {HABIT_COLORS.map(c => (
+                                      <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => setHabitDraft(d => ({ ...d, color: c }))}
+                                        className="w-5 h-5 rounded-full transition-transform hover:scale-110"
+                                        style={{ backgroundColor: c, outline: habitDraft.color === c ? `2px solid ${c}` : 'none', outlineOffset: 2 }}
+                                      />
+                                    ))}
+                                  </div>
+                                  {/* Frequency */}
+                                  <div className="flex gap-1">
+                                    {[
+                                      { label: 'Daily', days: [0,1,2,3,4,5,6] },
+                                      { label: 'Weekdays', days: [1,2,3,4,5] },
+                                      { label: 'Weekends', days: [0,6] },
+                                    ].map(opt => (
+                                      <button
+                                        key={opt.label}
+                                        type="button"
+                                        onClick={() => setHabitDraft(d => ({ ...d, target_days: opt.days }))}
+                                        className={`flex-1 text-[10px] py-1 rounded-md transition-colors ${JSON.stringify(habitDraft.target_days) === JSON.stringify(opt.days) ? 'bg-indigo-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1.5 pt-0.5">
+                                    <button type="button" onClick={submitHabit} disabled={!habitDraft.label.trim()} className="flex-1 text-xs py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
+                                    <button type="button" onClick={() => setAddingHabit(false)} className="text-xs px-3 py-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setAddingHabit(true)}
+                                  className="w-full text-left text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 px-1 py-1.5 transition-colors flex items-center gap-1"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                  </svg>
+                                  Add habit
+                                </button>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
