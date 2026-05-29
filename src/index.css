@@ -5,8 +5,37 @@
   box-sizing: border-box;
 }
 
+:root {
+  --lc-font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* iOS safe area insets (non-zero only on notched/Dynamic Island devices in PWA mode) */
+  --sat: env(safe-area-inset-top,    0px);
+  --sar: env(safe-area-inset-right,  0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left,   0px);
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--lc-font);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Safe-area utility classes */
+.pt-safe    { padding-top:    var(--sat); }
+.pb-safe    { padding-bottom: var(--sab); }
+.pl-safe    { padding-left:   var(--sal); }
+.pr-safe    { padding-right:  var(--sar); }
+/* Combined: base padding + safe area (for elements near edges) */
+.pb-safe-4  { padding-bottom: calc(1rem + var(--sab)); }
+.pb-safe-6  { padding-bottom: calc(1.5rem + var(--sab)); }
+
+/* Touch targets: ensure interactive elements meet 44×44 pt minimum */
+button, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Prevent text selection during touch swipes */
+.select-none {
+  -webkit-user-select: none;
+  user-select: none;
 }

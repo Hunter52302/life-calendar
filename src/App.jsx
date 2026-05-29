@@ -55,18 +55,43 @@ const PRESET_COLORS = [
 ];
 import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
+import { useHabits } from './hooks/useHabits';
+import { useBudgets } from './hooks/useBudgets';
+import { useIntegrations } from './hooks/useIntegrations';
+import { useCrypto } from './context/CryptoContext';
+import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField } from './lib/crypto';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
 import ActualView from './views/ActualView';
 import DiffView from './views/DiffView';
+import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
+import TutorialModal from './components/TutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
+import AuthGate from './components/AuthGate';
+import { useAuth } from './hooks/useAuth';
+import { useProfile } from './hooks/useProfile';
+import { useTasks } from './hooks/useTasks';
+import InstallPrompt from './components/InstallPrompt';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
   { id: 'actual', label: 'Live' },
   { id: 'reality', label: 'See Your Life' },
+];
+
+const FONT_PRESETS = [
+  { key: 'system',       label: 'System (Default)',      value: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", googleUrl: null,        group: 'Default' },
+  { key: 'opendyslexic', label: 'OpenDyslexic',          value: "'OpenDyslexic', sans-serif",          googleUrl: 'https://fonts.cdnfonts.com/css/opendyslexic',                                                     group: 'Accessibility' },
+  { key: 'atkinson',     label: 'Atkinson Hyperlegible', value: "'Atkinson Hyperlegible', sans-serif",  googleUrl: 'https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap',        group: 'Accessibility' },
+  { key: 'lexend',       label: 'Lexend',                value: "'Lexend', sans-serif",                 googleUrl: 'https://fonts.googleapis.com/css2?family=Lexend:wght@400;600&display=swap',                       group: 'Accessibility' },
+  { key: 'inter',        label: 'Inter',                 value: "'Inter', sans-serif",                  googleUrl: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap',                        group: 'Sans-serif' },
+  { key: 'nunito',       label: 'Nunito',                value: "'Nunito', sans-serif",                 googleUrl: 'https://fonts.googleapis.com/css2?family=Nunito:wght@400;600&display=swap',                       group: 'Sans-serif' },
+  { key: 'opensans',     label: 'Open Sans',             value: "'Open Sans', sans-serif",              googleUrl: 'https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap',                    group: 'Sans-serif' },
+  { key: 'merriweather', label: 'Merriweather',          value: "'Merriweather', serif",                googleUrl: 'https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap',                 group: 'Serif' },
+  { key: 'lora',         label: 'Lora',                  value: "'Lora', serif",                        googleUrl: 'https://fonts.googleapis.com/css2?family=Lora:wght@400;600&display=swap',                         group: 'Serif' },
+  { key: 'jetbrains',    label: 'JetBrains Mono',        value: "'JetBrains Mono', monospace",          googleUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap',               group: 'Monospace' },
 ];
 
 function fmtKeybind(kb) {
@@ -96,6 +121,11 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
+  const { authState, setup, login, logout, continueOffline } = useAuth();
+  const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
+  const [todoView,   setTodoView]     = useState(() => localStorage.getItem('lc-todo-view') || 'list');
+  const [todoFabOpen, setTodoFabOpen] = useState(false);
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
@@ -114,23 +144,43 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
+  const [showCalUrlForm, setShowCalUrlForm] = useState(false);
+  const [calUrlName, setCalUrlName] = useState('');
+  const [calUrl, setCalUrl] = useState('');
+  const [subscribing, setSubscribing] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [habitsOpen, setHabitsOpen] = useState(false);
+  const [budgetsOpen, setBudgetsOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [zkOpen, setZkOpen] = useState(false);
+  const [zkEnabling, setZkEnabling] = useState(false);
+  const [zkPassword, setZkPassword] = useState('');
+  const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
+  const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
+  const [newIntType, setNewIntType] = useState('discord_webhook');
+  const [newIntLabel, setNewIntLabel] = useState('');
+  const [newIntUrl, setNewIntUrl] = useState('');
+  const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   // ── User profile ─────────────────────────────────────────────────────────
-  const [profile, setProfile] = useState(() => {
-    try {
-      const s = localStorage.getItem('lc-profile');
-      return s ? JSON.parse(s) : { birthday: '', homeAddress: '', otherAddresses: [] };
-    } catch { return { birthday: '', homeAddress: '', otherAddresses: [] }; }
-  });
+  const { profile, setProfile, syncProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
-  const [birthdayDraft, setBirthdayDraft] = useState(profile.birthday || '');
-  const [homeAddrDraft, setHomeAddrDraft] = useState(profile.homeAddress || '');
+  const [birthdayDraft,    setBirthdayDraft]    = useState(profile.birthday    || '');
+  const [homeAddrDraft,    setHomeAddrDraft]    = useState(profile.homeAddress || '');
+  const [usernameDraft,    setUsernameDraft]    = useState(profile.username    || '');
+  const [displayNameDraft, setDisplayNameDraft] = useState(profile.displayName || '');
+  const [emailDraft,       setEmailDraft]       = useState(profile.email       || '');
   const [addingAddr, setAddingAddr] = useState(false);
   const [newAddrLabel, setNewAddrLabel] = useState('');
   const [newAddrValue, setNewAddrValue] = useState('');
   const [editingAddrId, setEditingAddrId] = useState(null);
   const [editAddrDraft, setEditAddrDraft] = useState({ label: '', address: '' });
   const [pendingDeleteAddr, setPendingDeleteAddr] = useState(null);
+  const [addingPhone, setAddingPhone] = useState(false);
+  const [newPhoneLabel, setNewPhoneLabel] = useState('');
+  const [newPhoneValue, setNewPhoneValue] = useState('');
+  const [editingPhoneId, setEditingPhoneId] = useState(null);
+  const [editPhoneDraft, setEditPhoneDraft] = useState({ label: '', number: '' });
+  const [pendingDeletePhone, setPendingDeletePhone] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
 
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState(null);
@@ -145,6 +195,19 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [searchJump, setSearchJump] = useState(null); // { tab, dayOfWeek, _id }
   const [fabVisible, setFabVisible]   = useState(() => localStorage.getItem('lc-fab-visible') !== 'false');
+  // ── Font picker ─────────────────────────────────────────────────────────
+  const [fontKey, setFontKey] = useState(() => localStorage.getItem('lc-font-key') || 'system');
+  const [customFont, setCustomFont] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('lc-custom-font') || 'null'); } catch { return null; }
+  });
+  const [fontSearch, setFontSearch] = useState('');
+  // ── Minimalist mode ──────────────────────────────────────────────────────
+  const [minimalistMode,      setMinimalistMode]      = useState(() => localStorage.getItem('lc-minimalist')         === 'true');
+  const [showLiveTab,         setShowLiveTab]         = useState(() => localStorage.getItem('lc-show-live-tab')      !== 'false');
+  const [showRealityTab,      setShowRealityTab]      = useState(() => localStorage.getItem('lc-show-reality-tab')   !== 'false');
+  const [searchBarVisible,    setSearchBarVisible]    = useState(() => localStorage.getItem('lc-show-search')        !== 'false');
+  const [precisionVisible,    setPrecisionVisible]    = useState(() => localStorage.getItem('lc-show-precision')     !== 'false');
+  const [categoriesVisible,   setCategoriesVisible]   = useState(() => localStorage.getItem('lc-show-categories')    !== 'false');
   const [fabDraggable, setFabDraggable] = useState(() => localStorage.getItem('lc-fab-draggable') === 'true');
   const [fabPosResetKey, setFabPosResetKey] = useState(0);
   const [settingsSearch, setSettingsSearch] = useState('');
@@ -163,26 +226,83 @@ export default function App() {
     return [Intl.DateTimeFormat().resolvedOptions().timeZone];
   });
   const [timezonesOpen, setTimezonesOpen] = useState(false);
+
+  // Derived: how many settings sections are currently open
+  const settingsOpenCount = [
+    appearanceOpen, categoriesOpen, connectedOpen, accountOpen,
+    habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
+    searchOptionsOpen, timezonesOpen,
+  ].filter(Boolean).length;
+
+  function collapseAllSettings() {
+    setAppearanceOpen(false);
+    setCategoriesOpen(false);
+    setConnectedOpen(false);
+    setAccountOpen(false);
+    setHabitsOpen(false);
+    setBudgetsOpen(false);
+    setNotificationsOpen(false);
+    setZkOpen(false);
+    setSearchOptionsOpen(false);
+    setTimezonesOpen(false);
+  }
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
   const [planPrecision, setPlanPrecision] = useState(1);
   const [livePrecision, setLivePrecision] = useState(1);
   const [exportFormat, setExportFormat] = useState('csv');
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showTabMenu, setShowTabMenu] = useState(false);
+  const [mobileDefaultView, setMobileDefaultView] = useState(
+    () => localStorage.getItem('lc-mobile-default-view') || 'month'
+  );
   const [exporting, setExporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null); // cal id or '__legacy_plan' / '__legacy_actual'
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
+  useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
   useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
   useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
   useEffect(() => { localStorage.setItem('lc-week-numbers', showWeekNumbers); }, [showWeekNumbers]);
   useEffect(() => { localStorage.setItem('lc-pinned-cats', JSON.stringify(pinnedCategories)); }, [pinnedCategories]);
-  useEffect(() => { localStorage.setItem('lc-profile', JSON.stringify(profile)); }, [profile]);
+  // lc-profile localStorage is managed by useProfile hook
   useEffect(() => { localStorage.setItem('lc-fab-visible',   String(fabVisible));   }, [fabVisible]);
   useEffect(() => { localStorage.setItem('lc-fab-draggable', String(fabDraggable)); }, [fabDraggable]);
+  useEffect(() => { localStorage.setItem('lc-minimalist',       String(minimalistMode));    }, [minimalistMode]);
+  useEffect(() => { localStorage.setItem('lc-show-live-tab',    String(showLiveTab));       }, [showLiveTab]);
+  useEffect(() => { localStorage.setItem('lc-show-reality-tab', String(showRealityTab));    }, [showRealityTab]);
+  useEffect(() => { localStorage.setItem('lc-show-search',      String(searchBarVisible));  }, [searchBarVisible]);
+  useEffect(() => { localStorage.setItem('lc-show-precision',   String(precisionVisible));  }, [precisionVisible]);
+  useEffect(() => { localStorage.setItem('lc-show-categories',  String(categoriesVisible)); }, [categoriesVisible]);
+  useEffect(() => { localStorage.setItem('lc-font-key', fontKey); }, [fontKey]);
+  useEffect(() => {
+    if (customFont) localStorage.setItem('lc-custom-font', JSON.stringify(customFont));
+    else localStorage.removeItem('lc-custom-font');
+  }, [customFont]);
+  // Apply selected font to the whole app via CSS variable
+  useEffect(() => {
+    const preset = FONT_PRESETS.find(f => f.key === fontKey);
+    if (fontKey === 'custom' && customFont) {
+      let styleEl = document.getElementById('lc-custom-font-style');
+      if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'lc-custom-font-style'; document.head.appendChild(styleEl); }
+      styleEl.textContent = `@font-face { font-family: 'LCCustom'; src: url('${customFont.dataUrl}'); }`;
+      document.documentElement.style.setProperty('--lc-font', "'LCCustom', sans-serif");
+    } else if (preset) {
+      let linkEl = document.getElementById('lc-font-link');
+      if (preset.googleUrl) {
+        if (!linkEl) { linkEl = document.createElement('link'); linkEl.id = 'lc-font-link'; linkEl.rel = 'stylesheet'; document.head.appendChild(linkEl); }
+        linkEl.href = preset.googleUrl;
+      } else {
+        document.getElementById('lc-font-link')?.remove();
+      }
+      document.documentElement.style.setProperty('--lc-font', preset.value);
+    }
+  }, [fontKey, customFont]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { localStorage.setItem('lc-timezones', JSON.stringify(timezones)); }, [timezones]);
+  useEffect(() => { localStorage.setItem('lc-mobile-default-view', mobileDefaultView); }, [mobileDefaultView]);
   useEffect(() => {
     if (searchKeybind) localStorage.setItem('lc-search-keybind', JSON.stringify(searchKeybind));
     else localStorage.removeItem('lc-search-keybind');
@@ -232,6 +352,117 @@ export default function App() {
     replaceEventsBySource('birthday', events);
   }, [profile.birthday]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Effective feature flags (minimalist mode overrides individual settings) ──
+  const eff = {
+    showLiveTab:        !minimalistMode && showLiveTab,
+    showRealityTab:     !minimalistMode && showRealityTab,
+    searchBar:          !minimalistMode && searchBarVisible,
+    precisionToggle:    !minimalistMode && precisionVisible,
+    categoriesMenu:     !minimalistMode && categoriesVisible,
+    fabVisible:         !minimalistMode && fabVisible,
+    showWeekNumbers:    !minimalistMode && showWeekNumbers,
+    enabledViews:       minimalistMode  ? [] : enabledViews,
+  };
+
+  const visibleTabs = TABS.filter(t =>
+    (t.id !== 'actual'  || eff.showLiveTab) &&
+    (t.id !== 'reality' || eff.showRealityTab)
+  );
+
+  // If the active tab gets hidden, fall back to plan
+  useEffect(() => {
+    if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
+  }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleEnableZk() {
+    if (!zkPassword.trim()) return;
+    setZkProgress('deriving');
+    try {
+      const salt = generateSalt();
+      const key  = await deriveKey(zkPassword, salt);
+      const blob = await generateVerifyBlob(key);
+      setZkProgress('encrypting');
+      // Encrypt existing events and habits
+      const allEvents  = getEvents('plan').concat(getEvents('actual'));
+      for (const ev of allEvents) {
+        const encLabel = ev.label ? await encryptField(key, ev.label) : ev.label;
+        const encNotes = ev.notes ? await encryptField(key, ev.notes) : ev.notes;
+        if (encLabel !== ev.label || encNotes !== ev.notes) {
+          updateEvent(ev.id, { label: encLabel, notes: encNotes });
+        }
+      }
+      for (const h of habits) {
+        const encLabel = h.label ? await encryptField(key, h.label) : h.label;
+        if (encLabel !== h.label) updateHabit(h.id, { label: encLabel });
+      }
+      // Encrypt profile fields (username stays plaintext)
+      const encProfile = {
+        username:       profile.username || null,
+        displayName:    profile.displayName ? await encryptField(key, profile.displayName) : null,
+        email:          profile.email       ? await encryptField(key, profile.email)       : null,
+        phones:         profile.phones?.length      ? await encryptField(key, JSON.stringify(profile.phones))          : profile.phones,
+        birthday:       profile.birthday    ? await encryptField(key, profile.birthday)    : null,
+        homeAddress:    profile.homeAddress ? await encryptField(key, profile.homeAddress) : null,
+        otherAddresses: profile.otherAddresses?.length ? await encryptField(key, JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
+      };
+      await api.profile.set(encProfile);
+      await api.auth.enableZk(salt, blob);
+      setMasterKey(key);
+      setIsZkEnabled(true);
+      await syncProfile(key);
+      setZkProgress('done');
+      setZkPassword('');
+    } catch (err) {
+      console.error('ZK enable failed:', err);
+      setZkProgress('error');
+    }
+  }
+
+  async function handleTestIntegration(id) {
+    setIntTestState(s => ({ ...s, [id]: 'testing' }));
+    try {
+      await testIntegration(id);
+      setIntTestState(s => ({ ...s, [id]: 'ok' }));
+      setTimeout(() => setIntTestState(s => { const n = {...s}; delete n[id]; return n; }), 3000);
+    } catch {
+      setIntTestState(s => ({ ...s, [id]: 'error' }));
+      setTimeout(() => setIntTestState(s => { const n = {...s}; delete n[id]; return n; }), 4000);
+    }
+  }
+
+  async function handleAddIntegration() {
+    if (!newIntLabel.trim()) return;
+    const data = { type: newIntType, label: newIntLabel.trim() };
+    if (['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType)) {
+      if (!newIntUrl.trim()) return;
+      data.endpoint_url = newIntUrl.trim();
+    }
+    await addIntegration(data);
+    setNewIntLabel(''); setNewIntUrl(''); setAddIntegrationOpen(false);
+  }
+
+  async function handleEnablePush() {
+    try {
+      await subscribePush();
+      await addSchedule({ trigger_type: 'event_reminder', offset_minutes: -30 });
+      await addSchedule({ trigger_type: 'habit_reminder', time_of_day: '20:00' });
+    } catch (err) {
+      console.warn('Push setup failed:', err);
+    }
+  }
+
+  function handleFontUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setCustomFont({ name: file.name.replace(/\.[^.]+$/, ''), dataUrl: ev.target.result });
+      setFontKey('custom');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   function togglePin(catId) {
     setPinnedCategories(prev =>
       prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
@@ -263,7 +494,14 @@ export default function App() {
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
-  } = useEvents();
+    syncing = false,
+  } = useEvents(authState);
+
+  const { tasks = [], addTask, updateTask, deleteTask, completeTask, uncompleteTask, moveKanbanCard, reorderTasks } = useTasks(authState);
+  const { budgets, setBudget, deleteBudget } = useBudgets(authState);
+  const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
+  const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
+  const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -280,10 +518,10 @@ export default function App() {
     setEnabledViews(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   }
 
-  function showImportNotice(added) {
-    const msg = added > 0
+  function showImportNotice(added, customMsg) {
+    const msg = customMsg ?? (added > 0
       ? `${added} event${added !== 1 ? 's' : ''} imported`
-      : 'No events found in file';
+      : 'No events found in file');
     setImportNotice(msg);
     setTimeout(() => setImportNotice(null), 5000);
   }
@@ -362,6 +600,57 @@ export default function App() {
     reader.readAsText(file); e.target.value = '';
   }
 
+  // Subscribe to an ICS calendar by URL (parity with mobile "Add calendar URL").
+  // Persists the subscription (which syncs to the server to refresh the feed, like
+  // mobile), and best-effort fetches it client-side so events appear immediately
+  // whenever the feed permits CORS.
+  async function handleSubscribeCalendarUrl() {
+    const url = calUrl.trim();
+    if (!url || subscribing) return;
+    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
+    const name = calUrlName.trim() || 'Subscribed calendar';
+    setSubscribing(true);
+
+    const { id: calId, color: calColor } = addLinkedCalendar({
+      name,
+      url,
+      calendar,
+      importedAt: new Date().toISOString().split('T')[0],
+    });
+
+    let added = 0;
+    try {
+      const fetchUrl = url.replace(/^webcal:\/\//i, 'https://');
+      const res = await fetch(fetchUrl);
+      if (res.ok) {
+        const content = await res.text();
+        const precision = calendar === 'actual' ? livePrecision : planPrecision;
+        const appEvents = parseIcal(content).flatMap(p => {
+          const ev = icalToAppEvent(p, calendar, precision);
+          if (!ev) return [];
+          const base = { ...ev, source_calendar_id: calId, color: calColor };
+          const rrule = parseRrule(p.rrule);
+          if (!rrule) return [base];
+          let instances = generateRepeatInstances(base, rrule.repeat);
+          if (rrule.untilDate) instances = instances.filter(e => {
+            const d = new Date(e.week_start + 'T00:00:00');
+            d.setDate(d.getDate() + e.day_of_week);
+            return d <= rrule.untilDate;
+          });
+          if (rrule.count) instances = instances.slice(0, rrule.count);
+          return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
+        });
+        added = appEvents.length;
+        if (added > 0) addEvents(appEvents);
+      }
+    } catch {
+      // CORS or network error — the server will fetch & sync the feed instead.
+    }
+
+    showImportNotice(added, added > 0 ? undefined : 'Subscribed — events will sync shortly');
+    setCalUrlName(''); setCalUrl(''); setShowCalUrlForm(false); setSubscribing(false);
+  }
+
   async function handleRealityCheckExport() {
     if (!diffStateRef.current) return;
     setExporting(true);
@@ -378,19 +667,37 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
-    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home'],
+    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'username', 'display', 'name', 'email', 'phone', 'phones'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
+    habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
+    budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
+    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
+    zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
   // so: should this section be open? (force-open when search matches)
   function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
   const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
+
+  // Show auth screen when not yet authenticated
+  if (['checking', 'setup', 'login', 'offline'].includes(authState)) {
+    return (
+      <AuthGate
+        authState={authState}
+        onSetup={setup}
+        onLogin={login}
+        onContinueOffline={continueOffline}
+        theme={theme}
+      />
+    );
+  }
+  // authState === 'ready' or 'offline-ok' → render the full app below
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
@@ -410,12 +717,59 @@ export default function App() {
           onClose={() => setShowSearch(false)}
         />
       )}
-      <div className="flex flex-col h-screen bg-white dark:bg-gray-900 overflow-hidden">
+      {showTutorial && (
+        <TutorialModal onClose={() => setShowTutorial(false)} />
+      )}
+      <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
-        <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900">
+        <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">PLS Calendar</span>
+            {/* App switcher */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAppSwitcherOpen(v => !v)}
+                className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
+                title="Switch app"
+              >
+                {activePage === 'todo' ? 'PLS Do It' : 'PLS Calendar'}
+                <svg className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${appSwitcherOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {appSwitcherOpen && (
+                <>
+                  <div className="fixed inset-0 z-[60]" onClick={() => setAppSwitcherOpen(false)} />
+                  <div className="absolute left-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-[70]">
+                    {[
+                      { id: 'calendar', label: '📅 PLS Calendar' },
+                      { id: 'todo',     label: '✓ PLS Do It' },
+                    ].map(app => (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => { setActivePage(app.id); setAppSwitcherOpen(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          activePage === app.id
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {app.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {syncing && (
+              <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
+            )}
+            {authState === 'offline-ok' && (
+              <span title="Offline — data saved locally" className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+            )}
             {/* Search button */}
+            {eff.searchBar && (
             <button
               type="button"
               onClick={() => setShowSearch(true)}
@@ -431,19 +785,65 @@ export default function App() {
                 {searchKeybind ? fmtKeybind(searchKeybind) : '⌘K'}
               </kbd>
             </button>
+            )}
           </div>
 
-          {/* Center tab label */}
-          <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none hidden sm:block">
+          {/* Center tab label — visible when tab pills are hidden (< lg) */}
+          <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none hidden sm:block lg:hidden">
             <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
               {activeTab === 'plan' ? 'Plan' : activeTab === 'actual' ? 'Live' : 'See Your Life'}
             </span>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Tab switcher */}
-            <nav className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
-              {TABS.map(tab => (
+            {/* Task count — shown when on PLS Do It page */}
+            {activePage === 'todo' && (() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const pendingToday = tasks.filter(t => t.due_date === today && t.status !== 'completed').length;
+              const rolledOver   = tasks.filter(t => t.status !== 'completed' && t.original_date && t.original_date !== t.due_date).length;
+              const total = pendingToday + rolledOver;
+              return (
+                <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                  {total === 0 ? 'All done ✓' : `${total} task${total !== 1 ? 's' : ''} today`}
+                </span>
+              );
+            })()}
+            {/* Tab switcher — only visible on calendar page */}
+            {activePage === 'calendar' && (<div className="relative lg:hidden">
+              <button
+                type="button"
+                onClick={() => setShowTabMenu(s => !s)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white"
+              >
+                {visibleTabs.find(t => t.id === activeTab)?.label}
+                <svg className={`w-3.5 h-3.5 text-gray-500 dark:text-gray-400 transition-transform ${showTabMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showTabMenu && (
+                <>
+                  <div className="fixed inset-0 z-[60]" onClick={() => setShowTabMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-[70]">
+                    {visibleTabs.map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => { setActiveTab(tab.id); setShowTabMenu(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          activeTab === tab.id
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>)}
+            {activePage === 'calendar' && (<nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+              {visibleTabs.map(tab => (
                 <button
                   key={tab.id}
                   type="button"
@@ -457,7 +857,7 @@ export default function App() {
                   {tab.label}
                 </button>
               ))}
-            </nav>
+            </nav>)}
 
             {/* Settings button */}
             <div className="relative">
@@ -473,7 +873,7 @@ export default function App() {
               {showSettings && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }} />
-                  <div className="absolute right-0 top-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-4 z-50 w-72 max-h-[80vh] overflow-y-auto">
+                  <div className="absolute right-0 top-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-4 z-50 w-72 max-w-[calc(100vw-0.5rem)] max-h-[80vh] overflow-y-auto">
                     <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Settings</p>
 
                     {/* Settings search filter */}
@@ -497,6 +897,22 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* ── Collapse-all button — sticky so it stays visible while scrolling ── */}
+                    {settingsOpenCount > 1 && (
+                      <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-gray-800">
+                        <button
+                          type="button"
+                          onClick={collapseAllSettings}
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                          </svg>
+                          Collapse all sections
+                        </button>
+                      </div>
+                    )}
+
                     <div className="space-y-1">
 
                       {/* ── Appearance (collapsible) ── */}
@@ -512,6 +928,8 @@ export default function App() {
                         </button>
                         {so(appearanceOpen, SECTION_KWS.appearance) && (
                           <div className="px-2 pb-2 space-y-3">
+                            {/* ── Quick toggles ── */}
+                            <div className="space-y-3">
                             {sv(['dark', 'mode', 'theme']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
@@ -530,6 +948,167 @@ export default function App() {
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                               </label>
                             )}
+                            </div>
+                            {/* ── Minimalist Mode ── */}
+                            {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
+                              <div className="space-y-2">
+                                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                  <div>
+                                    <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">Most Minimal</span>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Hides everything below for a clean, distraction-free experience</p>
+                                  </div>
+                                  <Toggle checked={minimalistMode} onChange={() => setMinimalistMode(v => !v)} />
+                                </label>
+                                <div className={`space-y-2 pl-2 border-l-2 border-gray-100 dark:border-gray-700 ${minimalistMode ? 'opacity-40 pointer-events-none' : ''}`}>
+                                  {sv(['live']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Live Calendar tab</span>
+                                      <Toggle checked={showLiveTab} onChange={() => setShowLiveTab(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['reality', 'see your life']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">See Your Life tab</span>
+                                      <Toggle checked={showRealityTab} onChange={() => setShowRealityTab(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['floating', 'button', 'quick add']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Quick Add button</span>
+                                      <Toggle checked={fabVisible} onChange={() => setFabVisible(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['search']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Search bar</span>
+                                      <Toggle checked={searchBarVisible} onChange={() => setSearchBarVisible(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['precision', '30m', '1h']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Precision toggle (30m / 1h)</span>
+                                      <Toggle checked={precisionVisible} onChange={() => setPrecisionVisible(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['categories']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Categories menu</span>
+                                      <Toggle checked={categoriesVisible} onChange={() => setCategoriesVisible(v => !v)} />
+                                    </label>
+                                  )}
+                                  {sv(['views', 'quarter', 'half', 'extra']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Quarter & Half-year views</span>
+                                      <Toggle
+                                        checked={enabledViews.length > 0}
+                                        onChange={() => setEnabledViews(v => v.length > 0 ? [] : ['quarter', 'half'])}
+                                      />
+                                    </label>
+                                  )}
+                                  {sv(['week', 'numbers']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers</span>
+                                      <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
+                                    </label>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {/* ── Font Picker ── */}
+                            {sv(['font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload']) && (
+                              <div className={`space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Font</p>
+                                {/* Search */}
+                                <div className="relative">
+                                  <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                                  </svg>
+                                  <input
+                                    type="text"
+                                    placeholder="Search fonts…"
+                                    value={fontSearch}
+                                    onChange={e => setFontSearch(e.target.value)}
+                                    className="w-full pl-6 pr-2 py-1 text-xs rounded-md bg-gray-100 dark:bg-gray-700 border border-transparent focus:border-blue-400 text-gray-800 dark:text-gray-200 placeholder-gray-400 outline-none"
+                                  />
+                                </div>
+                                {/* Preset list */}
+                                <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                                  {FONT_PRESETS
+                                    .filter(f => !fontSearch || f.label.toLowerCase().includes(fontSearch.toLowerCase()) || f.group.toLowerCase().includes(fontSearch.toLowerCase()))
+                                    .map(f => (
+                                      <button
+                                        key={f.key}
+                                        type="button"
+                                        onClick={() => { setFontKey(f.key); setFontSearch(''); }}
+                                        className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${
+                                          fontKey === f.key
+                                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                            : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                        }`}
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <span className={`w-3 h-3 rounded-full flex-shrink-0 border-2 ${fontKey === f.key ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-500'}`} />
+                                          <span className="text-xs truncate">{f.label}</span>
+                                          <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">{f.group}</span>
+                                        </div>
+                                        <span className="text-sm flex-shrink-0" style={{ fontFamily: f.value }}>Abc</span>
+                                      </button>
+                                    ))
+                                  }
+                                  {/* Custom font row */}
+                                  {(!fontSearch || 'custom upload'.includes(fontSearch.toLowerCase())) && (
+                                    <div className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md ${fontKey === 'custom' ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className={`w-3 h-3 rounded-full flex-shrink-0 border-2 ${fontKey === 'custom' ? 'border-blue-500 bg-blue-500' : 'border-gray-300 dark:border-gray-500'}`} />
+                                        <span className="text-xs text-gray-700 dark:text-gray-300 truncate">
+                                          {customFont ? customFont.name : 'Upload custom…'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        {customFont && (
+                                          <button
+                                            type="button"
+                                            onClick={() => { setCustomFont(null); setFontKey('system'); }}
+                                            className="text-[10px] text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                            title="Remove custom font"
+                                          >✕</button>
+                                        )}
+                                        <label className="cursor-pointer text-[10px] text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors">
+                                          {customFont ? 'Replace' : 'Upload'}
+                                          <input type="file" accept=".ttf,.otf,.woff,.woff2" className="hidden" onChange={handleFontUpload} />
+                                        </label>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                            {/* ── Mobile default view ── */}
+                            {sv(['mobile', 'phone', 'default', 'view']) && (
+                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Mobile default view</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">What view opens first on phones</p>
+                                <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
+                                  {[{ id: 'day', label: 'Day' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }].map(v => (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => setMobileDefaultView(v.id)}
+                                      className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors ${
+                                        mobileDefaultView === v.id
+                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {v.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* ── Floating Button Options ── */}
                             {sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
@@ -573,6 +1152,7 @@ export default function App() {
                                 ))}
                               </div>
                             )}
+                            </div>{/* end other-settings wrapper */}
                           </div>
                         )}
                       </div>
@@ -1016,6 +1596,272 @@ export default function App() {
                       </div>
                       )}
 
+                      {/* ── Time Budgets (collapsible) ── */}
+                      {sv(SECTION_KWS.budgets) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setBudgetsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Budgets</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(budgetsOpen, SECTION_KWS.budgets) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(budgetsOpen, SECTION_KWS.budgets) && (
+                          <div className="px-2 pb-2 space-y-1">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
+                              Set weekly hour targets per category. They appear as progress bars in the See Your Life tab.
+                            </p>
+                            {allCategories.map(cat => {
+                              const val = budgets[cat.id] ?? '';
+                              return (
+                                <div key={cat.id} className="flex items-center gap-2 py-0.5">
+                                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{cat.label}</span>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="168"
+                                      step="0.5"
+                                      value={val}
+                                      onChange={e => {
+                                        const n = parseFloat(e.target.value);
+                                        if (e.target.value === '' || isNaN(n)) deleteBudget(cat.id);
+                                        else setBudget(cat.id, n);
+                                      }}
+                                      placeholder="—"
+                                      className="w-16 text-sm text-right bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400"
+                                    />
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">h/wk</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Habit Tracker Settings (collapsible) ── */}
+                      {sv(SECTION_KWS.habits) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setHabitsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Habit Tracker</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(habitsOpen, SECTION_KWS.habits) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(habitsOpen, SECTION_KWS.habits) && (
+                          <div className="px-2 pb-2 space-y-1">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
+                              Manage your daily habits. You can also add, edit, and check off habits directly in the See Your Life tab.
+                            </p>
+                            {habits.length === 0 && (
+                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-2">No habits yet.</p>
+                            )}
+                            {habits.map(habit => (
+                              <div key={habit.id} className="flex items-center gap-2 py-0.5">
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: habit.color }} />
+                                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{habit.label}</span>
+                                <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                                  {(habit.target_days ?? [0,1,2,3,4,5,6]).length === 7 ? 'Daily' :
+                                   JSON.stringify(habit.target_days) === '[1,2,3,4,5]' ? 'Weekdays' :
+                                   JSON.stringify(habit.target_days) === '[0,6]' ? 'Weekends' :
+                                   `${(habit.target_days ?? []).length}d/wk`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteHabit(habit.id)}
+                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors flex-shrink-0"
+                                  title="Delete habit"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Notifications & Integrations (collapsible) ── */}
+                      {sv(SECTION_KWS.notifications) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button" onClick={() => setNotificationsOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Notifications & Integrations</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(notificationsOpen, SECTION_KWS.notifications) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(notificationsOpen, SECTION_KWS.notifications) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                              Get reminders via Discord, Slack, or browser push. The app only sends timing info — event labels stay private unless you set an Integration Hint.
+                            </p>
+
+                            {/* Browser push */}
+                            {'Notification' in window && (
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <span className="text-sm text-gray-700 dark:text-gray-200">Browser Push</span>
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                                    {Notification.permission === 'granted' ? 'Enabled' : Notification.permission === 'denied' ? 'Blocked in browser settings' : 'Not enabled'}
+                                  </p>
+                                </div>
+                                {Notification.permission !== 'denied' && (
+                                  <button type="button" onClick={handleEnablePush}
+                                    className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors flex-shrink-0">
+                                    {Notification.permission === 'granted' ? 'Refresh' : 'Enable'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Existing integrations */}
+                            {integrations.length > 0 && (
+                              <div className="space-y-1.5">
+                                {integrations.map(intg => (
+                                  <div key={intg.id} className="flex items-center gap-2 py-0.5">
+                                    <span className="text-lg leading-none flex-shrink-0">
+                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : '🔗'}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-sm text-gray-700 dark:text-gray-200 truncate block">{intg.label || intg.type}</span>
+                                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{intg.enabled ? 'Active' : 'Disabled'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                      {intTestState[intg.id] === 'ok'      && <span className="text-[10px] text-green-500">✓ sent</span>}
+                                      {intTestState[intg.id] === 'error'   && <span className="text-[10px] text-red-500">✗ failed</span>}
+                                      {intTestState[intg.id] === 'testing' && <span className="text-[10px] text-gray-400">sending…</span>}
+                                      <button type="button" onClick={() => handleTestIntegration(intg.id)}
+                                        className="text-[10px] px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Test</button>
+                                      <Toggle checked={intg.enabled} onChange={() => updateIntegration(intg.id, { enabled: !intg.enabled })} />
+                                      <button type="button" onClick={() => deleteIntegration(intg.id)}
+                                        className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Add integration form */}
+                            {addIntegrationOpen ? (
+                              <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
+                                <select value={newIntType} onChange={e => setNewIntType(e.target.value)}
+                                  className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none">
+                                  <option value="discord_webhook">Discord Webhook</option>
+                                  <option value="slack_webhook">Slack Webhook</option>
+                                  <option value="generic_webhook">Custom Webhook</option>
+                                </select>
+                                <input value={newIntLabel} onChange={e => setNewIntLabel(e.target.value)}
+                                  placeholder="Nickname (e.g. My Discord)"
+                                  className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                {['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType) && (
+                                  <input value={newIntUrl} onChange={e => setNewIntUrl(e.target.value)}
+                                    placeholder="Webhook URL"
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                )}
+                                <div className="flex gap-2">
+                                  <button type="button" onClick={() => setAddIntegrationOpen(false)}
+                                    className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition-colors">Cancel</button>
+                                  <button type="button" onClick={handleAddIntegration}
+                                    className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors">Add</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button type="button" onClick={() => setAddIntegrationOpen(true)}
+                                className="w-full text-left text-sm text-violet-500 hover:text-violet-600 dark:text-violet-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                + Add Discord / Slack / Webhook
+                              </button>
+                            )}
+
+                            {/* Notification schedules summary */}
+                            {schedules.length > 0 && (
+                              <div className="border-t border-gray-100 dark:border-gray-700 pt-2 space-y-1">
+                                <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Active Schedules</p>
+                                {schedules.filter(s => s.enabled).map(s => (
+                                  <div key={s.id} className="flex items-center justify-between gap-2 text-xs text-gray-600 dark:text-gray-400">
+                                    <span>{s.trigger_type === 'event_reminder' ? `Event reminder (${Math.abs(s.offset_minutes)}min before)` : s.trigger_type === 'habit_reminder' ? `Habit reminder at ${s.time_of_day}` : s.trigger_type === 'daily_summary' ? `Daily summary at ${s.time_of_day}` : s.trigger_type}</span>
+                                    <button type="button" onClick={() => deleteSchedule(s.id)} className="text-gray-400 hover:text-red-500 transition-colors">✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Zero-Knowledge Encryption (collapsible) ── */}
+                      {sv(SECTION_KWS.zk) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button" onClick={() => setZkOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Zero-Knowledge Encryption</span>
+                            {isZkEnabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ON</span>}
+                          </div>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(zkOpen, SECTION_KWS.zk) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(zkOpen, SECTION_KWS.zk) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            {isZkEnabled ? (
+                              <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                                <span className="text-lg">🔒</span>
+                                <div>
+                                  <p className="text-sm font-semibold text-green-800 dark:text-green-300">Encryption is active</p>
+                                  <p className="text-[11px] text-green-700 dark:text-green-400 mt-0.5 leading-snug">Your event names and habit labels are encrypted. The server cannot read your content.</p>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 space-y-1">
+                                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Before you enable</p>
+                                  <ul className="text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 leading-snug list-disc pl-3">
+                                    <li>Your password becomes your encryption key — if you forget it, your data is permanently unreadable</li>
+                                    <li>All existing events and habits will be encrypted (one-time migration)</li>
+                                    <li>Discord/Slack reminders will show generic text unless you set Integration Hints</li>
+                                    <li>This cannot be undone without a full data export and re-import</li>
+                                  </ul>
+                                </div>
+                                {zkProgress === 'done' ? (
+                                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">✓ Encryption enabled successfully</p>
+                                ) : zkProgress === 'error' ? (
+                                  <p className="text-sm text-red-500">Something went wrong. Please try again.</p>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="password"
+                                      value={zkPassword}
+                                      onChange={e => setZkPassword(e.target.value)}
+                                      placeholder="Confirm your password to enable encryption"
+                                      className="w-full text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
+                                    />
+                                    <button type="button"
+                                      disabled={!zkPassword.trim() || zkProgress === 'deriving' || zkProgress === 'encrypting'}
+                                      onClick={handleEnableZk}
+                                      className="w-full text-sm px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-semibold transition-colors">
+                                      {zkProgress === 'deriving'   ? 'Deriving key…' :
+                                       zkProgress === 'encrypting' ? 'Encrypting data…' :
+                                       'Enable Zero-Knowledge Encryption'}
+                                    </button>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
                       {/* ── Connected Calendars (collapsible) ── */}
                       {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
@@ -1087,6 +1933,72 @@ export default function App() {
 
                               {so(profileOpen, SECTION_KWS.account) && (
                               <div className="px-2 pb-2 space-y-4">
+
+                            {/* ── Username ── */}
+                            {sv(['username', 'handle', 'user']) && (
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Username</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={usernameDraft}
+                                  onChange={e => setUsernameDraft(e.target.value)}
+                                  placeholder="@handle"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={usernameDraft.trim() === (profile.username || '')}
+                                  onClick={() => setProfile(p => ({ ...p, username: usernameDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
+
+                            {/* ── Display Name ── */}
+                            {sv(['display', 'name', 'profile']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Display Name</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={displayNameDraft}
+                                  onChange={e => setDisplayNameDraft(e.target.value)}
+                                  placeholder="Your preferred name"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={displayNameDraft.trim() === (profile.displayName || '')}
+                                  onClick={() => setProfile(p => ({ ...p, displayName: displayNameDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
+
+                            {/* ── Email ── */}
+                            {sv(['email', 'contact']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Email</p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="text"
+                                  value={emailDraft}
+                                  onChange={e => setEmailDraft(e.target.value)}
+                                  placeholder="you@example.com"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={emailDraft.trim() === (profile.email || '')}
+                                  onClick={() => setProfile(p => ({ ...p, email: emailDraft.trim() }))}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                            </div>
+                            )}
 
                             {/* ── Birthday ── */}
                             {sv(['birthday', 'birth']) && (
@@ -1255,6 +2167,127 @@ export default function App() {
                                   onClick={() => { setAddingAddr(true); setNewAddrLabel(''); setNewAddrValue(''); setPendingDeleteAddr(null); setEditingAddrId(null); }}
                                   className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                                   + Add address
+                                </button>
+                              )}
+                            </div>
+                            )}
+
+                            {/* ── Phone Numbers ── */}
+                            {sv(['phone', 'phones', 'number', 'contact']) && (
+                            <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Phone Numbers</p>
+
+                              {profile.phones.length === 0 && !addingPhone && (
+                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved numbers yet.</p>
+                              )}
+
+                              <div className="space-y-1">
+                                {profile.phones.map(phone => {
+                                  const isEditing    = editingPhoneId === phone.id;
+                                  const isConfirming = pendingDeletePhone === phone.id;
+                                  return (
+                                    <div key={phone.id} className="rounded-lg">
+                                      {isEditing ? (
+                                        <div className="space-y-1.5 py-1">
+                                          <input
+                                            autoFocus
+                                            value={editPhoneDraft.label}
+                                            onChange={e => setEditPhoneDraft(d => ({ ...d, label: e.target.value }))}
+                                            placeholder="Label (e.g. Mobile)"
+                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
+                                          />
+                                          <input
+                                            value={editPhoneDraft.number}
+                                            onChange={e => setEditPhoneDraft(d => ({ ...d, number: e.target.value }))}
+                                            placeholder="Phone number"
+                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
+                                          />
+                                          <div className="flex gap-1.5">
+                                            <button type="button" onClick={() => setEditingPhoneId(null)}
+                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                            <button type="button"
+                                              disabled={!editPhoneDraft.label.trim() || !editPhoneDraft.number.trim()}
+                                              onClick={() => {
+                                                setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === phone.id ? { ...ph, label: editPhoneDraft.label.trim(), number: editPhoneDraft.number.trim() } : ph) }));
+                                                setEditingPhoneId(null);
+                                              }}
+                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-start gap-1.5 py-1">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{phone.label}</p>
+                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{phone.number}</p>
+                                          </div>
+                                          {!isConfirming && (
+                                            <>
+                                              <button type="button"
+                                                onClick={() => { setEditingPhoneId(phone.id); setEditPhoneDraft({ label: phone.label, number: phone.number }); setPendingDeletePhone(null); }}
+                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
+                                                title="Edit">✏</button>
+                                              <button type="button"
+                                                onClick={() => setPendingDeletePhone(phone.id)}
+                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
+                                                title="Delete">×</button>
+                                            </>
+                                          )}
+                                        </div>
+                                      )}
+                                      {isConfirming && (
+                                        <div className="flex items-center gap-2 pb-1.5">
+                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{phone.label}"?</span>
+                                          <button type="button" onClick={() => setPendingDeletePhone(null)}
+                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                          <button type="button"
+                                            onClick={() => { setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== phone.id) })); setPendingDeletePhone(null); }}
+                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {addingPhone ? (
+                                <div className="space-y-1.5 pt-1">
+                                  <input
+                                    autoFocus
+                                    value={newPhoneLabel}
+                                    onChange={e => setNewPhoneLabel(e.target.value)}
+                                    placeholder="Label (e.g. Mobile, Work)"
+                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                  />
+                                  <input
+                                    value={newPhoneValue}
+                                    onChange={e => setNewPhoneValue(e.target.value)}
+                                    placeholder="Phone number"
+                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter' && newPhoneLabel.trim() && newPhoneValue.trim()) {
+                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
+                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
+                                      }
+                                      if (e.key === 'Escape') { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }
+                                    }}
+                                  />
+                                  <div className="flex gap-1.5">
+                                    <button type="button" onClick={() => { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }}
+                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                    <button type="button"
+                                      disabled={!newPhoneLabel.trim() || !newPhoneValue.trim()}
+                                      onClick={() => {
+                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
+                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
+                                      }}
+                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button type="button"
+                                  onClick={() => { setAddingPhone(true); setNewPhoneLabel(''); setNewPhoneValue(''); setPendingDeletePhone(null); setEditingPhoneId(null); }}
+                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                                  + Add phone number
                                 </button>
                               )}
                             </div>
@@ -1457,6 +2490,21 @@ export default function App() {
                         </div>
                       );
                     })()}
+
+                      {/* ── Tutorial ── */}
+                      <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
+                        <button
+                          type="button"
+                          onClick={() => { setShowSettings(false); setShowTutorial(true); }}
+                          className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                        >
+                          <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tutorial</span>
+                          <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
+                        </button>
+                      </div>
                   </div>
                 </>
               )}
@@ -1465,8 +2513,24 @@ export default function App() {
         </header>
 
         {/* Main content */}
-        <main className="flex-1 overflow-hidden">
-          {activeTab === 'plan' && (
+        <main className="flex-1 overflow-hidden pb-safe">
+          {/* PLS Do It page */}
+          {activePage === 'todo' && (
+            <TodoView
+              tasks={tasks}
+              todoView={todoView}
+              fabOpen={todoFabOpen}
+              onFabClose={() => setTodoFabOpen(false)}
+              onAddTask={addTask}
+              onUpdateTask={updateTask}
+              onDeleteTask={deleteTask}
+              onCompleteTask={completeTask}
+              onUncompleteTask={uncompleteTask}
+              onMoveCard={moveKanbanCard}
+              onReorderTasks={reorderTasks}
+            />
+          )}
+          {activePage === 'calendar' && activeTab === 'plan' && (
             <PlanView
               events={planEvents}
               weekStart={weekStart}
@@ -1474,11 +2538,14 @@ export default function App() {
               onPrecisionChange={setPlanPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
-              enabledViews={enabledViews}
-              showWeekNumbers={showWeekNumbers}
+              enabledViews={eff.enabledViews}
+              showWeekNumbers={eff.showWeekNumbers}
+              showPrecisionToggle={eff.precisionToggle}
+              showCategoriesMenu={eff.categoriesMenu}
               pinnedCategories={pinnedCategories}
               onTogglePin={togglePin}
               onManageCategories={openManageCategories}
+              mobileDefaultView={mobileDefaultView}
               onAddEvent={addEvent}
               onAddEvents={addEvents}
               onUpdateEvent={updateEvent}
@@ -1489,7 +2556,7 @@ export default function App() {
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
             />
           )}
-          {activeTab === 'actual' && (
+          {activePage === 'calendar' && activeTab === 'actual' && (
             <ActualView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -1498,10 +2565,13 @@ export default function App() {
               onPrecisionChange={setLivePrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
-              enabledViews={enabledViews}
-              showWeekNumbers={showWeekNumbers}
+              enabledViews={eff.enabledViews}
+              showWeekNumbers={eff.showWeekNumbers}
+              showPrecisionToggle={eff.precisionToggle}
+              showCategoriesMenu={eff.categoriesMenu}
               pinnedCategories={pinnedCategories}
               onTogglePin={togglePin}
+              mobileDefaultView={mobileDefaultView}
               onManageCategories={openManageCategories}
               onAddEvent={addEvent}
               onAddEvents={addEvents}
@@ -1513,19 +2583,44 @@ export default function App() {
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
             />
           )}
-          {activeTab === 'reality' && (
+          {activePage === 'calendar' && activeTab === 'reality' && (
             <DiffView
               planEvents={planEvents}
               actualEvents={actualEvents}
               allCategories={allCategories}
               linkedCalendars={linkedCalendars}
               onDiffChange={state => { diffStateRef.current = state; }}
+              budgets={budgets}
+              habitsWithStreaks={habitsWithStreaks}
+              completions={completions}
+              onToggleHabit={toggleCompletion}
+              onAddHabit={addHabit}
+              onUpdateHabit={updateHabit}
+              onDeleteHabit={deleteHabit}
             />
           )}
         </main>
 
-        {/* Floating quick-add button */}
-        {fabVisible && (
+        {/* Install prompt — "Add to Home Screen" banner */}
+        <InstallPrompt />
+
+        {/* Floating quick-add button — todo page */}
+        {activePage === 'todo' && todoView === 'list' && (
+          <button
+            type="button"
+            onClick={() => setTodoFabOpen(true)}
+            className="fixed bottom-6 right-6 z-30 rounded-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white shadow-lg flex items-center justify-center transition-all"
+            style={{ width: '3.25rem', height: '3.25rem' }}
+            aria-label="Add task"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
+
+        {/* Floating quick-add button — calendar page */}
+        {activePage === 'calendar' && eff.fabVisible && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}

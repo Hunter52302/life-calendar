@@ -1,6 +1,6 @@
 import { hoursToLabel } from '../lib/utils';
 
-export default function DiffSummary({ diff }) {
+export default function DiffSummary({ diff, budgets = {} }) {
   const entries = Object.values(diff.byCategory);
 
   if (entries.length === 0) {
@@ -15,12 +15,19 @@ export default function DiffSummary({ diff }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {entries.map(({ category, planned, actual, delta }) => {
+        const budget = budgets[category.id];
+        const hasBudget = budget != null && budget > 0;
+        const budgetPct = hasBudget ? Math.round((actual / budget) * 100) : null;
+        const budgetStatus = budgetPct == null ? null : budgetPct < 80 ? 'under' : budgetPct < 100 ? 'near' : 'over';
+
         const status = Math.abs(delta) < 0.25 ? 'good' : delta < 0 ? 'under' : 'over';
         const s = {
           good:  { card: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20',  delta: 'text-green-600 dark:text-green-400',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',  text: 'on track' },
           under: { card: 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20',  delta: 'text-amber-600 dark:text-amber-400',  badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',  text: 'under' },
           over:  { card: 'border-red-200   bg-red-50   dark:border-red-800   dark:bg-red-900/20',    delta: 'text-red-600   dark:text-red-400',    badge: 'bg-red-100   text-red-700   dark:bg-red-900/40   dark:text-red-400',    text: 'over' },
         }[status];
+
+        const budgetPctColor = budgetStatus === 'over' ? 'text-red-600 dark:text-red-400' : budgetStatus === 'near' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400';
 
         return (
           <div key={category.id} className={`rounded-xl border p-4 ${s.card}`}>
@@ -31,7 +38,30 @@ export default function DiffSummary({ diff }) {
               </div>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.badge}`}>{s.text}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+
+            {/* Budget progress bar */}
+            {hasBudget && (
+              <div className="mb-3">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">Budget: {hoursToLabel(budget)}/wk</span>
+                  <span className={`text-xs font-bold ${budgetPctColor}`}>{budgetPct}%</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${budgetStatus === 'over' ? 'bg-red-500' : budgetStatus === 'near' ? 'bg-amber-500' : 'bg-green-500'}`}
+                    style={{ width: `${Math.min(budgetPct, 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className={`grid gap-2 ${hasBudget ? 'grid-cols-4' : 'grid-cols-3'}`}>
+              {hasBudget && (
+                <div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Budget</div>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{hoursToLabel(budget)}</div>
+                </div>
+              )}
               <div>
                 <div className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Planned</div>
                 <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{hoursToLabel(planned)}</div>
