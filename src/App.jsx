@@ -65,12 +65,14 @@ import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils'
 import PlanView from './views/PlanView';
 import ActualView from './views/ActualView';
 import DiffView from './views/DiffView';
+import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
+import { useTasks } from './hooks/useTasks';
 import InstallPrompt from './components/InstallPrompt';
 
 const TABS = [
@@ -120,6 +122,10 @@ function Toggle({ checked, onChange }) {
 
 export default function App() {
   const { authState, setup, login, logout, continueOffline } = useAuth();
+  const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
+  const [todoView,   setTodoView]     = useState(() => localStorage.getItem('lc-todo-view') || 'list');
+  const [todoFabOpen, setTodoFabOpen] = useState(false);
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
@@ -138,6 +144,10 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
+  const [showCalUrlForm, setShowCalUrlForm] = useState(false);
+  const [calUrlName, setCalUrlName] = useState('');
+  const [calUrl, setCalUrl] = useState('');
+  const [subscribing, setSubscribing] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
@@ -216,6 +226,26 @@ export default function App() {
     return [Intl.DateTimeFormat().resolvedOptions().timeZone];
   });
   const [timezonesOpen, setTimezonesOpen] = useState(false);
+
+  // Derived: how many settings sections are currently open
+  const settingsOpenCount = [
+    appearanceOpen, categoriesOpen, connectedOpen, accountOpen,
+    habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
+    searchOptionsOpen, timezonesOpen,
+  ].filter(Boolean).length;
+
+  function collapseAllSettings() {
+    setAppearanceOpen(false);
+    setCategoriesOpen(false);
+    setConnectedOpen(false);
+    setAccountOpen(false);
+    setHabitsOpen(false);
+    setBudgetsOpen(false);
+    setNotificationsOpen(false);
+    setZkOpen(false);
+    setSearchOptionsOpen(false);
+    setTimezonesOpen(false);
+  }
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
   const [planPrecision, setPlanPrecision] = useState(1);
@@ -232,6 +262,7 @@ export default function App() {
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
+  useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
   useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
   useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
@@ -466,6 +497,7 @@ export default function App() {
     syncing = false,
   } = useEvents(authState);
 
+  const { tasks = [], addTask, updateTask, deleteTask, completeTask, uncompleteTask, moveKanbanCard, reorderTasks } = useTasks(authState);
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
   const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
@@ -486,10 +518,10 @@ export default function App() {
     setEnabledViews(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   }
 
-  function showImportNotice(added) {
-    const msg = added > 0
+  function showImportNotice(added, customMsg) {
+    const msg = customMsg ?? (added > 0
       ? `${added} event${added !== 1 ? 's' : ''} imported`
-      : 'No events found in file';
+      : 'No events found in file');
     setImportNotice(msg);
     setTimeout(() => setImportNotice(null), 5000);
   }
@@ -568,6 +600,57 @@ export default function App() {
     reader.readAsText(file); e.target.value = '';
   }
 
+  // Subscribe to an ICS calendar by URL (parity with mobile "Add calendar URL").
+  // Persists the subscription (which syncs to the server to refresh the feed, like
+  // mobile), and best-effort fetches it client-side so events appear immediately
+  // whenever the feed permits CORS.
+  async function handleSubscribeCalendarUrl() {
+    const url = calUrl.trim();
+    if (!url || subscribing) return;
+    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
+    const name = calUrlName.trim() || 'Subscribed calendar';
+    setSubscribing(true);
+
+    const { id: calId, color: calColor } = addLinkedCalendar({
+      name,
+      url,
+      calendar,
+      importedAt: new Date().toISOString().split('T')[0],
+    });
+
+    let added = 0;
+    try {
+      const fetchUrl = url.replace(/^webcal:\/\//i, 'https://');
+      const res = await fetch(fetchUrl);
+      if (res.ok) {
+        const content = await res.text();
+        const precision = calendar === 'actual' ? livePrecision : planPrecision;
+        const appEvents = parseIcal(content).flatMap(p => {
+          const ev = icalToAppEvent(p, calendar, precision);
+          if (!ev) return [];
+          const base = { ...ev, source_calendar_id: calId, color: calColor };
+          const rrule = parseRrule(p.rrule);
+          if (!rrule) return [base];
+          let instances = generateRepeatInstances(base, rrule.repeat);
+          if (rrule.untilDate) instances = instances.filter(e => {
+            const d = new Date(e.week_start + 'T00:00:00');
+            d.setDate(d.getDate() + e.day_of_week);
+            return d <= rrule.untilDate;
+          });
+          if (rrule.count) instances = instances.slice(0, rrule.count);
+          return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
+        });
+        added = appEvents.length;
+        if (added > 0) addEvents(appEvents);
+      }
+    } catch {
+      // CORS or network error — the server will fetch & sync the feed instead.
+    }
+
+    showImportNotice(added, added > 0 ? undefined : 'Subscribed — events will sync shortly');
+    setCalUrlName(''); setCalUrl(''); setShowCalUrlForm(false); setSubscribing(false);
+  }
+
   async function handleRealityCheckExport() {
     if (!diffStateRef.current) return;
     setExporting(true);
@@ -641,7 +724,44 @@ export default function App() {
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">PLS Calendar</span>
+            {/* App switcher */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAppSwitcherOpen(v => !v)}
+                className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
+                title="Switch app"
+              >
+                {activePage === 'todo' ? 'PLS Do It' : 'PLS Calendar'}
+                <svg className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${appSwitcherOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {appSwitcherOpen && (
+                <>
+                  <div className="fixed inset-0 z-[60]" onClick={() => setAppSwitcherOpen(false)} />
+                  <div className="absolute left-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-[70]">
+                    {[
+                      { id: 'calendar', label: '📅 PLS Calendar' },
+                      { id: 'todo',     label: '✓ PLS Do It' },
+                    ].map(app => (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => { setActivePage(app.id); setAppSwitcherOpen(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          activePage === app.id
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {app.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             {syncing && (
               <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
             )}
@@ -676,8 +796,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Tab switcher — mobile/tablet: dropdown, wide desktop: pills */}
-            <div className="relative lg:hidden">
+            {/* Task count — shown when on PLS Do It page */}
+            {activePage === 'todo' && (() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const pendingToday = tasks.filter(t => t.due_date === today && t.status !== 'completed').length;
+              const rolledOver   = tasks.filter(t => t.status !== 'completed' && t.original_date && t.original_date !== t.due_date).length;
+              const total = pendingToday + rolledOver;
+              return (
+                <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                  {total === 0 ? 'All done ✓' : `${total} task${total !== 1 ? 's' : ''} today`}
+                </span>
+              );
+            })()}
+            {/* Tab switcher — only visible on calendar page */}
+            {activePage === 'calendar' && (<div className="relative lg:hidden">
               <button
                 type="button"
                 onClick={() => setShowTabMenu(s => !s)}
@@ -709,8 +841,8 @@ export default function App() {
                   </div>
                 </>
               )}
-            </div>
-            <nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+            </div>)}
+            {activePage === 'calendar' && (<nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
               {visibleTabs.map(tab => (
                 <button
                   key={tab.id}
@@ -725,7 +857,7 @@ export default function App() {
                   {tab.label}
                 </button>
               ))}
-            </nav>
+            </nav>)}
 
             {/* Settings button */}
             <div className="relative">
@@ -765,6 +897,22 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* ── Collapse-all button — sticky so it stays visible while scrolling ── */}
+                    {settingsOpenCount > 1 && (
+                      <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-gray-800">
+                        <button
+                          type="button"
+                          onClick={collapseAllSettings}
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                          </svg>
+                          Collapse all sections
+                        </button>
+                      </div>
+                    )}
+
                     <div className="space-y-1">
 
                       {/* ── Appearance (collapsible) ── */}
@@ -780,6 +928,27 @@ export default function App() {
                         </button>
                         {so(appearanceOpen, SECTION_KWS.appearance) && (
                           <div className="px-2 pb-2 space-y-3">
+                            {/* ── Quick toggles ── */}
+                            <div className="space-y-3">
+                            {sv(['dark', 'mode', 'theme']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
+                                <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                              </label>
+                            )}
+                            {sv(['military', 'time']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
+                                <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
+                              </label>
+                            )}
+                            {sv(['week', 'numbers', 'month', 'view']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
+                                <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
+                              </label>
+                            )}
+                            </div>
                             {/* ── Minimalist Mode ── */}
                             {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
                               <div className="space-y-2">
@@ -916,24 +1085,6 @@ export default function App() {
                             )}
 
                             <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
-                            {sv(['dark', 'mode', 'theme']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
-                                <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                              </label>
-                            )}
-                            {sv(['military', 'time']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
-                                <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
-                              </label>
-                            )}
-                            {sv(['week', 'numbers', 'month', 'view']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
-                                <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
-                              </label>
-                            )}
                             {/* ── Mobile default view ── */}
                             {sv(['mobile', 'phone', 'default', 'view']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
@@ -2363,7 +2514,23 @@ export default function App() {
 
         {/* Main content */}
         <main className="flex-1 overflow-hidden pb-safe">
-          {activeTab === 'plan' && (
+          {/* PLS Do It page */}
+          {activePage === 'todo' && (
+            <TodoView
+              tasks={tasks}
+              todoView={todoView}
+              fabOpen={todoFabOpen}
+              onFabClose={() => setTodoFabOpen(false)}
+              onAddTask={addTask}
+              onUpdateTask={updateTask}
+              onDeleteTask={deleteTask}
+              onCompleteTask={completeTask}
+              onUncompleteTask={uncompleteTask}
+              onMoveCard={moveKanbanCard}
+              onReorderTasks={reorderTasks}
+            />
+          )}
+          {activePage === 'calendar' && activeTab === 'plan' && (
             <PlanView
               events={planEvents}
               weekStart={weekStart}
@@ -2389,7 +2556,7 @@ export default function App() {
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
             />
           )}
-          {activeTab === 'actual' && (
+          {activePage === 'calendar' && activeTab === 'actual' && (
             <ActualView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -2416,7 +2583,7 @@ export default function App() {
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
             />
           )}
-          {activeTab === 'reality' && (
+          {activePage === 'calendar' && activeTab === 'reality' && (
             <DiffView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -2437,8 +2604,23 @@ export default function App() {
         {/* Install prompt — "Add to Home Screen" banner */}
         <InstallPrompt />
 
-        {/* Floating quick-add button */}
-        {eff.fabVisible && (
+        {/* Floating quick-add button — todo page */}
+        {activePage === 'todo' && todoView === 'list' && (
+          <button
+            type="button"
+            onClick={() => setTodoFabOpen(true)}
+            className="fixed bottom-6 right-6 z-30 rounded-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white shadow-lg flex items-center justify-center transition-all"
+            style={{ width: '3.25rem', height: '3.25rem' }}
+            aria-label="Add task"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
+
+        {/* Floating quick-add button — calendar page */}
+        {activePage === 'calendar' && eff.fabVisible && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}

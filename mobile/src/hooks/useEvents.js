@@ -3,9 +3,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId, DEFAULT_CATEGORIES } from '../lib/utils.js';
 import { api } from '../lib/api.js';
 
-const EVENTS_KEY = 'lc-m-events';
-const CATS_KEY   = 'lc-m-categories';
-const OVRS_KEY   = 'lc-m-overrides';
+const EVENTS_KEY  = 'lc-m-events';
+const CATS_KEY    = 'lc-m-categories';
+const OVRS_KEY    = 'lc-m-overrides';
+const HABITS_KEY  = 'lc-m-habits';
+const LINKED_KEY  = 'lc-m-linked';
 
 async function asyncLoad(key, fallback) {
   try {
@@ -15,38 +17,35 @@ async function asyncLoad(key, fallback) {
 }
 
 export function useEvents(authState) {
-  const [ready, setReady]       = useState(false);
-  const [events, setEvents]     = useState([]);
-  const [customCats, setCustomCats] = useState([]);
-  const [overrides, setOverrides]   = useState({});
+  const [ready, setReady]                   = useState(false);
+  const [events, setEvents]                 = useState([]);
+  const [customCats, setCustomCats]         = useState([]);
+  const [overrides, setOverrides]           = useState({});
+  const [habits, setHabits]                 = useState([]);
+  const [linkedCalendars, setLinkedCals]    = useState([]);
 
   useEffect(() => {
     Promise.all([
-      asyncLoad(EVENTS_KEY, []),
-      asyncLoad(CATS_KEY, []),
-      asyncLoad(OVRS_KEY, {}),
-    ]).then(([e, c, o]) => {
+      asyncLoad(EVENTS_KEY,  []),
+      asyncLoad(CATS_KEY,    []),
+      asyncLoad(OVRS_KEY,    {}),
+      asyncLoad(HABITS_KEY,  []),
+      asyncLoad(LINKED_KEY,  []),
+    ]).then(([e, c, o, h, l]) => {
       setEvents(e);
       setCustomCats(c);
       setOverrides(o);
+      setHabits(h);
+      setLinkedCals(l);
       setReady(true);
     });
   }, []);
 
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => {});
-  }, [events, ready]);
-
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(CATS_KEY, JSON.stringify(customCats)).catch(() => {});
-  }, [customCats, ready]);
-
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(OVRS_KEY, JSON.stringify(overrides)).catch(() => {});
-  }, [overrides, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(EVENTS_KEY,  JSON.stringify(events)).catch(() => {}); },        [events, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(CATS_KEY,    JSON.stringify(customCats)).catch(() => {}); },   [customCats, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(OVRS_KEY,    JSON.stringify(overrides)).catch(() => {}); },    [overrides, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(HABITS_KEY,  JSON.stringify(habits)).catch(() => {}); },       [habits, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(LINKED_KEY,  JSON.stringify(linkedCalendars)).catch(() => {}); }, [linkedCalendars, ready]);
 
   // Sync from backend when authenticated
   useEffect(() => {
@@ -67,6 +66,7 @@ export function useEvents(authState) {
 
   const isOnline = authState === 'ready';
 
+  // ── Events ─────────────────────────────────────────────────────────────────
   function addEvent(data) {
     const ev = { ...data, id: generateId() };
     setEvents(p => [...p, ev]);
@@ -83,11 +83,57 @@ export function useEvents(authState) {
     if (isOnline) api.events.delete(id).catch(console.warn);
   }
 
+  // ── Categories ─────────────────────────────────────────────────────────────
   function addCategory(cat) {
     const newCat = { ...cat, id: generateId() };
     setCustomCats(p => [...p, newCat]);
     if (isOnline) api.categories.create(newCat).catch(console.warn);
   }
 
-  return { ready, events, allCategories, addEvent, updateEvent, deleteEvent, addCategory };
+  function updateCategory(id, updates) {
+    // Could be a default (override) or custom
+    const isDefault = DEFAULT_CATEGORIES.some(dc => dc.id === id);
+    if (isDefault) {
+      setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), ...updates } }));
+    } else {
+      setCustomCats(p => p.map(c => c.id === id ? { ...c, ...updates } : c));
+    }
+    if (isOnline) api.categories.update(id, updates).catch(console.warn);
+  }
+
+  function deleteCategory(id) {
+    setCustomCats(p => p.filter(c => c.id !== id));
+    if (isOnline) api.categories.delete(id).catch(console.warn);
+  }
+
+  // ── Habits ─────────────────────────────────────────────────────────────────
+  function addHabit(data) {
+    setHabits(p => [...p, { ...data, id: generateId() }]);
+  }
+
+  function deleteHabit(id) {
+    setHabits(p => p.filter(h => h.id !== id));
+  }
+
+  // ── Linked Calendars ───────────────────────────────────────────────────────
+  function addLinkedCalendar(cal) {
+    const newCal = { ...cal, id: generateId(), importedAt: new Date().toLocaleDateString() };
+    setLinkedCals(p => [...p, newCal]);
+    if (isOnline) api.linkedCalendars.create(newCal).catch(console.warn);
+  }
+
+  function deleteLinkedCalendar(id) {
+    setLinkedCals(p => p.filter(c => c.id !== id));
+    // Also remove events from that source
+    setEvents(p => p.filter(e => e.source_calendar_id !== id));
+    if (isOnline) api.linkedCalendars.delete(id).catch(console.warn);
+  }
+
+  return {
+    ready, events, allCategories, habits, linkedCalendars,
+    addEvent, updateEvent, deleteEvent,
+    addCategory, updateCategory, deleteCategory,
+    addHabit, deleteHabit,
+    addLinkedCalendar, deleteLinkedCalendar,
+  };
 }
