@@ -1961,6 +1961,54 @@ export default function App() {
                                   .
                                 </p>
                               )}
+
+                              {/* ── Subscribe by URL ── */}
+                              <button
+                                type="button"
+                                onClick={() => setShowCalUrlForm(v => !v)}
+                                className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                              >
+                                🔗 Subscribe via URL
+                              </button>
+                              {showCalUrlForm && (
+                                <div className="px-1 pb-1 space-y-2">
+                                  <input
+                                    type="text"
+                                    value={calUrlName}
+                                    onChange={e => setCalUrlName(e.target.value)}
+                                    placeholder="Calendar name (optional)"
+                                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500"
+                                  />
+                                  <input
+                                    type="url"
+                                    value={calUrl}
+                                    onChange={e => setCalUrl(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') handleSubscribeCalendarUrl(); }}
+                                    placeholder="https://… or webcal://…"
+                                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500"
+                                  />
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={handleSubscribeCalendarUrl}
+                                      disabled={!calUrl.trim() || subscribing}
+                                      className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors"
+                                    >
+                                      {subscribing ? 'Subscribing…' : 'Subscribe'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => { setShowCalUrlForm(false); setCalUrl(''); setCalUrlName(''); }}
+                                      className="text-xs px-3 py-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    Paste any public ICS/iCal feed URL — Google Calendar, Outlook, Apple, sports schedules, holidays, etc.
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
