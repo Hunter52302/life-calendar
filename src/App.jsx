@@ -68,6 +68,7 @@ import DiffView from './views/DiffView';
 import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
+import TodoTutorialModal from './components/TodoTutorialModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
@@ -123,8 +124,10 @@ function Toggle({ checked, onChange }) {
 export default function App() {
   const { authState, setup, login, logout, continueOffline } = useAuth();
   const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
-  const [todoView,   setTodoView]     = useState(() => localStorage.getItem('lc-todo-view') || 'list');
-  const [todoFabOpen, setTodoFabOpen] = useState(false);
+  const [todoView,          setTodoView]          = useState(() => localStorage.getItem('lc-todo-view') || 'list');
+  const [autoHideCompleted, setAutoHideCompleted] = useState(() => localStorage.getItem('lc-auto-hide-completed') === 'true');
+  const [todoFabOpen,       setTodoFabOpen]       = useState(false);
+  const [showTodoTutorial,  setShowTodoTutorial]  = useState(false);
   const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
@@ -263,6 +266,7 @@ export default function App() {
   const diffStateRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
+  useEffect(() => { localStorage.setItem('lc-auto-hide-completed', String(autoHideCompleted)); }, [autoHideCompleted]);
   useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
   useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
@@ -717,6 +721,9 @@ export default function App() {
           onClose={() => setShowSearch(false)}
         />
       )}
+      {showTodoTutorial && (
+        <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
+      )}
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
       )}
@@ -936,13 +943,13 @@ export default function App() {
                                 <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
                               </label>
                             )}
-                            {sv(['military', 'time']) && (
+                            {activePage === 'calendar' && sv(['military', 'time']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
                                 <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
                               </label>
                             )}
-                            {sv(['week', 'numbers', 'month', 'view']) && (
+                            {activePage === 'calendar' && sv(['week', 'numbers', 'month', 'view']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
@@ -950,7 +957,7 @@ export default function App() {
                             )}
                             </div>
                             {/* ── Minimalist Mode ── */}
-                            {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
+                            {activePage === 'calendar' && sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
                               <div className="space-y-2">
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
                                   <div>
@@ -1085,8 +1092,8 @@ export default function App() {
                             )}
 
                             <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
-                            {/* ── Mobile default view ── */}
-                            {sv(['mobile', 'phone', 'default', 'view']) && (
+                            {/* ── Mobile default view (calendar only) ── */}
+                            {activePage === 'calendar' && sv(['mobile', 'phone', 'default', 'view']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Mobile default view</p>
                                 <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">What view opens first on phones</p>
@@ -1110,7 +1117,7 @@ export default function App() {
                             )}
 
                             {/* ── Floating Button Options ── */}
-                            {sv(['floating', 'button', 'drag', 'show']) && (
+                            {activePage === 'calendar' && sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Floating Button</p>
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
@@ -1136,7 +1143,7 @@ export default function App() {
                                 )}
                               </div>
                             )}
-                            {sv(['views', 'quarter', 'half', 'extra']) && (
+                            {activePage === 'calendar' && sv(['views', 'quarter', 'half', 'extra']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Extra views</p>
                                 {[{ id: 'quarter', label: 'Quarter view' }, { id: 'half', label: 'Half-year view' }].map(v => (
@@ -1152,14 +1159,46 @@ export default function App() {
                                 ))}
                               </div>
                             )}
+                            {/* ── To-Do View (todo page only) ── */}
+                            {activePage === 'todo' && sv(['todo', 'kanban', 'list', 'task', 'tasks', 'do it', 'completed', 'hide', 'auto']) && (
+                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">PLS Do It view</p>
+                                <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
+                                  {[{ id: 'list', label: 'List' }, { id: 'kanban', label: 'Kanban' }].map(v => (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => setTodoView(v.id)}
+                                      className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors ${
+                                        todoView === v.id
+                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {v.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setAutoHideCompleted(v => !v)}
+                                  className="flex items-center justify-between w-full py-0.5 group"
+                                >
+                                  <span className="text-xs text-gray-600 dark:text-gray-300 group-hover:text-gray-800 dark:group-hover:text-gray-100 transition-colors">Auto-hide completed tasks</span>
+                                  <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${autoHideCompleted ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${autoHideCompleted ? 'translate-x-4' : 'translate-x-0'}`} />
+                                  </span>
+                                </button>
+                              </div>
+                            )}
                             </div>{/* end other-settings wrapper */}
                           </div>
                         )}
                       </div>
                       )}
 
-                      {/* ── Search Options (collapsible) ── */}
-                      {sv(SECTION_KWS.search) && (
+                      {/* ── Search Options (collapsible, calendar only) ── */}
+                      {activePage === 'calendar' && sv(SECTION_KWS.search) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1258,7 +1297,7 @@ export default function App() {
                       )}
 
                       {/* ── Time Zones (collapsible) ── */}
-                      {sv(SECTION_KWS.timezone) && (
+                      {activePage === 'calendar' && sv(SECTION_KWS.timezone) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1385,7 +1424,7 @@ export default function App() {
                       )}
 
                       {/* ── Manage Categories (collapsible) ── */}
-                      {sv(SECTION_KWS.categories) && (
+                      {activePage === 'calendar' && sv(SECTION_KWS.categories) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1863,7 +1902,7 @@ export default function App() {
                       )}
 
                       {/* ── Connected Calendars (collapsible) ── */}
-                      {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
+                      {activePage === 'calendar' && (activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
                           <button
                             type="button"
@@ -2342,7 +2381,7 @@ export default function App() {
                       const legacyPlan = events.filter(e => e.calendar === 'plan' && !e.source_calendar_id && e.source !== 'manual').length;
                       const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
                       const hasAny = linkedCalendars.length > 0 || legacyPlan > 0 || legacyActual > 0;
-                      if (!hasAny || !sv(SECTION_KWS.linked)) return null;
+                      if (activePage !== 'calendar' || !hasAny || !sv(SECTION_KWS.linked)) return null;
                       return (
                         <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
                           <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
@@ -2491,19 +2530,33 @@ export default function App() {
                       );
                     })()}
 
-                      {/* ── Tutorial ── */}
+                      {/* ── Tutorial (page-specific) ── */}
                       <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
-                        <button
-                          type="button"
-                          onClick={() => { setShowSettings(false); setShowTutorial(true); }}
-                          className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                        >
-                          <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                          </svg>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tutorial</span>
-                          <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
-                        </button>
+                        {activePage === 'calendar' ? (
+                          <button
+                            type="button"
+                            onClick={() => { setShowSettings(false); setShowTutorial(true); }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Calendar Tutorial</span>
+                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setShowSettings(false); setShowTodoTutorial(true); }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Do It Tutorial</span>
+                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">6 steps</span>
+                          </button>
+                        )}
                       </div>
                   </div>
                 </>
