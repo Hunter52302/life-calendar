@@ -8,6 +8,7 @@ const CATS_KEY    = 'lc-m-categories';
 const OVRS_KEY    = 'lc-m-overrides';
 const HABITS_KEY  = 'lc-m-habits';
 const LINKED_KEY  = 'lc-m-linked';
+const TASKS_KEY   = 'lc-m-tasks';
 
 async function asyncLoad(key, fallback) {
   try {
@@ -23,6 +24,7 @@ export function useEvents(authState) {
   const [overrides, setOverrides]           = useState({});
   const [habits, setHabits]                 = useState([]);
   const [linkedCalendars, setLinkedCals]    = useState([]);
+  const [tasks, setTasks]                   = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -31,12 +33,14 @@ export function useEvents(authState) {
       asyncLoad(OVRS_KEY,    {}),
       asyncLoad(HABITS_KEY,  []),
       asyncLoad(LINKED_KEY,  []),
-    ]).then(([e, c, o, h, l]) => {
+      asyncLoad(TASKS_KEY,   []),
+    ]).then(([e, c, o, h, l, t]) => {
       setEvents(e);
       setCustomCats(c);
       setOverrides(o);
       setHabits(h);
       setLinkedCals(l);
+      setTasks(t);
       setReady(true);
     });
   }, []);
@@ -46,6 +50,7 @@ export function useEvents(authState) {
   useEffect(() => { if (ready) AsyncStorage.setItem(OVRS_KEY,    JSON.stringify(overrides)).catch(() => {}); },    [overrides, ready]);
   useEffect(() => { if (ready) AsyncStorage.setItem(HABITS_KEY,  JSON.stringify(habits)).catch(() => {}); },       [habits, ready]);
   useEffect(() => { if (ready) AsyncStorage.setItem(LINKED_KEY,  JSON.stringify(linkedCalendars)).catch(() => {}); }, [linkedCalendars, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(TASKS_KEY,   JSON.stringify(tasks)).catch(() => {}); },        [tasks, ready]);
 
   // Sync from backend when authenticated
   useEffect(() => {
@@ -115,6 +120,29 @@ export function useEvents(authState) {
     setHabits(p => p.filter(h => h.id !== id));
   }
 
+  // ── Tasks ──────────────────────────────────────────────────────────────────
+  function addTask(data) {
+    const today = new Date().toISOString().slice(0, 10);
+    const task = { id: generateId(), title: '', status: 'pending', priority: 'medium', due_date: today, kanban_column: 'todo', sort_order: Date.now(), ...data };
+    setTasks(p => [...p, task]);
+  }
+
+  function updateTask(id, updates) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, ...updates } : t));
+  }
+
+  function deleteTask(id) {
+    setTasks(p => p.filter(t => t.id !== id));
+  }
+
+  function completeTask(id) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'completed', completed_at: Date.now(), kanban_column: 'done' } : t));
+  }
+
+  function uncompleteTask(id) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'pending', completed_at: null, kanban_column: 'todo' } : t));
+  }
+
   // ── Linked Calendars ───────────────────────────────────────────────────────
   function addLinkedCalendar(cal) {
     const newCal = { ...cal, id: generateId(), importedAt: new Date().toLocaleDateString() };
@@ -130,10 +158,11 @@ export function useEvents(authState) {
   }
 
   return {
-    ready, events, allCategories, habits, linkedCalendars,
+    ready, events, allCategories, habits, linkedCalendars, tasks,
     addEvent, updateEvent, deleteEvent,
     addCategory, updateCategory, deleteCategory,
     addHabit, deleteHabit,
     addLinkedCalendar, deleteLinkedCalendar,
+    addTask, updateTask, deleteTask, completeTask, uncompleteTask,
   };
 }

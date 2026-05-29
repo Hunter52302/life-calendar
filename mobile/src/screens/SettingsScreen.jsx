@@ -1,12 +1,17 @@
 import { useContext, useState, useEffect, useRef } from 'react';
 import {
   View, Text, Pressable, ScrollView, StyleSheet, Switch, Alert,
-  TextInput, Modal, FlatList,
+  TextInput, Modal, FlatList, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { AppContext } from '../context/AppContext.js';
 import { generateId } from '../lib/utils.js';
+
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+const ADMIN_TOKEN_KEY = 'lc-admin-token'; // sessionStorage not available on RN — use module var
+let _adminToken = null;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +112,16 @@ const TUTORIAL_STEPS = [
     icon: 'timer-outline',
     title: 'Time Budgets',
     body: 'Set weekly hour targets per category in Settings → Time Budgets. They appear as progress bars in See Your Life so you know when you\'re over or under.',
+  },
+  {
+    icon: 'person-circle-outline',
+    title: 'Your Account',
+    body: 'Set a password the first time you launch the app to enable cross-device sync. Without a password your data stays local. You can always continue offline.',
+  },
+  {
+    icon: 'phone-portrait-outline',
+    title: 'Install the App',
+    body: 'Already installed! On other devices you can add the web version to your home screen as a PWA — open it in Safari or Chrome and tap "Add to Home Screen".',
   },
   {
     icon: 'settings-outline',
@@ -255,12 +270,21 @@ function ProfileField({ label, value, onSave, placeholder, T, last }) {
   );
 }
 
+const TODO_TUTORIAL_STEPS = [
+  { icon: 'checkmark-circle-outline', title: 'Welcome to PLS Do It', body: 'PLS Do It is your personal task list. Add tasks, set priorities and due dates, and check them off as you go.' },
+  { icon: 'add-circle-outline',       title: 'Adding Tasks',         body: 'Tap the + button or the FAB in the bottom-right to add a new task. Give it a title — due date and priority are optional.' },
+  { icon: 'checkbox-outline',         title: 'Completing Tasks',     body: 'Tap the circle on the left of any task to mark it done. Completed tasks collapse into a toggle at the bottom.' },
+  { icon: 'create-outline',           title: 'Editing Details',      body: 'Tap a task title to expand it. You can change the title, set a due date, pick a priority, and choose a color label.' },
+  { icon: 'alert-circle-outline',     title: 'Overdue Rollover',     body: 'Tasks from past days that are still pending automatically appear in the Overdue section so nothing slips through.' },
+  { icon: 'settings-outline',         title: 'Settings',             body: 'In Settings → Habit Tracker you can manage your habits. The Tutorial button always brings you back here.' },
+];
+
 // ── Tutorial Modal ─────────────────────────────────────────────────────────────
 
-function TutorialModal({ visible, onClose, T }) {
+function TutorialModal({ visible, onClose, steps = TUTORIAL_STEPS, T }) {
   const [step, setStep] = useState(0);
-  const total = TUTORIAL_STEPS.length;
-  const current = TUTORIAL_STEPS[step];
+  const total = steps.length;
+  const current = steps[step];
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -575,14 +599,90 @@ export default function SettingsScreen() {
     profile,             setProfile,
   } = useContext(AppContext);
 
+  const navigation = useNavigation();
   const [query,           setQuery]           = useState('');
   const [showTutorial,    setShowTutorial]    = useState(false);
+  const [showTodoTutorial, setShowTodoTutorial] = useState(false);
   const [tzPickerOpen,    setTzPickerOpen]    = useState(false);
   const [addIntOpen,      setAddIntOpen]      = useState(false);
   const [addAddrOpen,     setAddAddrOpen]     = useState(false);
   const [addPhoneOpen,    setAddPhoneOpen]    = useState(false);
   const [addCalOpen,      setAddCalOpen]      = useState(false);
   const [pendingDelCal,   setPendingDelCal]   = useState(null);
+
+  // Habit add form state
+  const HABIT_COLORS = ['#7C3AED','#3B82F6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#F97316'];
+  const [addingHabit,     setAddingHabit]     = useState(false);
+  const [habitLabel,      setHabitLabel]      = useState('');
+  const [habitColor,      setHabitColor]      = useState('#7C3AED');
+  const [habitFreqKey,    setHabitFreqKey]    = useState('daily');
+  const HABIT_FREQS = [
+    { key: 'daily',    label: 'Daily',    days: [0,1,2,3,4,5,6] },
+    { key: 'weekdays', label: 'Weekdays', days: [1,2,3,4,5] },
+    { key: 'weekends', label: 'Weekends', days: [0,6] },
+  ];
+
+  function submitHabit() {
+    if (!habitLabel.trim()) return;
+    const freq = HABIT_FREQS.find(f => f.key === habitFreqKey);
+    events.addHabit({ label: habitLabel.trim(), color: habitColor, target_days: freq.days });
+    setHabitLabel(''); setHabitColor('#7C3AED'); setHabitFreqKey('daily'); setAddingHabit(false);
+  }
+
+  // No Touchy admin state
+  const [noTouchyOpen,    setNoTouchyOpen]    = useState(false);
+  const [adminAuthed,     setAdminAuthed]     = useState(false);
+  const [adminPwDraft,    setAdminPwDraft]    = useState('');
+  const [adminAuthErr,    setAdminAuthErr]    = useState('');
+  const [adminAuthing,    setAdminAuthing]    = useState(false);
+  const [secrets,         setSecrets]         = useState([]);
+  const [secretsLoading,  setSecretsLoading]  = useState(false);
+
+  async function adminFetch(method, path, body) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', ...((_adminToken) ? { Authorization: `Bearer ${_adminToken}` } : {}) },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    if (res.status === 401 || res.status === 403) { _adminToken = null; setAdminAuthed(false); throw new Error('Session expired'); }
+    if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error ?? `${method} ${path} → ${res.status}`); }
+    return res.json();
+  }
+
+  async function handleAdminAuth() {
+    setAdminAuthing(true); setAdminAuthErr('');
+    try {
+      // Use regular user token for initial auth endpoint
+      const authRes = await fetch(`${BASE_URL}/admin/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(events.authToken ? { Authorization: `Bearer ${events.authToken}` } : {}) },
+        body: JSON.stringify({ password: adminPwDraft }),
+      });
+      if (!authRes.ok) { const j = await authRes.json().catch(() => ({})); throw new Error(j.error ?? 'Wrong password'); }
+      const { token } = await authRes.json();
+      _adminToken = token;
+      setAdminAuthed(true); setAdminPwDraft('');
+      loadSecrets();
+    } catch (e) { setAdminAuthErr(e.message); }
+    finally { setAdminAuthing(false); }
+  }
+
+  async function loadSecrets() {
+    setSecretsLoading(true);
+    try { setSecrets(await adminFetch('GET', '/admin/secrets')); }
+    catch { setSecrets([]); }
+    finally { setSecretsLoading(false); }
+  }
+
+  async function handleDeleteSecret(key) {
+    Alert.alert('Delete secret', `Remove "${key}" from the registry?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try { await adminFetch('DELETE', `/admin/secrets/${key}`); loadSecrets(); }
+        catch (e) { Alert.alert('Error', e.message); }
+      }},
+    ]);
+  }
 
   // Category management state
   const [editingCatId,     setEditingCatId]     = useState(null);
@@ -1042,11 +1142,18 @@ export default function SettingsScreen() {
         {matches('habit', 'habits', 'daily', 'tracker', 'routine') && (
           <Section title="Habit Tracker" icon="checkmark-circle-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
             <View style={s.habitSection}>
-              <Text style={[s.rowSub, { color: T.textFaint, marginBottom: 8 }]}>
-                Add and check off habits in the See Your Life tab. Manage them here.
-              </Text>
+              {/* Link to See Your Life tab */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 }}>
+                <Text style={[s.rowSub, { color: T.textFaint }]}>Check off habits in the </Text>
+                <Pressable onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'See Your Life' }))}>
+                  <Text style={[s.rowSub, { color: T.accent, fontWeight: '600' }]}>See Your Life</Text>
+                </Pressable>
+                <Text style={[s.rowSub, { color: T.textFaint }]}> tab.</Text>
+              </View>
+
+              {/* Habit list */}
               {events.habits.length === 0 ? (
-                <Text style={[s.emptyText, { color: T.textFaint }]}>No habits yet. Add them in the See Your Life tab.</Text>
+                <Text style={[s.emptyText, { color: T.textFaint }]}>No habits yet.</Text>
               ) : (
                 events.habits.map((habit, i) => (
                   <View key={habit.id}>
@@ -1061,6 +1168,55 @@ export default function SettingsScreen() {
                     {i < events.habits.length - 1 && <Divider T={T} />}
                   </View>
                 ))
+              )}
+
+              {/* Add habit form */}
+              {addingHabit ? (
+                <View style={[s.addHabitForm, { borderColor: T.accent, backgroundColor: T.surface }]}>
+                  <TextInput
+                    autoFocus
+                    value={habitLabel}
+                    onChangeText={setHabitLabel}
+                    onSubmitEditing={submitHabit}
+                    placeholder="Habit name…"
+                    placeholderTextColor={T.placeholder}
+                    style={[s.addHabitInput, { color: T.text, borderBottomColor: T.border }]}
+                    returnKeyType="done"
+                  />
+                  {/* Color picker */}
+                  <View style={s.habitColorRow}>
+                    {HABIT_COLORS.map(c => (
+                      <Pressable key={c} onPress={() => setHabitColor(c)}
+                        style={[s.habitColorDot, { backgroundColor: c,
+                          borderWidth: habitColor === c ? 2.5 : 0,
+                          borderColor: c, opacity: habitColor === c ? 1 : 0.7,
+                          transform: [{ scale: habitColor === c ? 1.2 : 1 }] }]}
+                      />
+                    ))}
+                  </View>
+                  {/* Frequency */}
+                  <View style={s.habitFreqRow}>
+                    {HABIT_FREQS.map(opt => (
+                      <Pressable key={opt.key} onPress={() => setHabitFreqKey(opt.key)}
+                        style={[s.habitFreqBtn, { backgroundColor: habitFreqKey === opt.key ? T.accent : T.inputBg, borderColor: T.border }]}>
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: habitFreqKey === opt.key ? '#fff' : T.textMuted }}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                    <Pressable style={[s.addTzBtn, { flex: 1, justifyContent: 'center', opacity: habitLabel.trim() ? 1 : 0.4 }]} onPress={submitHabit} disabled={!habitLabel.trim()}>
+                      <Text style={{ color: T.accent, fontSize: 13, fontWeight: '600' }}>Add Habit</Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setAddingHabit(false); setHabitLabel(''); }} style={[s.addTzBtn, { borderColor: T.border }]}>
+                      <Text style={{ color: T.textMuted, fontSize: 13 }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Pressable style={[s.addTzBtn, { marginTop: 8 }]} onPress={() => setAddingHabit(true)}>
+                  <Ionicons name="add" size={16} color={T.accent} />
+                  <Text style={{ color: T.accent, fontSize: 13, fontWeight: '600', marginLeft: 4 }}>Add habit</Text>
+                </Pressable>
               )}
             </View>
           </Section>
@@ -1300,6 +1456,83 @@ export default function SettingsScreen() {
           </Section>
         )}
 
+        {/* ── No Touchy (Admin Secrets) ── */}
+        {matches('no touchy', 'admin', 'secrets', 'api key', 'infisical', 'vault', 'credentials', 'token') && (
+          <Section title="🔑 No Touchy" icon="key-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
+            <View style={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+              {!adminAuthed ? (
+                // ── Password gate ──
+                <View style={{ gap: 8 }}>
+                  <Text style={[s.rowSub, { color: T.textFaint }]}>Enter your admin password to manage API keys and secrets.</Text>
+                  <TextInput
+                    value={adminPwDraft}
+                    onChangeText={setAdminPwDraft}
+                    onSubmitEditing={handleAdminAuth}
+                    placeholder="Admin password…"
+                    placeholderTextColor={T.placeholder}
+                    secureTextEntry
+                    returnKeyType="go"
+                    style={[s.profileInput, { color: T.text, borderColor: T.inputBorder, backgroundColor: T.inputBg }]}
+                  />
+                  {adminAuthErr ? <Text style={{ color: T.danger, fontSize: 12 }}>{adminAuthErr}</Text> : null}
+                  <Pressable
+                    style={[s.addTzBtn, { opacity: adminPwDraft && !adminAuthing ? 1 : 0.4 }]}
+                    onPress={handleAdminAuth}
+                    disabled={!adminPwDraft || adminAuthing}
+                  >
+                    {adminAuthing
+                      ? <ActivityIndicator size="small" color={T.accent} />
+                      : <Text style={{ color: T.accent, fontWeight: '600', fontSize: 13 }}>Unlock</Text>
+                    }
+                  </Pressable>
+                </View>
+              ) : (
+                // ── Secret list ──
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={[s.rowSub, { color: T.textFaint }]}>{secrets.length} secret{secrets.length !== 1 ? 's' : ''} registered</Text>
+                    <Pressable onPress={() => { _adminToken = null; setAdminAuthed(false); setSecrets([]); }}>
+                      <Text style={{ color: T.danger, fontSize: 12, fontWeight: '600' }}>Lock</Text>
+                    </Pressable>
+                  </View>
+                  {secretsLoading ? (
+                    <ActivityIndicator color={T.accent} style={{ marginVertical: 8 }} />
+                  ) : secrets.length === 0 ? (
+                    <Text style={[s.emptyText, { color: T.textFaint }]}>No secrets registered yet.</Text>
+                  ) : (
+                    secrets.map((sec, i) => (
+                      <View key={sec.key_name}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 10 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: T.text }}>{sec.key_name}</Text>
+                            <Text style={{ fontSize: 11, color: T.textFaint }}>{sec.service_name}{sec.description ? ` · ${sec.description}` : ''}</Text>
+                            {sec.expires_at && (
+                              <Text style={{ fontSize: 10, color: T.danger }}>Expires {new Date(sec.expires_at * 1000).toLocaleDateString()}</Text>
+                            )}
+                          </View>
+                          {sec.infisical_managed ? (
+                            <View style={{ backgroundColor: T.accentLight, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ fontSize: 10, color: T.accent, fontWeight: '600' }}>Infisical</Text>
+                            </View>
+                          ) : null}
+                          <Pressable hitSlop={8} onPress={() => handleDeleteSecret(sec.key_name)}>
+                            <Ionicons name="trash-outline" size={16} color={T.danger} />
+                          </Pressable>
+                        </View>
+                        {i < secrets.length - 1 && <Divider T={T} />}
+                      </View>
+                    ))
+                  )}
+                  <Pressable style={[s.addTzBtn, { marginTop: 4 }]} onPress={loadSecrets}>
+                    <Ionicons name="refresh-outline" size={14} color={T.accent} />
+                    <Text style={{ color: T.accent, fontSize: 13, fontWeight: '600', marginLeft: 4 }}>Refresh</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          </Section>
+        )}
+
         {/* ── Tutorial ── */}
         {matches('tutorial', 'help', 'guide', 'walkthrough', 'get started', 'how') && (
           <Section title="Tutorial" icon="book-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
@@ -1308,8 +1541,18 @@ export default function SettingsScreen() {
                 <Ionicons name="play" size={14} color={T.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.rowTitle, { color: T.text }]}>Start Tutorial</Text>
-                <Text style={[s.rowSub, { color: T.textFaint }]}>8-step walkthrough of the app</Text>
+                <Text style={[s.rowTitle, { color: T.text }]}>PLS Calendar Tutorial</Text>
+                <Text style={[s.rowSub, { color: T.textFaint }]}>10-step walkthrough of the app</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
+            </Pressable>
+            <Pressable style={s.tutRow} onPress={() => setShowTodoTutorial(true)}>
+              <View style={[s.tutIconSmall, { backgroundColor: '#EFF6FF' }]}>
+                <Ionicons name="play" size={14} color="#3B82F6" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.rowTitle, { color: T.text }]}>PLS Do It Tutorial</Text>
+                <Text style={[s.rowSub, { color: T.textFaint }]}>6-step tour of the task list</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
             </Pressable>
@@ -1325,6 +1568,7 @@ export default function SettingsScreen() {
 
       {/* ── Modals ── */}
       <TutorialModal visible={showTutorial} onClose={() => setShowTutorial(false)} T={T} />
+      <TutorialModal visible={showTodoTutorial} steps={TODO_TUTORIAL_STEPS} onClose={() => setShowTodoTutorial(false)} T={T} />
 
       <TzPickerModal
         visible={tzPickerOpen}
@@ -1457,6 +1701,12 @@ const s = StyleSheet.create({
   habitRow:         { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, gap: 10 },
   habitFreq:        { fontSize: 12, marginRight: 4 },
   emptyText:        { fontSize: 13, fontStyle: 'italic', paddingVertical: 8 },
+  addHabitForm:     { marginTop: 10, borderRadius: 12, borderWidth: 1, padding: 12, gap: 10 },
+  addHabitInput:    { fontSize: 14, fontWeight: '500', borderBottomWidth: 1, paddingBottom: 6, marginBottom: 2 },
+  habitColorRow:    { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  habitColorDot:    { width: 24, height: 24, borderRadius: 12 },
+  habitFreqRow:     { flexDirection: 'row', gap: 6 },
+  habitFreqBtn:     { flex: 1, paddingVertical: 6, borderRadius: 8, borderWidth: 1, alignItems: 'center' },
 
   // Integrations
   integSection:     { paddingHorizontal: 16, paddingVertical: 12 },

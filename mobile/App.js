@@ -16,6 +16,7 @@ import AuthScreen    from './src/screens/AuthScreen.jsx';
 import PlanScreen    from './src/screens/PlanScreen.jsx';
 import LiveScreen    from './src/screens/LiveScreen.jsx';
 import RealityScreen from './src/screens/RealityScreen.jsx';
+import TodoScreen    from './src/screens/TodoScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
 
 const Tab = createBottomTabNavigator();
@@ -24,6 +25,7 @@ const TAB_ICONS = {
   Plan:            'calendar-outline',
   Live:            'time-outline',
   'See Your Life': 'bar-chart-outline',
+  'PLS Do It':     'checkmark-circle-outline',
   Settings:        'settings-outline',
 };
 
@@ -186,10 +188,11 @@ export default function App() {
               tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
             })}
           >
-            <Tab.Screen name="Plan"     component={PlanScreen} />
+            <Tab.Screen name="Plan"         component={PlanScreen} />
             {effShowLiveTab    && <Tab.Screen name="Live"          component={LiveScreen} />}
             {effShowRealityTab && <Tab.Screen name="See Your Life" component={RealityScreen} />}
-            <Tab.Screen name="Settings" component={SettingsScreen} />
+            <Tab.Screen name="PLS Do It"   component={TodoScreen} />
+            <Tab.Screen name="Settings"    component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
         <StatusBar style={darkMode ? 'light' : 'dark'} />
