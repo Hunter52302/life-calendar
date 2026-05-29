@@ -10,7 +10,7 @@
 
     "beforeDevCommand": "npm run dev",
 
-    "beforeBuildCommand": "VITE_API_URL=http://localhost:3001/api npm run build"
+    "beforeBuildCommand": "npm run build"
   },
 
   "app": {
