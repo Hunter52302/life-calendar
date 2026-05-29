@@ -52,6 +52,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_API_URL: '/api'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'PLS Calendar ${{ github.ref_name }}'
@@ -64,6 +66,10 @@ jobs:
             | Linux    | `pls-calendar_amd64.deb` or `pls-calendar_amd64.AppImage` |
 
             macOS support coming soon.
+
+            ---
+            *Existing installs will be notified automatically and can update in one click.*
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          updaterJsonKeepUniversal: true

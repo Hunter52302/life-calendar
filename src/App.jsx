@@ -77,6 +77,7 @@ import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
 import { useTasks } from './hooks/useTasks';
 import InstallPrompt from './components/InstallPrompt';
+import UpdateBanner from './components/UpdateBanner';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -2850,6 +2851,7 @@ export default function App() {
 
         {/* Install prompt — "Add to Home Screen" banner */}
         <InstallPrompt />
+        <UpdateBanner />
 
         {/* Floating quick-add button — todo page */}
         {activePage === 'todo' && todoView === 'list' && (
