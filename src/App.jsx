@@ -2753,6 +2753,64 @@ export default function App() {
                           </button>
                         )}
                       </div>
+
+                      {/* ── About ── */}
+                      <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-800">
+                        <div className="px-2 py-3 space-y-2">
+                          {/* App identity */}
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">PLS Calendar</p>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">
+                                v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
+                                {' · '}
+                                {typeof window.__TAURI__ !== 'undefined'
+                                  ? '🖥 Desktop'
+                                  : window.matchMedia('(display-mode: standalone)').matches
+                                    ? '📱 PWA'
+                                    : '🌐 Web'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Info rows */}
+                          <div className="space-y-1 pl-0.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500">Build</span>
+                              <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
+                                v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500">Platform</span>
+                              <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                {typeof window.__TAURI__ !== 'undefined' ? 'Tauri Desktop' : 'Web / PWA'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500">Source</span>
+                              <a
+                                href="https://github.com/Hunter52302/life-calendar"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline"
+                              >
+                                GitHub →
+                              </a>
+                            </div>
+                          </div>
+
+                          <p className="text-[10px] text-gray-300 dark:text-gray-700 text-center pt-1">
+                            © {new Date().getFullYear()} PLS Calendar
+                          </p>
+                        </div>
+                      </div>
+
                   </div>
                 </>
               )}
