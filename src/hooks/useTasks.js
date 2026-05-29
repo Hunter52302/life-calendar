@@ -104,11 +104,13 @@ export function useTasks(authState) {
   }
 
   function completeTask(id) {
-    updateTask(id, { status: 'completed' });
+    // Also move to Done column so kanban stays in sync
+    updateTask(id, { status: 'completed', kanban_column: 'done' });
   }
 
   function uncompleteTask(id) {
-    updateTask(id, { status: 'pending' });
+    // Move back to To Do column when unchecked
+    updateTask(id, { status: 'pending', kanban_column: 'todo' });
   }
 
   /** Move a task to a different Kanban column */

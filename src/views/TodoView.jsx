@@ -169,6 +169,8 @@ export default function TodoView({
   tasks,
   todoView = 'list',
   autoHideCompleted = false,
+  kanbanColumns = [],
+  kanbanDragDrop = true,
   fabOpen = false,
   onFabClose,
   onAddTask,
@@ -268,6 +270,8 @@ export default function TodoView({
         <div className="flex-1 overflow-hidden p-4">
           <KanbanBoard
             tasks={tasks}
+            columns={kanbanColumns.filter(c => c.visible)}
+            dragEnabled={kanbanDragDrop}
             onComplete={onCompleteTask}
             onUncomplete={onUncompleteTask}
             onUpdate={onUpdateTask}
