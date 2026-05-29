@@ -155,6 +155,7 @@ export default function App() {
   const [subscribing, setSubscribing] = useState(false);
   const [accountOpen,    setAccountOpen]    = useState(false);
   const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
+  const [downloadOpen,   setDownloadOpen]   = useState(false);
   const [showDownload,   setShowDownload]   = useState(false);
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
@@ -2669,17 +2670,39 @@ export default function App() {
 
                       {/* ── Download Desktop App ── */}
                       {sv(['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native']) && (
-                        <button
-                          type="button"
-                          onClick={() => { setShowSettings(false); setShowDownload(true); }}
-                          className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                        >
-                          <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Download Desktop App</span>
-                          <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">Windows · Linux · Mac</span>
-                        </button>
+                        <div className="rounded-lg overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setDownloadOpen(v => !v)}
+                            className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">⬇ Download Desktop App</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{downloadOpen ? '▲' : '▼'}</span>
+                          </button>
+                          {downloadOpen && (
+                            <div className="px-2 pb-2 space-y-0.5">
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug px-1 mb-1.5">
+                                Native desktop builds for Windows, Linux, and macOS.
+                              </p>
+                              {[
+                                { label: 'Windows (.exe)', platform: 'windows', icon: '🪟' },
+                                { label: 'Linux (.deb)',   platform: 'linux',   icon: '🐧' },
+                                { label: 'Linux (.AppImage)', platform: 'linux-appimage', icon: '🐧' },
+                                { label: 'macOS (.dmg)',   platform: 'mac',     icon: '🍎' },
+                              ].map(({ label, icon }) => (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => { setDownloadOpen(false); setShowSettings(false); setShowDownload(true); }}
+                                  className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                                >
+                                  <span>{icon}</span>
+                                  <span>{label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
 
                       {/* ── No Touchy (Admin Secrets) ── */}
