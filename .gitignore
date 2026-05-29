@@ -36,7 +36,7 @@ dist-ssr
 data/
 .env
 
-# Mobile app
+# Mobile app (Expo)
 mobile/.env
 mobile/.env.local
 mobile/node_modules/
@@ -45,3 +45,11 @@ mobile/dist/
 
 # Shared package build artifacts
 shared/dist/
+
+# Capacitor native projects
+# These are generated from `npm run cap:sync` — don't commit them.
+# Uncomment if you want to commit the native projects for CI/CD:
+# !ios
+# !android
+ios/
+android/
