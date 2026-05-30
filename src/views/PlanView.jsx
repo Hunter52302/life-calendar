@@ -51,12 +51,11 @@ export default function PlanView({
       return;
     }
     if (view === 'day') {
-      const d = new Date(weekStart + 'T00:00:00');
-      d.setDate(d.getDate() + dir);
-      const newDate = d.toISOString().slice(0, 10);
-      // Navigate to the week containing the new date and set active day
-      onNavigateToDate?.(newDate);
-      setActiveDay(d.getDay());
+      // Start from the ACTIVE day, not weekStart (weekStart is the Sunday anchor)
+      const activeDate = new Date(weekStart + 'T00:00:00');
+      activeDate.setDate(activeDate.getDate() + activeDay + dir);
+      onNavigateToDate?.(activeDate.toISOString().slice(0, 10));
+      setActiveDay(activeDate.getDay());
       return;
     }
     setViewDate(prev => {
