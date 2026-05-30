@@ -72,65 +72,9 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      # Save sig files as artifacts so the manifest job can read them reliably
-      - name: Save Linux sig files as artifact
+      # Generate latest.json right in the Linux job where the sig files are available
+      - name: Generate and upload latest.json (Linux)
         if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          mkdir -p /tmp/sigs
-          find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" -exec cp {} /tmp/sigs/ \; 2>/dev/null || true
-          find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz" -exec cp {} /tmp/sigs/ \; 2>/dev/null || true
-          ls -la /tmp/sigs/ || true
-        shell: bash
-
-      - name: Upload Linux sig artifact
-        if: matrix.platform == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-sigs
-          path: /tmp/sigs/
-          if-no-files-found: warn
-
-      - name: Save Windows sig files as artifact
-        if: matrix.platform == 'windows-latest'
-        continue-on-error: true
-        shell: bash
-        run: |
-          mkdir -p /tmp/winsigs
-          find src-tauri/target/release/bundle -name "*.sig" -exec cp {} /tmp/winsigs/ \; 2>/dev/null || true
-          ls -la /tmp/winsigs/ || true
-
-      - name: Upload Windows sig artifact
-        if: matrix.platform == 'windows-latest'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-sigs
-          path: /tmp/winsigs/
-          if-no-files-found: warn
-
-  # After builds, generate latest.json from artifacts and publish release
-  create-updater-manifest:
-    needs: build
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Linux sigs
-        uses: actions/download-artifact@v4
-        with:
-          name: linux-sigs
-          path: /tmp/linux-sigs
-        continue-on-error: true
-
-      - name: Download Windows sigs
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-sigs
-          path: /tmp/windows-sigs
-        continue-on-error: true
-
-      - name: Generate latest.json and publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -139,60 +83,59 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           BASE="https://github.com/Hunter52302/life-calendar/releases/download/${TAG}"
 
-          echo "=== Linux sig files ==="
-          ls -la /tmp/linux-sigs/ 2>/dev/null || echo "(none)"
-          echo "=== Windows sig files ==="
-          ls -la /tmp/windows-sigs/ 2>/dev/null || echo "(none)"
+          echo "=== Searching for AppImage sig files ==="
+          find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null
 
-          # Find assets in the release
-          WIN_EXE=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '.assets[].name' | grep "x64-setup.exe$" | head -1)
+          # Read sig content — handles spaces in filenames safely
+          SIG_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null | head -1)
+          TGZ_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz" ! -name "*.sig" 2>/dev/null | head -1)
 
-          # Build platforms JSON
-          PLATFORMS="{}"
-
-          # Linux — find the AppImage tar.gz sig
-          LINUX_SIG_FILE=$(ls /tmp/linux-sigs/*.AppImage.tar.gz.sig 2>/dev/null | head -1)
-          LINUX_TGZ_FILE=$(ls /tmp/linux-sigs/*.AppImage.tar.gz 2>/dev/null | grep -v ".sig" | head -1)
-          if [ -n "$LINUX_SIG_FILE" ] && [ -n "$LINUX_TGZ_FILE" ]; then
-            LINUX_SIG=$(cat "$LINUX_SIG_FILE")
-            TGZ_NAME=$(basename "$LINUX_TGZ_FILE")
-            # Upload the tar.gz to the release
-            gh release upload "$TAG" "$LINUX_TGZ_FILE" --clobber --repo Hunter52302/life-calendar || true
-            PLATFORMS=$(echo "$PLATFORMS" | jq \
-              --arg url "$BASE/$TGZ_NAME" \
-              --arg sig "$LINUX_SIG" \
-              '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
-            echo "Added linux-x86_64 platform"
-          else
-            echo "WARNING: Linux sig/tar.gz not found"
+          if [ -z "$SIG_FILE" ] || [ -z "$TGZ_FILE" ]; then
+            echo "ERROR: Could not find AppImage.tar.gz or its .sig file"
+            exit 0
           fi
 
-          # Windows — find the exe sig
-          WIN_SIG_FILE=$(ls /tmp/windows-sigs/*.exe.sig 2>/dev/null | head -1)
-          if [ -n "$WIN_SIG_FILE" ] && [ -n "$WIN_EXE" ]; then
-            WIN_SIG=$(cat "$WIN_SIG_FILE")
-            PLATFORMS=$(echo "$PLATFORMS" | jq \
-              --arg url "$BASE/$WIN_EXE" \
-              --arg sig "$WIN_SIG" \
-              '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
-            echo "Added windows-x86_64 platform"
-          else
-            echo "WARNING: Windows sig not found"
-          fi
+          SIG_CONTENT=$(cat "$SIG_FILE")
+          TGZ_NAME=$(basename "$TGZ_FILE")
 
-          # Write and upload latest.json
-          echo "{
-            \"version\": \"${VERSION}\",
-            \"notes\": \"See the GitHub releases page for what's new.\",
-            \"pub_date\": \"${DATE}\",
-            \"platforms\": $PLATFORMS
-          }" | jq . > latest.json
+          echo "Found sig: $SIG_FILE"
+          echo "Found tar.gz: $TGZ_FILE"
+          echo "Sig content (first 40 chars): ${SIG_CONTENT:0:40}"
 
-          echo "=== Generated latest.json ==="
-          cat latest.json
+          # Upload the AppImage.tar.gz to the release (needed for the updater download)
+          echo "Uploading $TGZ_NAME to release..."
+          gh release upload "$TAG" "$TGZ_FILE" --clobber --repo Hunter52302/life-calendar
 
+          # Build latest.json with Linux platform
+          node -e "
+            const fs = require('fs');
+            const json = {
+              version: '$VERSION',
+              notes: 'See the GitHub releases page for what is new.',
+              pub_date: '$DATE',
+              platforms: {
+                'linux-x86_64': {
+                  url: '$BASE/$TGZ_NAME',
+                  signature: fs.readFileSync('$SIG_FILE', 'utf8').trim()
+                }
+              }
+            };
+            fs.writeFileSync('latest.json', JSON.stringify(json, null, 2));
+            console.log('Generated latest.json:');
+            console.log(JSON.stringify(json, null, 2));
+          "
+
+          # Upload latest.json
           gh release upload "$TAG" latest.json --clobber --repo Hunter52302/life-calendar
+          echo "Uploaded latest.json"
 
-          # Publish the release
-          gh release edit "$TAG" --draft=false --repo Hunter52302/life-calendar
-          echo "Release $TAG published"
+      # Publish the release after both jobs finish
+      - name: Publish release (Linux only — runs after both jobs)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Wait a bit for Windows job artifacts to also upload
+          sleep 30
+          gh release edit "${{ github.ref_name }}" --draft=false --repo Hunter52302/life-calendar
+          echo "Release published"
