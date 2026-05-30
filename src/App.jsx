@@ -262,8 +262,10 @@ export default function App() {
   }
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
-  const [planPrecision, setPlanPrecision] = useState(1);
-  const [livePrecision, setLivePrecision] = useState(1);
+  const [precision, setPrecision] = useState(() => {
+    const stored = localStorage.getItem('lc-precision');
+    return stored ? parseInt(stored, 10) : 1;
+  });
   const [exportFormat, setExportFormat] = useState('csv');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showTabMenu, setShowTabMenu] = useState(false);
@@ -277,6 +279,7 @@ export default function App() {
   const diffStateRef = useRef(null);
 
   useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
+  useEffect(() => { localStorage.setItem('lc-precision', String(precision)); }, [precision]);
   useEffect(() => { localStorage.setItem('lc-auto-hide-completed', String(autoHideCompleted)); }, [autoHideCompleted]);
   useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
@@ -558,7 +561,7 @@ export default function App() {
         importedAt: new Date().toISOString().split('T')[0],
       });
       const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'plan', planPrecision);
+        const ev = icalToAppEvent(p, 'plan', precision);
         if (!ev) return [];
         const base = { ...ev, source_calendar_id: calId, color: calColor };
         const rrule = parseRrule(p.rrule);
@@ -595,7 +598,7 @@ export default function App() {
         importedAt: new Date().toISOString().split('T')[0],
       });
       const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'actual', livePrecision);
+        const ev = icalToAppEvent(p, 'actual', precision);
         if (!ev) return [];
         const base = { ...ev, source_calendar_id: calId, color: calColor };
         const rrule = parseRrule(p.rrule);
@@ -639,7 +642,6 @@ export default function App() {
       const res = await fetch(fetchUrl);
       if (res.ok) {
         const content = await res.text();
-        const precision = calendar === 'actual' ? livePrecision : planPrecision;
         const appEvents = parseIcal(content).flatMap(p => {
           const ev = icalToAppEvent(p, calendar, precision);
           if (!ev) return [];
@@ -2805,8 +2807,8 @@ export default function App() {
             <PlanView
               events={planEvents}
               weekStart={weekStart}
-              precision={planPrecision}
-              onPrecisionChange={setPlanPrecision}
+              precision={precision}
+              onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
               enabledViews={eff.enabledViews}
@@ -2825,6 +2827,8 @@ export default function App() {
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
+              homeAddress={profile.homeAddress || ''}
+              savedAddresses={profile.otherAddresses || []}
             />
           )}
           {activePage === 'calendar' && activeTab === 'actual' && (
@@ -2832,8 +2836,8 @@ export default function App() {
               planEvents={planEvents}
               actualEvents={actualEvents}
               weekStart={weekStart}
-              precision={livePrecision}
-              onPrecisionChange={setLivePrecision}
+              precision={precision}
+              onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
               enabledViews={eff.enabledViews}
@@ -2852,6 +2856,8 @@ export default function App() {
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
+              homeAddress={profile.homeAddress || ''}
+              savedAddresses={profile.otherAddresses || []}
             />
           )}
           {activePage === 'calendar' && activeTab === 'reality' && (

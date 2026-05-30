@@ -15,6 +15,7 @@ export default function ActualView({
   planEvents, actualEvents, weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
+  homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
 }) {
@@ -270,6 +271,7 @@ export default function ActualView({
           allCategories={allCategories} militaryTime={militaryTime}
           onSave={handleSave} onDelete={onDeleteEvent}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
+          homeAddress={homeAddress} savedAddresses={savedAddresses}
           onClose={() => setFormState(null)}
         />
       )}

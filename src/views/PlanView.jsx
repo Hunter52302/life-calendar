@@ -15,6 +15,7 @@ export default function PlanView({
   events, weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
+  homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
 }) {
@@ -230,6 +231,7 @@ export default function PlanView({
           allCategories={allCategories} militaryTime={militaryTime}
           onSave={handleSave} onAddEvents={onAddEvents} onDelete={onDeleteEvent}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
+          homeAddress={homeAddress} savedAddresses={savedAddresses}
           onClose={() => setFormState(null)}
         />
       )}
