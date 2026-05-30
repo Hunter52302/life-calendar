@@ -98,7 +98,7 @@ export default defineConfig({
   ],
 
   optimizeDeps: {
-    exclude: ['jspdf', 'jspdf-autotable'],
+    exclude: ['jspdf', 'jspdf-autotable', '@tauri-apps/api', '@tauri-apps/plugin-opener', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
   },
 
   // Tauri packages are provided by the Tauri runtime — never bundle them

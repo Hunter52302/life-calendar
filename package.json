@@ -1,7 +1,7 @@
 {
   "name": "pls-calendar-root",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "workspaces": [
     "shared",
@@ -32,6 +32,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@infisical/sdk": "^5.0.2",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "bcryptjs": "^3.0.3",

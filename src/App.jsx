@@ -2591,7 +2591,13 @@ export default function App() {
                                     </div>
                                     <div className="flex items-center justify-between">
                                       <span className="text-[11px] text-gray-400 dark:text-gray-500">Source</span>
-                                      <a href="https://github.com/Hunter52302/life-calendar" target="_blank" rel="noopener noreferrer" className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</a>
+                                      <button type="button" onClick={async () => {
+                                        const url = 'https://github.com/Hunter52302/life-calendar';
+                                        if (typeof window.__TAURI__ !== 'undefined') {
+                                          const { open } = await import('@tauri-apps/plugin-opener');
+                                          await open(url);
+                                        } else { window.open(url, '_blank'); }
+                                      }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
                                     </div>
                                   </div>
 
