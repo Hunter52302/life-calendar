@@ -1,7 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { DAYS_FULL } from '../lib/constants';
 import { slotToTime, hoursToLabel, generateRepeatInstances } from '../lib/utils';
 import { api } from '../lib/api';
+
+// Convert a slot index to "HH:MM" string for <input type="time">
+function slotToHHMM(slot, formPrecision) {
+  const mins = slot * (formPrecision === 1 ? 60 : 30);
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// Convert "HH:MM" string back to a slot index (snaps to nearest slot)
+function hhmmToSlot(hhmm, formPrecision) {
+  if (!hhmm) return 0;
+  const [h, m] = hhmm.split(':').map(Number);
+  const totalMins = (h || 0) * 60 + (m || 0);
+  const slotMins = formPrecision === 1 ? 60 : 30;
+  return Math.round(totalMins / slotMins);
+}
 
 const REPEAT_OPTIONS = [
   { value: 'none', label: 'Does not repeat' },
@@ -173,21 +190,7 @@ export default function AddEventForm({
     setCategoryMode(null);
   }
 
-  const startOptions = Array.from({ length: slotCount }, (_, i) => ({
-    value: i,
-    label: slotToTime(i, formPrecision, militaryTime),
-  }));
-
-  const sameDayEndOptions = Array.from({ length: slotCount - slotStart }, (_, i) => {
-    const slot = slotStart + i + 1;
-    return { value: slot, label: slot === slotCount ? 'Midnight' : slotToTime(slot, formPrecision, militaryTime) };
-  });
-
-  const nextDayEndOptions = Array.from({ length: slotCount }, (_, i) => {
-    const slot = slotCount + i + 1;
-    const timeLabel = slot === slotCount * 2 ? 'Midnight' : slotToTime(i + 1, formPrecision, militaryTime);
-    return { value: slot, label: `${timeLabel} +1` };
-  });
+  // startOptions / sameDayEndOptions / nextDayEndOptions removed — replaced by <input type="time">
 
   return (
     <div
@@ -310,22 +313,39 @@ export default function AddEventForm({
             <div className="flex gap-3">
               <div className="flex-1">
                 <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-1 uppercase tracking-wider">Start</label>
-                <select value={slotStart} onChange={e => { const v = Number(e.target.value); setSlotStart(v); if (slotEnd <= v) setSlotEnd(v + 1); }}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {startOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
+                <input
+                  type="time"
+                  value={slotToHHMM(slotStart, formPrecision)}
+                  step={formPrecision === 1 ? 3600 : 1800}
+                  onChange={e => {
+                    if (!e.target.value) return;
+                    const newSlot = hhmmToSlot(e.target.value, formPrecision);
+                    setSlotStart(newSlot);
+                    if (slotEnd <= newSlot) setSlotEnd(newSlot + 1);
+                  }}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
               <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-1 uppercase tracking-wider">End</label>
-                <select value={slotEnd} onChange={e => setSlotEnd(Number(e.target.value))}
-                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <optgroup label="Same day">
-                    {sameDayEndOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </optgroup>
-                  <optgroup label="Next day →">
-                    {nextDayEndOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </optgroup>
-                </select>
+                <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-1 uppercase tracking-wider">
+                  End
+                  {slotEnd >= slotCount && (
+                    <span className="ml-1 text-[10px] text-amber-500 normal-case">+1 day</span>
+                  )}
+                </label>
+                <input
+                  type="time"
+                  value={slotToHHMM(slotEnd, formPrecision)}
+                  step={formPrecision === 1 ? 3600 : 1800}
+                  onChange={e => {
+                    if (!e.target.value) return;
+                    let newSlot = hhmmToSlot(e.target.value, formPrecision);
+                    // If end time is earlier or equal to start, treat it as next day
+                    if (newSlot <= slotStart) newSlot += slotCount;
+                    setSlotEnd(newSlot);
+                  }}
+                  className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
               <div className="flex-shrink-0">
                 <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-1 uppercase tracking-wider">Duration</label>
