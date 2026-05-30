@@ -16,8 +16,10 @@ jobs:
         include:
           - platform: windows-latest
             args: '--target x86_64-pc-windows-msvc'
+            os: windows
           - platform: ubuntu-22.04
             args: ''
+            os: linux
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -62,14 +64,116 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | Windows  | `PLS-Calendar_x64-setup.exe` |
-            | Linux    | `pls-calendar_amd64.deb` or `pls-calendar_amd64.AppImage` |
+            | Windows  | `PLS.Calendar_*_x64-setup.exe` |
+            | Linux    | `PLS.Calendar_*_amd64.deb` or `PLS.Calendar_*_amd64.AppImage` |
 
             macOS support coming soon.
-
-            ---
-            *Existing installs will be notified automatically and can update in one click.*
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
-          updaterJsonKeepUniversal: true
+
+      # Upload .sig files so the manifest job can read them
+      - name: Upload Linux signatures
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(node -p "require('./package.json').version")
+          # Upload the AppImage.tar.gz.sig (used by Tauri v2 Linux updater)
+          SIG_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" | head -1)
+          if [ -n "$SIG_FILE" ]; then
+            gh release upload "$TAG" "$SIG_FILE" --clobber
+          fi
+          # Also upload the AppImage.tar.gz itself (needed by updater)
+          TGZ_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz" | head -1)
+          if [ -n "$TGZ_FILE" ]; then
+            gh release upload "$TAG" "$TGZ_FILE" --clobber
+          fi
+
+      - name: Upload Windows signatures
+        if: matrix.platform == 'windows-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Upload NSIS .exe.sig
+          SIG_FILE=$(find src-tauri/target/release/bundle/nsis -name "*.exe.sig" 2>/dev/null | head -1)
+          if [ -n "$SIG_FILE" ]; then
+            gh release upload "$TAG" "$SIG_FILE" --clobber
+          fi
+
+  # After both builds finish, create the updater latest.json
+  create-updater-manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate latest.json for Tauri updater
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(node -p "require('./package.json').version")
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BASE="https://github.com/Hunter52302/life-calendar/releases/download/${TAG}"
+
+          # Download all release assets list
+          ASSETS=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '[.assets[].name]')
+          echo "Assets: $ASSETS"
+
+          # Find AppImage tar.gz and its sig
+          APPIMAGE_TGZ=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '.assets[].name' | grep "AppImage.tar.gz$" | grep -v ".sig" | head -1)
+          APPIMAGE_SIG_NAME=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '.assets[].name' | grep "AppImage.tar.gz.sig$" | head -1)
+
+          # Find Windows exe and its sig
+          WIN_EXE=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '.assets[].name' | grep "x64-setup.exe$" | head -1)
+          WIN_SIG_NAME=$(gh release view "$TAG" --repo Hunter52302/life-calendar --json assets --jq '.assets[].name' | grep "x64-setup.exe.sig$" | head -1)
+
+          echo "AppImage: $APPIMAGE_TGZ"
+          echo "AppImage sig: $APPIMAGE_SIG_NAME"
+          echo "Windows exe: $WIN_EXE"
+          echo "Windows sig: $WIN_SIG_NAME"
+
+          # Build platforms object
+          PLATFORMS="{}"
+
+          if [ -n "$APPIMAGE_TGZ" ] && [ -n "$APPIMAGE_SIG_NAME" ]; then
+            gh release download "$TAG" --repo Hunter52302/life-calendar --pattern "$APPIMAGE_SIG_NAME" -O /tmp/linux.sig
+            LINUX_SIG=$(cat /tmp/linux.sig)
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "$BASE/$APPIMAGE_TGZ" \
+              --arg sig "$LINUX_SIG" \
+              '. + {"linux-x86_64": {"url": $url, "signature": $sig}}')
+          fi
+
+          if [ -n "$WIN_EXE" ] && [ -n "$WIN_SIG_NAME" ]; then
+            gh release download "$TAG" --repo Hunter52302/life-calendar --pattern "$WIN_SIG_NAME" -O /tmp/windows.sig
+            WIN_SIG=$(cat /tmp/windows.sig)
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "$BASE/$WIN_EXE" \
+              --arg sig "$WIN_SIG" \
+              '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
+          fi
+
+          # Write latest.json
+          echo "{
+            \"version\": \"${VERSION}\",
+            \"notes\": \"See the GitHub releases page for what's new.\",
+            \"pub_date\": \"${DATE}\",
+            \"platforms\": $PLATFORMS
+          }" | jq . > latest.json
+
+          echo "Generated latest.json:"
+          cat latest.json
+
+          # Upload to release
+          gh release upload "$TAG" latest.json --clobber --repo Hunter52302/life-calendar
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --draft=false --repo Hunter52302/life-calendar
