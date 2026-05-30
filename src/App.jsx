@@ -253,12 +253,17 @@ export default function App() {
     setCategoriesOpen(false);
     setConnectedOpen(false);
     setAccountOpen(false);
+    setAboutOpen(false);
     setHabitsOpen(false);
     setBudgetsOpen(false);
     setNotificationsOpen(false);
     setZkOpen(false);
     setSearchOptionsOpen(false);
     setTimezonesOpen(false);
+    setDownloadOpen(false);
+    setNoTouchyOpen(false);
+    setShowCalUrlForm(false);
+    setAddingHabit(false);
   }
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
