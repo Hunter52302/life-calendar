@@ -243,9 +243,9 @@ export default function App() {
 
   // Derived: how many settings sections are currently open
   const settingsOpenCount = [
-    appearanceOpen, categoriesOpen, connectedOpen, accountOpen,
+    appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
     habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
-    searchOptionsOpen, timezonesOpen,
+    searchOptionsOpen, timezonesOpen, downloadOpen, noTouchyOpen,
   ].filter(Boolean).length;
 
   function collapseAllSettings() {
