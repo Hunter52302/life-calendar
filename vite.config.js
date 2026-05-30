@@ -101,6 +101,15 @@ export default defineConfig({
     exclude: ['jspdf', 'jspdf-autotable'],
   },
 
+  // Tauri packages are provided by the Tauri runtime — never bundle them
+  build: {
+    rollupOptions: {
+      external: [
+        /^@tauri-apps\/.*/,
+      ],
+    },
+  },
+
   server: {
     proxy: {
       '/api': {
