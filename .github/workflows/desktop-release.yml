@@ -93,20 +93,23 @@ jobs:
 
       - name: Upload Windows signatures
         if: matrix.platform == 'windows-latest'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           TAG="${{ github.ref_name }}"
-          # Upload NSIS .exe.sig
-          SIG_FILE=$(find src-tauri/target/release/bundle/nsis -name "*.exe.sig" 2>/dev/null | head -1)
-          if [ -n "$SIG_FILE" ]; then
-            gh release upload "$TAG" "$SIG_FILE" --clobber
-          fi
+          # Upload any .sig files found in the NSIS or msi bundle dirs
+          for SIG_FILE in $(find src-tauri/target/release/bundle -name "*.sig" 2>/dev/null); do
+            echo "Uploading $SIG_FILE"
+            gh release upload "$TAG" "$SIG_FILE" --clobber || true
+          done
 
-  # After both builds finish, create the updater latest.json
+  # After builds finish, create the updater latest.json
+  # Runs even if Windows fails so Linux users always get updates
   create-updater-manifest:
     needs: build
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

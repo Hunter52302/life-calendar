@@ -207,7 +207,7 @@ export default function ActualView({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-hidden overflow-x-auto">
+      <div className="flex-1 overflow-y-hidden overflow-x-auto px-2 pt-1">
         {(view === 'day' || view === 'week') && (
           <CalendarGrid
             events={displayEvents} weekStart={weekStart} precision={precision}
