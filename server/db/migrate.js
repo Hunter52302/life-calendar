@@ -177,10 +177,26 @@ export function runMigrations(db) {
     `ALTER TABLE users  ADD COLUMN kdf_salt      TEXT`,
     `ALTER TABLE users  ADD COLUMN zk_enabled    INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE users  ADD COLUMN zk_verify     TEXT`,
+    `ALTER TABLE users  ADD COLUMN email         TEXT`,
+    `ALTER TABLE users  ADD COLUMN role          TEXT NOT NULL DEFAULT 'user'`,
+    `ALTER TABLE users  ADD COLUMN is_blocked    INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
     `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
   ];
   for (const sql of alters) {
     try { db.exec(sql); } catch { /* column already exists — ignore */ }
+  }
+
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL`);
+
+  // Admin lockout guard: if no admin exists, promote the earliest user.
+  // Covers pre-multi-user deployments (their single user becomes admin) and
+  // prevents a deployment from ever ending up with zero admins.
+  const { n: adminCount } = db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`).get();
+  if (adminCount === 0) {
+    db.prepare(`
+      UPDATE users SET role = 'admin'
+      WHERE id = (SELECT id FROM users ORDER BY created_at LIMIT 1)
+    `).run();
   }
 }

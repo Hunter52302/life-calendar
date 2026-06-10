@@ -25,9 +25,37 @@ export const users = {
   count: () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n,
   getFirst: () => db.prepare('SELECT * FROM users LIMIT 1').get(),
   getById: (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(id),
-  create: (id, passwordHash) => {
-    db.prepare('INSERT INTO users (id, password_hash) VALUES (?, ?)').run(id, passwordHash);
+  getByEmail: (email) => db.prepare('SELECT * FROM users WHERE email = ?').get(email),
+
+  /** Legacy single-user deployments: the one account created before emails existed. */
+  getLegacyUsers: () => db.prepare('SELECT * FROM users WHERE email IS NULL').all(),
+
+  create: (id, passwordHash, opts = {}) => {
+    const { email = null, role = 'user', kdfSalt = null, zkVerify = null } = opts;
+    db.prepare(`
+      INSERT INTO users (id, password_hash, email, role, kdf_salt, zk_verify, zk_enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, passwordHash, email, role, kdfSalt, zkVerify, kdfSalt && zkVerify ? 1 : 0);
   },
+
+  /** Admin view — deliberately excludes password_hash and ZK secrets. */
+  listAll: () =>
+    db.prepare(`
+      SELECT id, email, role, is_blocked, zk_enabled, created_at
+      FROM users ORDER BY created_at ASC
+    `).all().map(r => ({ ...r, is_blocked: r.is_blocked === 1, zk_enabled: r.zk_enabled === 1 })),
+
+  setPassword: (id, passwordHash) =>
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id),
+
+  setBlocked: (id, blocked) =>
+    db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, id),
+
+  setEmail: (id, email) =>
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, id),
+
+  deleteUser: (id) =>
+    db.prepare('DELETE FROM users WHERE id = ?').run(id),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────

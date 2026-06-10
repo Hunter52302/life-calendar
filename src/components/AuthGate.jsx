@@ -5,39 +5,71 @@ import { useState } from 'react';
  *
  * authState values handled here:
  *   'checking' — spinner while we ping the server
- *   'setup'    — first-ever launch: pick a password
- *   'login'    — password screen
+ *   'setup'    — first-ever launch: create the first (admin) account
+ *   'login'    — email + password screen, with a "create account" toggle
+ *   'locked'   — token is valid but the ZK master key needs the password
  *   'offline'  — server not running; offer to continue offline
  */
-export default function AuthGate({ authState, onSetup, onLogin, onContinueOffline, theme }) {
+
+const inputCls = 'w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500 text-sm';
+
+export default function AuthGate({ authState, onLogin, onRegister, onUnlock, onContinueOffline, onLogout, theme }) {
+  // 'login' | 'register' — only meaningful when authState is 'login'/'setup'
+  const [mode, setMode]           = useState(null);
+  const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
   const [confirm,  setConfirm]    = useState('');
   const [error,    setError]      = useState('');
   const [loading,  setLoading]    = useState(false);
 
+  // First launch forces register; otherwise default to login with a toggle.
+  const effectiveMode = authState === 'setup' ? 'register' : (mode ?? 'login');
+  const isRegister = effectiveMode === 'register' && authState !== 'locked';
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
 
-    if (authState === 'setup' && password !== confirm) {
-      setError('Passwords do not match.');
+    if (authState === 'locked') {
+      if (!password) return;
+      setLoading(true);
+      try {
+        await onUnlock(password);
+      } catch (err) {
+        setError(err.message ?? 'Incorrect password.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
-    if (password.length < 4) {
-      setError('Password must be at least 4 characters.');
+
+    if (isRegister) {
+      if (!email.trim()) { setError('Email is required.'); return; }
+      if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+      if (password !== confirm) { setError('Passwords do not match.'); return; }
+    } else if (password.length < 4) {
+      setError('Enter your password.');
       return;
     }
 
     setLoading(true);
     try {
-      if (authState === 'setup') await onSetup(password);
-      else                        await onLogin(password);
+      if (isRegister) await onRegister(email.trim(), password);
+      else            await onLogin(email.trim(), password);
     } catch (err) {
       setError(err.message ?? 'Something went wrong. Try again.');
     } finally {
       setLoading(false);
     }
   }
+
+  function switchMode(next) {
+    setMode(next);
+    setError('');
+    setConfirm('');
+  }
+
+  const showForm = ['setup', 'login', 'locked'].includes(authState);
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
@@ -54,10 +86,14 @@ export default function AuthGate({ authState, onSetup, onLogin, onContinueOfflin
             </div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">PLS Calendar</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {authState === 'setup'   && 'Create a password to protect your calendar.'}
-              {authState === 'login'   && 'Welcome back. Enter your password to continue.'}
               {authState === 'checking' && 'Connecting…'}
-              {authState === 'offline' && 'Server is not reachable.'}
+              {authState === 'offline'  && 'Server is not reachable.'}
+              {authState === 'locked'   && 'Enter your password to unlock your encrypted data.'}
+              {showForm && authState !== 'locked' && (
+                isRegister
+                  ? 'Create your account. Your password also encrypts your data.'
+                  : 'Welcome back. Sign in to continue.'
+              )}
             </p>
           </div>
 
@@ -85,29 +121,35 @@ export default function AuthGate({ authState, onSetup, onLogin, onContinueOfflin
             </div>
           )}
 
-          {/* Password form */}
-          {(authState === 'setup' || authState === 'login') && (
+          {/* Auth form */}
+          {showForm && (
             <form onSubmit={handleSubmit} className="space-y-3">
-              <div>
+              {authState !== 'locked' && (
                 <input
                   autoFocus
-                  type="password"
-                  placeholder="Password"
-                  value={password}
-                  onChange={e => { setPassword(e.target.value); setError(''); }}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500 text-sm"
+                  type="email"
+                  placeholder={isRegister ? 'Email' : 'Email (blank if set up before accounts)'}
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setError(''); }}
+                  className={inputCls}
                 />
-              </div>
-              {authState === 'setup' && (
-                <div>
-                  <input
-                    type="password"
-                    placeholder="Confirm password"
-                    value={confirm}
-                    onChange={e => { setConfirm(e.target.value); setError(''); }}
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:focus:ring-indigo-500 text-sm"
-                  />
-                </div>
+              )}
+              <input
+                autoFocus={authState === 'locked'}
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={e => { setPassword(e.target.value); setError(''); }}
+                className={inputCls}
+              />
+              {isRegister && (
+                <input
+                  type="password"
+                  placeholder="Confirm password"
+                  value={confirm}
+                  onChange={e => { setConfirm(e.target.value); setError(''); }}
+                  className={inputCls}
+                />
               )}
 
               {error && (
@@ -121,17 +163,45 @@ export default function AuthGate({ authState, onSetup, onLogin, onContinueOfflin
               >
                 {loading
                   ? 'Please wait…'
-                  : authState === 'setup' ? 'Create password & continue' : 'Unlock'
+                  : authState === 'locked' ? 'Unlock'
+                  : isRegister ? 'Create account' : 'Sign in'
                 }
               </button>
+
+              {/* Mode toggle / logout link */}
+              {authState === 'login' && (
+                <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+                  {isRegister ? (
+                    <>Already have an account?{' '}
+                      <button type="button" onClick={() => switchMode('login')} className="text-indigo-500 hover:underline font-medium">Sign in</button>
+                    </>
+                  ) : (
+                    <>New here?{' '}
+                      <button type="button" onClick={() => switchMode('register')} className="text-indigo-500 hover:underline font-medium">Create an account</button>
+                    </>
+                  )}
+                </p>
+              )}
+              {authState === 'locked' && (
+                <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+                  <button type="button" onClick={onLogout} className="text-indigo-500 hover:underline font-medium">Sign in as someone else</button>
+                </p>
+              )}
             </form>
           )}
 
           {/* Footer hint */}
-          {authState === 'setup' && (
+          {isRegister && showForm && (
             <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-4 leading-relaxed">
-              This password protects your calendar on this device.<br />
-              You'll use it every time you open the app.
+              Zero-knowledge encryption is on by default: your password encrypts
+              your calendar and only you can read it.<br />
+              <span className="text-amber-500 dark:text-amber-400">If you forget your password, your encrypted data cannot be recovered.</span>
+            </p>
+          )}
+          {authState === 'locked' && (
+            <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-4 leading-relaxed">
+              Your data is encrypted with a key derived from your password.<br />
+              If an admin reset your password, enter your <span className="font-medium">previous</span> password here to unlock.
             </p>
           )}
         </div>

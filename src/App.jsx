@@ -119,7 +119,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, setup, login, logout, continueOffline } = useAuth();
+  const { authState, zkInfo, isAdmin, accountEmail, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
@@ -151,6 +151,14 @@ export default function App() {
   const [newIntLabel, setNewIntLabel] = useState('');
   const [newIntUrl, setNewIntUrl] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
+  // ── Admin panel ──────────────────────────────────────────────────────────
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminUsers, setAdminUsers] = useState(null);   // null until first load
+  const [adminError, setAdminError] = useState('');
+  const [adminPwdDrafts, setAdminPwdDrafts] = useState({}); // { [userId]: newPassword }
+  const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
+  const [accountEmailDraft, setAccountEmailDraft] = useState('');
+  const [accountEmailMsg, setAccountEmailMsg] = useState('');
   // ── User profile ─────────────────────────────────────────────────────────
   const { profile, setProfile, syncProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
@@ -343,6 +351,81 @@ export default function App() {
     if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
   }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auth handlers (ZK key derivation happens client-side) ────────────────
+  async function handleRegister(email, password) {
+    // ZK on by default: derive the master key locally before the account
+    // exists; the server only ever sees the salt + verification blob.
+    const salt = generateSalt();
+    const key  = await deriveKey(password, salt);
+    const blob = await generateVerifyBlob(key);
+    await register(email, password, salt, blob);
+    setMasterKey(key);
+    setIsZkEnabled(true);
+    markUnlocked();
+  }
+
+  async function handleLogin(email, password) {
+    const res = await login(email, password);
+    if (res.zk_enabled) {
+      const key = await deriveKey(password, res.kdf_salt);
+      if (await verifyKey(key, res.zk_verify)) {
+        setMasterKey(key);
+        setIsZkEnabled(true);
+        markUnlocked();
+      }
+      // verify failed (e.g. admin reset the password) — stay 'locked';
+      // AuthGate prompts for the previous/encryption password.
+    }
+  }
+
+  async function handleUnlock(password) {
+    if (!zkInfo) return;
+    const key = await deriveKey(password, zkInfo.kdf_salt);
+    if (!(await verifyKey(key, zkInfo.zk_verify))) {
+      throw new Error('Incorrect password — your data stays encrypted until the right one is entered.');
+    }
+    setMasterKey(key);
+    setIsZkEnabled(true);
+    markUnlocked();
+  }
+
+  // ── Admin panel actions ───────────────────────────────────────────────────
+  async function loadAdminUsers() {
+    setAdminError('');
+    try { setAdminUsers(await api.admin.listUsers()); }
+    catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminBlock(userId, blocked) {
+    try { await api.admin.setBlocked(userId, blocked); await loadAdminUsers(); }
+    catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminResetPassword(userId) {
+    const pwd = adminPwdDrafts[userId];
+    if (!pwd || pwd.length < 8) { setAdminError('New password must be at least 8 characters.'); return; }
+    try {
+      await api.admin.resetPassword(userId, pwd);
+      setAdminPwdDrafts(d => { const n = { ...d }; delete n[userId]; return n; });
+      setAdminError('');
+    } catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminDelete(userId) {
+    try { await api.admin.deleteUser(userId); setPendingDeleteUser(null); await loadAdminUsers(); }
+    catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleSetAccountEmail() {
+    if (!accountEmailDraft.trim()) return;
+    setAccountEmailMsg('');
+    try {
+      await setAccountEmail(accountEmailDraft.trim());
+      setAccountEmailMsg('Login email saved.');
+      setAccountEmailDraft('');
+    } catch (err) { setAccountEmailMsg(err.message); }
+  }
+
   async function handleEnableZk() {
     if (!zkPassword.trim()) return;
     setZkProgress('deriving');
@@ -351,18 +434,17 @@ export default function App() {
       const key  = await deriveKey(zkPassword, salt);
       const blob = await generateVerifyBlob(key);
       setZkProgress('encrypting');
-      // Encrypt existing events and habits
+      // Encrypt existing events and habits — straight to the API so local
+      // state (and the UI) keeps showing plaintext.
       const allEvents  = getEvents('plan').concat(getEvents('actual'));
       for (const ev of allEvents) {
-        const encLabel = ev.label ? await encryptField(key, ev.label) : ev.label;
-        const encNotes = ev.notes ? await encryptField(key, ev.notes) : ev.notes;
-        if (encLabel !== ev.label || encNotes !== ev.notes) {
-          updateEvent(ev.id, { label: encLabel, notes: encNotes });
-        }
+        const updates = {};
+        if (ev.label) updates.label = await encryptField(key, ev.label);
+        if (ev.notes) updates.notes = await encryptField(key, ev.notes);
+        if (Object.keys(updates).length) await api.events.update(ev.id, updates);
       }
       for (const h of habits) {
-        const encLabel = h.label ? await encryptField(key, h.label) : h.label;
-        if (encLabel !== h.label) updateHabit(h.id, { label: encLabel });
+        if (h.label) await api.habits.update(h.id, { label: await encryptField(key, h.label) });
       }
       // Encrypt profile fields (username stays plaintext)
       const encProfile = {
@@ -595,6 +677,7 @@ export default function App() {
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
+    admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -602,13 +685,15 @@ export default function App() {
   function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
   const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
 
-  // Show auth screen when not yet authenticated
-  if (['checking', 'setup', 'login', 'offline'].includes(authState)) {
+  // Show auth screen when not yet authenticated (or ZK-locked)
+  if (['checking', 'setup', 'login', 'locked', 'offline'].includes(authState)) {
     return (
       <AuthGate
         authState={authState}
-        onSetup={setup}
-        onLogin={login}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onUnlock={handleUnlock}
+        onLogout={logout}
         onContinueOffline={continueOffline}
         theme={theme}
       />
@@ -1711,6 +1796,84 @@ export default function App() {
                       </div>
                       )}
 
+                      {/* ── Admin Panel (collapsible, admins only) ── */}
+                      {isAdmin && sv(SECTION_KWS.admin) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button"
+                          onClick={() => { setAdminOpen(v => !v); if (!adminUsers) loadAdminUsers(); }}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Admin · Manage Users</span>
+                            <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>
+                          </div>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(adminOpen, SECTION_KWS.admin) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(adminOpen, SECTION_KWS.admin) && (
+                          <div className="px-2 pb-3 space-y-2">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                              Zero-trust: you can only see account emails — never anyone's calendar, profile, or encrypted data.
+                            </p>
+                            {adminError && <p className="text-xs text-red-500">{adminError}</p>}
+                            {adminUsers === null ? (
+                              <p className="text-xs text-gray-400">Loading…</p>
+                            ) : adminUsers.map(u => (
+                              <div key={u.id} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{u.email ?? '(no email — legacy account)'}</span>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {u.role === 'admin' && <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>}
+                                    {u.zk_enabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ZK</span>}
+                                    {u.is_blocked && <span className="text-[9px] bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded-full font-semibold">BLOCKED</span>}
+                                  </div>
+                                </div>
+                                <p className="text-[10px] text-gray-400 dark:text-gray-500">Joined {new Date(u.created_at * 1000).toLocaleDateString()}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <input
+                                    type="password"
+                                    value={adminPwdDrafts[u.id] ?? ''}
+                                    onChange={e => setAdminPwdDrafts(d => ({ ...d, [u.id]: e.target.value }))}
+                                    placeholder="New password"
+                                    className="flex-1 min-w-[120px] text-xs bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
+                                  />
+                                  <button type="button" onClick={() => handleAdminResetPassword(u.id)}
+                                    disabled={!(adminPwdDrafts[u.id]?.length >= 8)}
+                                    className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-40 text-gray-700 dark:text-gray-200 font-medium transition-colors">
+                                    Reset
+                                  </button>
+                                  <button type="button" onClick={() => handleAdminBlock(u.id, !u.is_blocked)}
+                                    className="text-xs px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-medium transition-colors">
+                                    {u.is_blocked ? 'Unblock' : 'Block'}
+                                  </button>
+                                  {pendingDeleteUser === u.id ? (
+                                    <>
+                                      <button type="button" onClick={() => handleAdminDelete(u.id)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">
+                                        Confirm delete
+                                      </button>
+                                      <button type="button" onClick={() => setPendingDeleteUser(null)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors">
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button type="button" onClick={() => setPendingDeleteUser(u.id)}
+                                      className="text-xs px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 font-medium transition-colors">
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                                {u.zk_enabled && (adminPwdDrafts[u.id]?.length > 0) && (
+                                  <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-snug">
+                                    ZK account: after a reset they'll need their previous password to unlock their encrypted data.
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
                       {/* ── Connected Calendars (collapsible) ── */}
                       {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
@@ -1768,6 +1931,38 @@ export default function App() {
                         </button>
                         {so(accountOpen, SECTION_KWS.account) && (
                           <div className="px-2 pb-2 space-y-1">
+
+                            {/* ── Login email (account identity, plaintext — used for sign-in) ── */}
+                            {sv(['email', 'login', 'account']) && (
+                            <div className="space-y-1.5 px-2 pb-2">
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Login Email</p>
+                              {accountEmail ? (
+                                <p className="text-sm text-gray-600 dark:text-gray-400">{accountEmail}</p>
+                              ) : (
+                                <>
+                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    Your account predates email sign-in. Add an email so you can log in once more accounts exist.
+                                  </p>
+                                  <div className="flex gap-1.5 items-center">
+                                    <input
+                                      type="email"
+                                      value={accountEmailDraft}
+                                      onChange={e => setAccountEmailDraft(e.target.value)}
+                                      placeholder="you@example.com"
+                                      className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={!accountEmailDraft.trim()}
+                                      onClick={handleSetAccountEmail}
+                                      className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                    >Save</button>
+                                  </div>
+                                </>
+                              )}
+                              {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
+                            </div>
+                            )}
 
                             {/* ── User Profile (nested collapsible) ── */}
                             <div className="rounded-lg overflow-hidden">

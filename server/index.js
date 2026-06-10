@@ -18,6 +18,7 @@ import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
+import adminRoute           from './routes/admin.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
@@ -62,6 +63,7 @@ app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
+app.use('/api/admin',           adminRoute);
 
 /**
  * GET /api/sync
@@ -92,7 +94,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`PLS Calendar API  →  http://localhost:${PORT}`);
-  console.log(`Google Maps key   →  ${process.env.GOOGLE_MAPS_API_KEY ? '✓ loaded' : '✗ MISSING'}`);
+  console.log(`Drive times       →  OSRM (open-source)${process.env.GOOGLE_MAPS_API_KEY ? ' + Google fallback' : ''}`);
   console.log(`VAPID push        →  ${process.env.VAPID_PUBLIC_KEY ? '✓ configured' : '✗ not set (push notifications disabled)'}`);
   startScheduler();
 });

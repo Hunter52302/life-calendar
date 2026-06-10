@@ -12,6 +12,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { getWeekStart, todayStr } from '../lib/utils';
+import { api } from '../lib/api.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FAB_SIZE    = 56;
@@ -338,8 +339,29 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
   const [endDate,   setEndDate]   = useState(todayStr());
   const [startTime, setStartTime] = useState(start);
   const [endTime,   setEndTime]   = useState(addOneHour(start));
+  const [estimate,  setEstimate]  = useState(null);  // null | 'loading' | 'error' | { durationMinutes, distanceMiles, durationText }
   const toRef = useRef(null);
   useEffect(() => { toRef.current?.focus(); }, []);
+
+  // Auto-calculate the drive time (open-source OSRM routing) once both
+  // addresses are filled, debounced so we don't fire on every keystroke.
+  useEffect(() => {
+    if (!from.trim() || !to.trim()) { setEstimate(null); return; }
+    setEstimate('loading');
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.driveTime.calc(from.trim(), to.trim());
+        setEstimate(result);
+        // Set the end time from the route duration (rounded up to 30-min slots)
+        const slots = Math.max(1, Math.ceil(result.durationMinutes / 30));
+        const endSlot = timeToSlot(startTime) + slots;
+        if (endSlot <= 47) setEndTime(slotToTimeStr(endSlot));
+      } catch {
+        setEstimate('error');
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [from, to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartDateChange(val) {
     setStartDate(val);
@@ -385,6 +407,19 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
             placeholder="Destination" className={inputCls} />
         </Field>
       </div>
+      {estimate && (
+        <p className="text-xs px-1 -mt-1">
+          {estimate === 'loading' ? (
+            <span className="text-gray-400 dark:text-gray-500">Calculating route…</span>
+          ) : estimate === 'error' ? (
+            <span className="text-amber-500">Couldn't calculate the route — check the addresses.</span>
+          ) : (
+            <span className="text-gray-500 dark:text-gray-400">
+              ≈ {estimate.durationText} · {estimate.distanceText} — end time set automatically
+            </span>
+          )}
+        </p>
+      )}
       <DateRow
         startDate={startDate} endDate={endDate}
         onStartChange={handleStartDateChange}

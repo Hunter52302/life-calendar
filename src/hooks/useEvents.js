@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { generateId } from '../lib/utils';
 import { api } from '../lib/api.js';
+import { encryptField, decryptField } from '../lib/crypto.js';
+import { useCrypto } from '../context/CryptoContext.jsx';
 
 const EVENTS_KEY       = 'life-calendar-events';
 const CATEGORIES_KEY   = 'life-calendar-categories';
@@ -42,6 +44,7 @@ function load(key, fallback) {
  *   - The app is fully functional; data just won't sync across devices.
  */
 export function useEvents(authState) {
+  const { masterKey, isZkEnabled } = useCrypto();
   const [events, setEvents]                     = useState(() => load(EVENTS_KEY, []));
   const [customCategories, setCustomCategories] = useState(() => load(CATEGORIES_KEY, []));
   const [categoryOverrides, setCategoryOverrides] = useState(() => load(OVERRIDES_KEY, {}));
@@ -56,9 +59,34 @@ export function useEvents(authState) {
   useEffect(() => { localStorage.setItem(LINKED_KEY,           JSON.stringify(linkedCalendars));  }, [linkedCalendars]);
   useEffect(() => { localStorage.setItem(DELETED_DEFAULTS_KEY, JSON.stringify(deletedDefaultIds));}, [deletedDefaultIds]);
 
+  // ── ZK helpers ───────────────────────────────────────────────────────────
+  // Local state + localStorage hold plaintext (user's own device);
+  // the server only ever receives/returns ciphertext when ZK is on.
+  const zkActive = isZkEnabled && masterKey;
+
+  async function encryptEventForApi(event) {
+    if (!zkActive) return event;
+    const out = { ...event };
+    if ('label' in out && out.label) out.label = await encryptField(masterKey, out.label);
+    if ('notes' in out && out.notes) out.notes = await encryptField(masterKey, out.notes);
+    return out;
+  }
+
+  async function decryptServerEvents(serverEvents) {
+    if (!zkActive) return serverEvents;
+    return Promise.all(serverEvents.map(async e => ({
+      ...e,
+      label: e.label ? await decryptField(masterKey, e.label) : e.label,
+      notes: e.notes ? await decryptField(masterKey, e.notes) : e.notes,
+    })));
+  }
+
   // ── Server sync on mount / auth state change ────────────────────────────
   useEffect(() => {
     if (authState !== 'ready') return;
+    // ZK accounts: wait until the master key is derived before syncing,
+    // otherwise we'd render (and cache) ciphertext.
+    if (isZkEnabled && !masterKey) return;
 
     setSyncing(true);
     api.sync()
@@ -70,18 +98,18 @@ export function useEvents(authState) {
           localStorage.setItem(MIGRATED_KEY, 'true');
           // Re-fetch after migration
           const fresh = await api.sync();
-          applyServerData(fresh);
+          await applyServerData(fresh);
         } else {
-          applyServerData(data);
+          await applyServerData(data);
           if (!alreadyMigrated) localStorage.setItem(MIGRATED_KEY, 'true');
         }
       })
       .catch(() => { /* server unreachable — keep localStorage data */ })
       .finally(() => setSyncing(false));
-  }, [authState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function applyServerData(data) {
-    setEvents(data.events);
+  async function applyServerData(data) {
+    setEvents(await decryptServerEvents(data.events));
     setCustomCategories(data.customCategories);
     setCategoryOverrides(data.categoryOverrides);
     setLinkedCalendars(data.linkedCalendars);
@@ -91,7 +119,10 @@ export function useEvents(authState) {
   // ── localStorage → server migration (runs once) ─────────────────────────
   async function migrateLocalStorageToServer(evts, cats, overrides, linked, deletedIds) {
     try {
-      if (evts.length > 0) await api.events.batch(evts);
+      if (evts.length > 0) {
+        const payload = await Promise.all(evts.map(encryptEventForApi));
+        await api.events.batch(payload);
+      }
 
       for (const cat of cats) {
         await api.categories.create(cat);
@@ -119,19 +150,22 @@ export function useEvents(authState) {
   function addEvent(eventData) {
     const event = { ...eventData, id: generateId() };
     setEvents(prev => [...prev, event]);
-    if (isOnline) api.events.create(event).catch(console.warn);
+    if (isOnline) encryptEventForApi(event).then(p => api.events.create(p)).catch(console.warn);
     return event;
   }
 
   function addEvents(eventsArray) {
     const withIds = eventsArray.map(e => ({ ...e, id: generateId() }));
     setEvents(prev => [...prev, ...withIds]);
-    if (isOnline) api.events.batch(withIds).catch(console.warn);
+    if (isOnline) {
+      Promise.all(withIds.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
   }
 
   function updateEvent(id, updates) {
     setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-    if (isOnline) api.events.update(id, updates).catch(console.warn);
+    if (isOnline) encryptEventForApi(updates).then(p => api.events.update(id, p)).catch(console.warn);
   }
 
   function deleteEvent(id) {
@@ -150,7 +184,10 @@ export function useEvents(authState) {
   function replaceEventsBySource(source, newEvents) {
     const withIds = newEvents.map(e => ({ ...e, id: generateId() }));
     setEvents(prev => [...prev.filter(e => e.source !== source), ...withIds]);
-    if (isOnline) api.events.replaceBySource(source, withIds).catch(console.warn);
+    if (isOnline) {
+      Promise.all(withIds.map(encryptEventForApi))
+        .then(p => api.events.replaceBySource(source, p)).catch(console.warn);
+    }
   }
 
   // ── Categories ────────────────────────────────────────────────────────────

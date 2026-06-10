@@ -25,9 +25,23 @@ export const api = {
   auth: {
     status:      ()                    => request('GET',  '/auth/status'),
     setup:       (password)            => request('POST', '/auth/setup',     { password }),
-    login:       (password)            => request('POST', '/auth/login',     { password }),
+    register:    (email, password, kdf_salt, zk_verify) =>
+                   request('POST', '/auth/register', { email, password, kdf_salt, zk_verify }),
+    login:       (email, password)     => request('POST', '/auth/login',     { email, password }),
+    setEmail:    (email)               => request('PUT',  '/auth/email',     { email }),
     enableZk:    (kdf_salt, zk_verify) => request('PUT',  '/auth/zk-enable', { kdf_salt, zk_verify }),
     setTimezone: (timezone)            => request('PUT',  '/auth/timezone',  { timezone }),
+  },
+
+  admin: {
+    listUsers:     ()                => request('GET',    '/admin/users'),
+    resetPassword: (id, newPassword) => request('POST',   `/admin/users/${id}/reset-password`, { newPassword }),
+    setBlocked:    (id, blocked)     => request('PUT',    `/admin/users/${id}/block`, { blocked }),
+    deleteUser:    (id)              => request('DELETE', `/admin/users/${id}`),
+  },
+
+  driveTime: {
+    calc: (origin, destination) => request('POST', '/drive-time', { origin, destination }),
   },
 
   /** Full data snapshot — called once on startup */
