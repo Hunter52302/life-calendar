@@ -104,6 +104,29 @@ function fmtKeybind(kb) {
   return parts.join('+');
 }
 
+/**
+ * Parse raw ICS text into app events for a given calendar, expanding RRULEs.
+ * Shared by file imports and URL subscriptions.
+ */
+function icsToAppEvents(content, calendar, precision, calId, calColor) {
+  const parsed = parseIcal(content);
+  return parsed.flatMap(p => {
+    const ev = icalToAppEvent(p, calendar, precision);
+    if (!ev) return [];
+    const base = { ...ev, source_calendar_id: calId, color: calColor };
+    const rrule = parseRrule(p.rrule);
+    if (!rrule) return [base];
+    let instances = generateRepeatInstances(base, rrule.repeat);
+    if (rrule.untilDate) instances = instances.filter(e => {
+      const d = new Date(e.week_start + 'T00:00:00');
+      d.setDate(d.getDate() + e.day_of_week);
+      return d <= rrule.untilDate;
+    });
+    if (rrule.count) instances = instances.slice(0, rrule.count);
+    return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
+  });
+}
+
 function Toggle({ checked, onChange }) {
   return (
     <button
@@ -159,6 +182,13 @@ export default function App() {
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
+  // ── Calendar subscriptions (ICS URLs) + outbound feed ────────────────────
+  const [subUrl, setSubUrl] = useState('');
+  const [subBusy, setSubBusy] = useState(false);
+  const [subError, setSubError] = useState('');
+  const [syncingCalId, setSyncingCalId] = useState(null);
+  const [feedInfo, setFeedInfo] = useState(null);   // null (not loaded) | { enabled, path? }
+  const [feedCopied, setFeedCopied] = useState(false);
   // ── User profile ─────────────────────────────────────────────────────────
   const { profile, setProfile, syncProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
@@ -539,9 +569,11 @@ export default function App() {
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds = [], replaceEventsBySource = () => {},
+    replaceEventsBySourceCalendar = () => {},
     linkedCalendars = [],
     addLinkedCalendar = () => ({ id: null, color: '#6B7280' }),
     deleteLinkedCalendar = () => {},
+    updateLinkedCalendar = () => {},
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
@@ -585,32 +617,101 @@ export default function App() {
     reader.onload = ev => {
       const content = ev.target.result;
       const calName = parseIcalCalName(content) || file.name.replace(/\.ics$/i, '');
-      const parsed = parseIcal(content);
       const { id: calId, color: calColor } = addLinkedCalendar({
         name: calName,
         filename: file.name,
         calendar: 'plan',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'plan', planPrecision);
-        if (!ev) return [];
-        const base = { ...ev, source_calendar_id: calId, color: calColor };
-        const rrule = parseRrule(p.rrule);
-        if (!rrule) return [base];
-        let instances = generateRepeatInstances(base, rrule.repeat);
-        if (rrule.untilDate) instances = instances.filter(e => {
-          const d = new Date(e.week_start + 'T00:00:00');
-          d.setDate(d.getDate() + e.day_of_week);
-          return d <= rrule.untilDate;
-        });
-        if (rrule.count) instances = instances.slice(0, rrule.count);
-        return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
-      });
+      const appEvents = icsToAppEvents(content, 'plan', planPrecision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
     reader.readAsText(file); e.target.value = '';
+  }
+
+  // ── Calendar subscriptions (auto-refreshing ICS URLs) ────────────────────
+  async function handleSubscribeUrl() {
+    const url = subUrl.trim();
+    if (!url) return;
+    setSubBusy(true); setSubError('');
+    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
+    const precision = calendar === 'plan' ? planPrecision : livePrecision;
+    try {
+      const { ics } = await api.ical.fetch(url);
+      const calName = parseIcalCalName(ics) || new URL(url.replace(/^webcal:/, 'https:')).hostname;
+      const { id: calId, color: calColor } = addLinkedCalendar({
+        name: calName,
+        calendar,
+        url,
+        syncEnabled: true,
+        importedAt: new Date().toISOString().split('T')[0],
+        lastSyncedAt: Math.floor(Date.now() / 1000),
+      });
+      const appEvents = icsToAppEvents(ics, calendar, precision, calId, calColor);
+      replaceEventsBySourceCalendar(calId, appEvents);
+      showImportNotice(appEvents.length);
+      setSubUrl('');
+    } catch (err) {
+      setSubError(err.message ?? 'Could not subscribe to this calendar.');
+    } finally {
+      setSubBusy(false);
+    }
+  }
+
+  async function syncSubscribedCalendar(cal) {
+    const precision = cal.calendar === 'plan' ? planPrecision : livePrecision;
+    const { ics } = await api.ical.fetch(cal.url);
+    const appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
+    replaceEventsBySourceCalendar(cal.id, appEvents);
+    updateLinkedCalendar(cal.id, { lastSyncedAt: Math.floor(Date.now() / 1000) });
+  }
+
+  async function handleSyncNow(cal) {
+    setSyncingCalId(cal.id);
+    try { await syncSubscribedCalendar(cal); }
+    catch (err) { console.warn('Calendar sync failed:', err); }
+    finally { setSyncingCalId(null); }
+  }
+
+  // Auto-refresh all subscribed calendars shortly after login and every 30 min.
+  const syncSubsRef = useRef(() => {});
+  syncSubsRef.current = async () => {
+    for (const cal of linkedCalendars) {
+      if (!cal.url || !cal.syncEnabled) continue;
+      try { await syncSubscribedCalendar(cal); }
+      catch (err) { console.warn(`Sync failed for "${cal.name}":`, err); }
+    }
+  };
+  useEffect(() => {
+    if (authState !== 'ready') return;
+    const t  = setTimeout(()  => syncSubsRef.current(), 8000);
+    const iv = setInterval(() => syncSubsRef.current(), 30 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [authState]);
+
+  // Load outbound feed status once the Connected Calendars section opens
+  useEffect(() => {
+    if (!connectedOpen || authState !== 'ready' || feedInfo !== null) return;
+    api.feed.status().then(setFeedInfo).catch(() => {});
+  }, [connectedOpen, authState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleFeedToggle() {
+    try {
+      if (feedInfo?.enabled) {
+        await api.feed.disable();
+        setFeedInfo({ enabled: false });
+      } else {
+        setFeedInfo(await api.feed.enable());
+      }
+    } catch (err) { console.warn('Feed toggle failed:', err); }
+  }
+
+  function handleCopyFeedUrl() {
+    if (!feedInfo?.path) return;
+    navigator.clipboard?.writeText(`${window.location.origin}${feedInfo.path}`);
+    setFeedCopied(true);
+    setTimeout(() => setFeedCopied(false), 2000);
   }
 
   function handleLiveExportIcal() {
@@ -622,28 +723,13 @@ export default function App() {
     reader.onload = ev => {
       const content = ev.target.result;
       const calName = parseIcalCalName(content) || file.name.replace(/\.ics$/i, '');
-      const parsed = parseIcal(content);
       const { id: calId, color: calColor } = addLinkedCalendar({
         name: calName,
         filename: file.name,
         calendar: 'actual',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'actual', livePrecision);
-        if (!ev) return [];
-        const base = { ...ev, source_calendar_id: calId, color: calColor };
-        const rrule = parseRrule(p.rrule);
-        if (!rrule) return [base];
-        let instances = generateRepeatInstances(base, rrule.repeat);
-        if (rrule.untilDate) instances = instances.filter(e => {
-          const d = new Date(e.week_start + 'T00:00:00');
-          d.setDate(d.getDate() + e.day_of_week);
-          return d <= rrule.untilDate;
-        });
-        if (rrule.count) instances = instances.slice(0, rrule.count);
-        return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
-      });
+      const appEvents = icsToAppEvents(content, 'actual', livePrecision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
@@ -669,7 +755,7 @@ export default function App() {
     appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
-    connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
+    connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'username', 'display', 'name', 'email', 'phone', 'phones'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
@@ -1913,6 +1999,72 @@ export default function App() {
                                   .
                                 </p>
                               )}
+
+                              {/* ── Subscribe to an external calendar URL ── */}
+                              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Subscribe to a calendar</p>
+                                <p className="px-2 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                  Paste a secret ICS address (Google Calendar → Settings → "Secret address in iCal format", or any webcal/ics URL).
+                                  It auto-refreshes every 30 minutes while the app is open.
+                                </p>
+                                <div className="flex gap-1.5 items-center px-2">
+                                  <input
+                                    type="url"
+                                    value={subUrl}
+                                    onChange={e => { setSubUrl(e.target.value); setSubError(''); }}
+                                    placeholder="https://calendar.google.com/…/basic.ics"
+                                    className="flex-1 min-w-0 text-xs bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 placeholder-gray-400 dark:placeholder-gray-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={!subUrl.trim() || subBusy}
+                                    onClick={handleSubscribeUrl}
+                                    className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors"
+                                  >
+                                    {subBusy ? 'Adding…' : `Add to ${activeTab === 'actual' ? 'Live' : 'Plan'}`}
+                                  </button>
+                                </div>
+                                {subError && <p className="px-2 text-[11px] text-red-500">{subError}</p>}
+                              </div>
+
+                              {/* ── Publish your calendar as an ICS feed ── */}
+                              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Publish your calendar</p>
+                                <p className="px-2 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                  Get a secret URL that Google, Outlook or Apple Calendar can subscribe to.
+                                  {isZkEnabled && ' With encryption on, events appear as "Busy" — times visible, content private.'}
+                                </p>
+                                <div className="px-2 space-y-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={handleFeedToggle}
+                                    className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                                      feedInfo?.enabled
+                                        ? 'bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400'
+                                        : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                    }`}
+                                  >
+                                    {feedInfo?.enabled ? 'Disable feed' : 'Enable feed'}
+                                  </button>
+                                  {feedInfo?.enabled && feedInfo.path && (
+                                    <div className="flex gap-1.5 items-center">
+                                      <input
+                                        readOnly
+                                        value={`${window.location.origin}${feedInfo.path}`}
+                                        onFocus={e => e.target.select()}
+                                        className="flex-1 min-w-0 text-[11px] bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-300 outline-none border border-gray-200 dark:border-gray-600 font-mono"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleCopyFeedUrl}
+                                        className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 font-medium transition-colors"
+                                      >
+                                        {feedCopied ? 'Copied ✓' : 'Copy'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -2425,6 +2577,20 @@ export default function App() {
                                       <div className="flex items-center justify-between mt-0.5">
                                         <p className="text-xs text-gray-400 dark:text-gray-500">
                                           {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
+                                          {cal.url && (
+                                            <>
+                                              {' · '}
+                                              <button
+                                                type="button"
+                                                disabled={syncingCalId === cal.id}
+                                                onClick={() => handleSyncNow(cal)}
+                                                className="text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50 font-medium"
+                                                title={cal.lastSyncedAt ? `Last synced ${new Date(cal.lastSyncedAt * 1000).toLocaleString()}` : 'Subscribed calendar'}
+                                              >
+                                                {syncingCalId === cal.id ? 'Syncing…' : '↻ Sync now'}
+                                              </button>
+                                            </>
+                                          )}
                                         </p>
                                         <label className="flex items-center gap-1 cursor-pointer flex-shrink-0 ml-2" title="Exclude this calendar from Reality Check">
                                           <input

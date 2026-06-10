@@ -53,6 +53,18 @@ export const api = {
     delete:           (id)                => request('DELETE', `/events/${id}`),
     batch:            (eventsArr)         => request('POST',   '/events/batch',             { events: eventsArr }),
     replaceBySource:  (source, eventsArr) => request('POST',   '/events/replace-by-source', { source, events: eventsArr }),
+    replaceBySourceCalendar: (sourceCalendarId, eventsArr) =>
+      request('POST', '/events/replace-by-source-calendar', { sourceCalendarId, events: eventsArr }),
+  },
+
+  ical: {
+    fetch: (url) => request('POST', '/ical-fetch', { url }),
+  },
+
+  feed: {
+    status:  () => request('GET',    '/feed/status'),
+    enable:  () => request('POST',   '/feed/enable'),
+    disable: () => request('DELETE', '/feed'),
   },
 
   categories: {

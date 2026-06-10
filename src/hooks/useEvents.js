@@ -190,6 +190,22 @@ export function useEvents(authState) {
     }
   }
 
+  /** Re-sync a subscribed calendar: swap out all its events atomically. */
+  function replaceEventsBySourceCalendar(sourceCalendarId, newEvents) {
+    const withIds = newEvents.map(e => ({ ...e, id: generateId(), source_calendar_id: sourceCalendarId }));
+    setEvents(prev => [...prev.filter(e => e.source_calendar_id !== sourceCalendarId), ...withIds]);
+    if (isOnline) {
+      Promise.all(withIds.map(encryptEventForApi))
+        .then(p => api.events.replaceBySourceCalendar(sourceCalendarId, p)).catch(console.warn);
+    }
+  }
+
+  /** Update sync metadata (url, lastSyncedAt, …) on a linked calendar. */
+  function updateLinkedCalendar(id, updates) {
+    setLinkedCalendars(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    if (isOnline) api.linkedCalendars.update(id, updates).catch(console.warn);
+  }
+
   // ── Categories ────────────────────────────────────────────────────────────
 
   function addCategory(cat) {
@@ -250,8 +266,8 @@ export function useEvents(authState) {
     addEvent, addEvents, updateEvent, deleteEvent,
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
-    deletedDefaultIds, replaceEventsBySource,
-    linkedCalendars, addLinkedCalendar, deleteLinkedCalendar,
+    deletedDefaultIds, replaceEventsBySource, replaceEventsBySourceCalendar,
+    linkedCalendars, addLinkedCalendar, deleteLinkedCalendar, updateLinkedCalendar,
     updateLinkedCalendarColor, updateLinkedCalendarExclude, clearLegacyEvents,
   };
 }

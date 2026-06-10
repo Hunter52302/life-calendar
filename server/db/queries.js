@@ -16,7 +16,12 @@ function deserializeEvent(row) {
 
 function deserializeLinkedCal(row) {
   if (!row) return null;
-  return { ...row, excludeFromReality: row.exclude_from_reality === 1 };
+  return {
+    ...row,
+    excludeFromReality: row.exclude_from_reality === 1,
+    syncEnabled:        row.sync_enabled === 1,
+    lastSyncedAt:       row.last_synced_at ?? null,
+  };
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -56,6 +61,12 @@ export const users = {
 
   deleteUser: (id) =>
     db.prepare('DELETE FROM users WHERE id = ?').run(id),
+
+  setFeedToken: (id, token) =>
+    db.prepare('UPDATE users SET ics_feed_token = ? WHERE id = ?').run(token, id),
+
+  getByFeedToken: (token) =>
+    db.prepare('SELECT * FROM users WHERE ics_feed_token = ?').get(token),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -149,6 +160,38 @@ export const events = {
           day_of_week: e.day_of_week ?? 0, slot_start: e.slot_start ?? 0,
           slot_duration: e.slot_duration ?? 4, precision: e.precision ?? 1,
           is_all_day: e.is_all_day ? 1 : 0, source,
+        });
+      }
+    });
+    run();
+  },
+
+  /** Atomically replace all events from a subscribed calendar (re-sync). */
+  replaceBySourceCalendar: (userId, sourceCalendarId, newEvents) => {
+    const deleteStmt = db.prepare('DELETE FROM events WHERE user_id = ? AND source_calendar_id = ?');
+    const insertStmt = db.prepare(`
+      INSERT INTO events
+        (id, user_id, label, category, color, calendar, week_start,
+         day_of_week, slot_start, slot_duration, precision, is_all_day,
+         source, source_calendar_id, notes)
+      VALUES
+        (@id, @user_id, @label, @category, @color, @calendar, @week_start,
+         @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day,
+         @source, @source_calendar_id, @notes)
+    `);
+    const run = db.transaction(() => {
+      deleteStmt.run(userId, sourceCalendarId);
+      for (const e of newEvents) {
+        insertStmt.run({
+          id: e.id, user_id: userId, label: e.label ?? '',
+          category: e.category ?? null, color: e.color ?? null,
+          calendar: e.calendar, week_start: e.week_start,
+          day_of_week: e.day_of_week ?? 0, slot_start: e.slot_start ?? 0,
+          slot_duration: e.slot_duration ?? 4, precision: e.precision ?? 1,
+          is_all_day: e.is_all_day ? 1 : 0,
+          source: e.source ?? 'ical-subscription',
+          source_calendar_id: sourceCalendarId,
+          notes: e.notes ?? null,
         });
       }
     });
@@ -255,17 +298,18 @@ export const linkedCalendars = {
 
   create: (userId, cal) => {
     db.prepare(`
-      INSERT INTO linked_calendars (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO linked_calendars (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality, url, sync_enabled, last_synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(cal.id, userId, cal.name, cal.filename ?? null, cal.calendar,
-           cal.importedAt ?? null, cal.color ?? null, cal.excludeFromReality ? 1 : 0);
+           cal.importedAt ?? null, cal.color ?? null, cal.excludeFromReality ? 1 : 0,
+           cal.url ?? null, cal.syncEnabled ? 1 : 0, cal.lastSyncedAt ?? null);
     return deserializeLinkedCal(
       db.prepare('SELECT * FROM linked_calendars WHERE id = ?').get(cal.id)
     );
   },
 
   update: (userId, id, updates) => {
-    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality'];
+    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality','url','sync_enabled','last_synced_at'];
     // Map camelCase to snake_case for DB
     const mapped = {};
     if (updates.name !== undefined)                mapped.name = updates.name;
@@ -274,6 +318,9 @@ export const linkedCalendars = {
     if (updates.importedAt !== undefined)           mapped.imported_at = updates.importedAt;
     if (updates.color !== undefined)               mapped.color = updates.color;
     if (updates.excludeFromReality !== undefined)   mapped.exclude_from_reality = updates.excludeFromReality ? 1 : 0;
+    if (updates.url !== undefined)                  mapped.url = updates.url;
+    if (updates.syncEnabled !== undefined)          mapped.sync_enabled = updates.syncEnabled ? 1 : 0;
+    if (updates.lastSyncedAt !== undefined)         mapped.last_synced_at = updates.lastSyncedAt;
 
     const fields = Object.keys(mapped).filter(k => allowed.includes(k));
     if (!fields.length) return;

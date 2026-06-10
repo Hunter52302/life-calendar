@@ -19,6 +19,8 @@ import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
 import adminRoute           from './routes/admin.js';
+import icalFetchRoute       from './routes/icalFetch.js';
+import feedRoute            from './routes/feed.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
@@ -64,6 +66,8 @@ app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
 app.use('/api/admin',           adminRoute);
+app.use('/api/ical-fetch',      icalFetchRoute);
+app.use('/api/feed',            feedRoute);
 
 /**
  * GET /api/sync

@@ -180,6 +180,10 @@ export function runMigrations(db) {
     `ALTER TABLE users  ADD COLUMN email         TEXT`,
     `ALTER TABLE users  ADD COLUMN role          TEXT NOT NULL DEFAULT 'user'`,
     `ALTER TABLE users  ADD COLUMN is_blocked    INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users  ADD COLUMN ics_feed_token TEXT`,
+    `ALTER TABLE linked_calendars ADD COLUMN url            TEXT`,
+    `ALTER TABLE linked_calendars ADD COLUMN sync_enabled   INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE linked_calendars ADD COLUMN last_synced_at INTEGER`,
     `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
     `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
   ];
