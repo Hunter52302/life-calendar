@@ -8,25 +8,29 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppContext } from './src/context/AppContext.js';
 import { useAuth } from './src/hooks/useAuth.js';
 import { useEvents } from './src/hooks/useEvents.js';
+import { useHabits } from './src/hooks/useHabits.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { useState } from 'react';
 
 import AuthScreen from './src/screens/AuthScreen.jsx';
 import PlanScreen from './src/screens/PlanScreen.jsx';
 import LiveScreen from './src/screens/LiveScreen.jsx';
+import HabitsScreen from './src/screens/HabitsScreen.jsx';
 import RealityScreen from './src/screens/RealityScreen.jsx';
 
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS = {
-  Plan:          'calendar-outline',
-  Live:          'time-outline',
+  Plan:            'calendar-outline',
+  Live:            'time-outline',
+  Habits:          'checkmark-circle-outline',
   'See Your Life': 'bar-chart-outline',
 };
 
 export default function App() {
   const auth       = useAuth();
-  const eventsData = useEvents(auth.authState);
+  const eventsData = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const habitsData = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
   const [weekStart, setWeekStart] = useState(getWeekStart());
 
   // Loading
@@ -39,14 +43,17 @@ export default function App() {
     );
   }
 
-  // Auth required
-  if (auth.authState === 'setup' || auth.authState === 'login' || auth.authState === 'offline') {
+  // Auth required (or ZK vault locked)
+  if (['setup', 'login', 'locked', 'offline'].includes(auth.authState)) {
     return (
       <SafeAreaProvider>
         <AuthScreen
           authState={auth.authState}
           onSetup={auth.setup}
           onLogin={auth.login}
+          onRegister={auth.register}
+          onUnlock={auth.unlock}
+          onLogout={auth.logout}
           onContinueOffline={auth.continueOffline}
           onRetry={auth.retry}
         />
@@ -58,6 +65,7 @@ export default function App() {
   const ctx = {
     auth,
     events:   eventsData,
+    habits:   habitsData,
     weekStart,
     prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
     nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
@@ -85,6 +93,7 @@ export default function App() {
           >
             <Tab.Screen name="Plan"          component={PlanScreen} />
             <Tab.Screen name="Live"          component={LiveScreen} />
+            <Tab.Screen name="Habits"        component={HabitsScreen} />
             <Tab.Screen name="See Your Life" component={RealityScreen} />
           </Tab.Navigator>
         </NavigationContainer>

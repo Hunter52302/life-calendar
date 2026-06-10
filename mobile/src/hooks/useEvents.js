@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId, DEFAULT_CATEGORIES } from '../lib/utils.js';
 import { api } from '../lib/api.js';
+import { encryptField, decryptField } from '../lib/crypto.js';
 
 const EVENTS_KEY = 'lc-m-events';
 const CATS_KEY   = 'lc-m-categories';
@@ -14,7 +15,7 @@ async function asyncLoad(key, fallback) {
   } catch { return fallback; }
 }
 
-export function useEvents(authState) {
+export function useEvents(authState, masterKey = null, isZkEnabled = false) {
   const [ready, setReady]       = useState(false);
   const [events, setEvents]     = useState([]);
   const [customCats, setCustomCats] = useState([]);
@@ -48,17 +49,36 @@ export function useEvents(authState) {
     AsyncStorage.setItem(OVRS_KEY, JSON.stringify(overrides)).catch(() => {});
   }, [overrides, ready]);
 
-  // Sync from backend when authenticated
+  // Local state holds plaintext; the server only sees ciphertext when ZK is on.
+  const zkActive = isZkEnabled && masterKey;
+
+  async function encryptEventForApi(event) {
+    if (!zkActive) return event;
+    const out = { ...event };
+    if ('label' in out && out.label) out.label = await encryptField(masterKey, out.label);
+    if ('notes' in out && out.notes) out.notes = await encryptField(masterKey, out.notes);
+    return out;
+  }
+
+  // Sync from backend when authenticated (and, for ZK accounts, unlocked)
   useEffect(() => {
     if ((authState !== 'ready') || !ready) return;
+    if (isZkEnabled && !masterKey) return;
     api.sync()
-      .then(data => {
-        setEvents(data.events);
+      .then(async data => {
+        const evs = zkActive
+          ? await Promise.all(data.events.map(async e => ({
+              ...e,
+              label: e.label ? await decryptField(masterKey, e.label) : e.label,
+              notes: e.notes ? await decryptField(masterKey, e.notes) : e.notes,
+            })))
+          : data.events;
+        setEvents(evs);
         setCustomCats(data.customCategories);
         setOverrides(data.categoryOverrides);
       })
       .catch(() => {});
-  }, [authState, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState, ready, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allCategories = [
     ...DEFAULT_CATEGORIES.map(dc => ({ ...dc, ...(overrides[dc.id] || {}) })),
@@ -70,12 +90,12 @@ export function useEvents(authState) {
   function addEvent(data) {
     const ev = { ...data, id: generateId() };
     setEvents(p => [...p, ev]);
-    if (isOnline) api.events.create(ev).catch(console.warn);
+    if (isOnline) encryptEventForApi(ev).then(p => api.events.create(p)).catch(console.warn);
   }
 
   function updateEvent(id, updates) {
     setEvents(p => p.map(e => e.id === id ? { ...e, ...updates } : e));
-    if (isOnline) api.events.update(id, updates).catch(console.warn);
+    if (isOnline) encryptEventForApi(updates).then(p => api.events.update(id, p)).catch(console.warn);
   }
 
   function deleteEvent(id) {

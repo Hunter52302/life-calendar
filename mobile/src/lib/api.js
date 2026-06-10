@@ -28,9 +28,11 @@ export const api = {
   health: () => request('GET', '/health'),
 
   auth: {
-    status:  ()         => request('GET',  '/auth/status'),
-    setup:   (password) => request('POST', '/auth/setup', { password }),
-    login:   (password) => request('POST', '/auth/login', { password }),
+    status:   ()         => request('GET',  '/auth/status'),
+    setup:    (password) => request('POST', '/auth/setup', { password }),
+    login:    (email, password) => request('POST', '/auth/login', { email, password }),
+    register: (email, password, kdf_salt, zk_verify) =>
+                request('POST', '/auth/register', { email, password, kdf_salt, zk_verify }),
   },
 
   sync: () => request('GET', '/sync'),
@@ -53,5 +55,13 @@ export const api = {
     create:  (cal)         => request('POST',   '/linked-calendars',       cal),
     update:  (id, updates) => request('PUT',    `/linked-calendars/${id}`, updates),
     delete:  (id)          => request('DELETE', `/linked-calendars/${id}`),
+  },
+
+  habits: {
+    create:     (habit)    => request('POST',   '/habits',       habit),
+    update:     (id, upd)  => request('PUT',    `/habits/${id}`, upd),
+    delete:     (id)       => request('DELETE', `/habits/${id}`),
+    complete:   (id, date, completionId) => request('POST', `/habits/${id}/complete`, { date, completionId }),
+    uncomplete: (id, date) => request('DELETE', `/habits/${id}/complete/${date}`),
   },
 };
