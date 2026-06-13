@@ -210,6 +210,13 @@ export default function App() {
   const [editPhoneDraft, setEditPhoneDraft] = useState({ label: '', number: '' });
   const [pendingDeletePhone, setPendingDeletePhone] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  // ── PWA share target ──────────────────────────────────────────────────────
+  const [shareText, setShareText] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const t = p.get('share_text') || '';
+    if (t) window.history.replaceState({}, '', '/');
+    return t;
+  });
 
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState(null);
   const [editingCatColor, setEditingCatColor] = useState(null);
@@ -2809,6 +2816,8 @@ export default function App() {
             onAddEvent={event => addEvent({ ...event, calendar: 'plan' })}
             onAddActual={event => addEvent({ ...event, calendar: 'actual' })}
             onSwitchTab={setActiveTab}
+            initialParseText={shareText}
+            onClearParseText={() => setShareText('')}
           />
         )}
       </div>

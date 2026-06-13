@@ -51,6 +51,12 @@ export default defineConfig({
             purpose: 'any',
           },
         ],
+        share_target: {
+          action: '/',
+          method: 'GET',
+          enctype: 'application/x-www-form-urlencoded',
+          params: { title: 'share_title', text: 'share_text', url: 'share_url' },
+        },
       },
 
       workbox: {
@@ -93,6 +99,7 @@ export default defineConfig({
 
   optimizeDeps: {
     exclude: ['jspdf', 'jspdf-autotable'],
+    include: ['chrono-node'],
   },
 
   server: {

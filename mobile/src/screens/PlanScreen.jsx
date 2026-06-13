@@ -4,11 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext.js';
 import WeekGrid from '../components/WeekGrid.jsx';
 import AddEventModal from '../components/AddEventModal.jsx';
+import ParseModal from '../components/ParseModal.jsx';
 import { formatWeekRange } from '../lib/utils.js';
 
 export default function PlanScreen() {
   const { events, weekStart, prevWeek, nextWeek } = useContext(AppContext);
   const [formState, setFormState] = useState(null);
+  const [showParse, setShowParse] = useState(false);
 
   const planEvents = events.events.filter(e => e.calendar === 'plan');
 
@@ -29,6 +31,9 @@ export default function PlanScreen() {
           <Text style={styles.weekLabel}>{formatWeekRange(weekStart)}</Text>
           <Pressable onPress={nextWeek} hitSlop={8} style={styles.navBtn}>
             <Text style={styles.navArrow}>›</Text>
+          </Pressable>
+          <Pressable onPress={() => setShowParse(true)} hitSlop={8} style={styles.navBtn}>
+            <Text style={styles.clipboardIcon}>📋</Text>
           </Pressable>
         </View>
       </View>
@@ -52,6 +57,11 @@ export default function PlanScreen() {
         onDelete={(id) => { events.deleteEvent(id); setFormState(null); }}
         onClose={() => setFormState(null)}
       />
+
+      <ParseModal
+        visible={showParse}
+        onClose={() => setShowParse(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -62,6 +72,7 @@ const styles = StyleSheet.create({
   title:     { fontSize: 20, fontWeight: '700', color: '#111827' },
   weekNav:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
   navBtn:    { padding: 4 },
-  navArrow:  { fontSize: 22, color: '#7C3AED', fontWeight: '300' },
-  weekLabel: { fontSize: 13, fontWeight: '600', color: '#374151', minWidth: 120, textAlign: 'center' },
+  navArrow:      { fontSize: 22, color: '#7C3AED', fontWeight: '300' },
+  weekLabel:     { fontSize: 13, fontWeight: '600', color: '#374151', minWidth: 120, textAlign: 'center' },
+  clipboardIcon: { fontSize: 18 },
 });
