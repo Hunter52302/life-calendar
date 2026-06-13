@@ -64,4 +64,14 @@ export const api = {
     complete:   (id, date, completionId) => request('POST', `/habits/${id}/complete`, { date, completionId }),
     uncomplete: (id, date) => request('DELETE', `/habits/${id}/complete/${date}`),
   },
+
+  profile: {
+    get: ()     => request('GET', '/profile'),
+    set: (data) => request('PUT', '/profile', data),
+  },
+
+  budgets: {
+    set:    (categoryId, weeklyHours) => request('PUT',    `/budgets/${categoryId}`, { weeklyHours }),
+    delete: (categoryId)              => request('DELETE', `/budgets/${categoryId}`),
+  },
 };

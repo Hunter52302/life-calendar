@@ -9,6 +9,8 @@ import { AppContext } from './src/context/AppContext.js';
 import { useAuth } from './src/hooks/useAuth.js';
 import { useEvents } from './src/hooks/useEvents.js';
 import { useHabits } from './src/hooks/useHabits.js';
+import { useProfile } from './src/hooks/useProfile.js';
+import { useBudgets } from './src/hooks/useBudgets.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { useState } from 'react';
 
@@ -17,6 +19,7 @@ import PlanScreen from './src/screens/PlanScreen.jsx';
 import LiveScreen from './src/screens/LiveScreen.jsx';
 import HabitsScreen from './src/screens/HabitsScreen.jsx';
 import RealityScreen from './src/screens/RealityScreen.jsx';
+import SettingsScreen from './src/screens/SettingsScreen.jsx';
 
 const Tab = createBottomTabNavigator();
 
@@ -25,12 +28,15 @@ const TAB_ICONS = {
   Live:            'time-outline',
   Habits:          'checkmark-circle-outline',
   'See Your Life': 'bar-chart-outline',
+  Settings:        'settings-outline',
 };
 
 export default function App() {
-  const auth       = useAuth();
-  const eventsData = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled);
-  const habitsData = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const auth        = useAuth();
+  const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const profileData = useProfile(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const budgetsData = useBudgets(auth.authState);
   const [weekStart, setWeekStart] = useState(getWeekStart());
 
   // Loading
@@ -66,6 +72,8 @@ export default function App() {
     auth,
     events:   eventsData,
     habits:   habitsData,
+    profile:  profileData,
+    budgets:  budgetsData,
     weekStart,
     prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
     nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
@@ -95,6 +103,7 @@ export default function App() {
             <Tab.Screen name="Live"          component={LiveScreen} />
             <Tab.Screen name="Habits"        component={HabitsScreen} />
             <Tab.Screen name="See Your Life" component={RealityScreen} />
+            <Tab.Screen name="Settings"      component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
         <StatusBar style="dark" />

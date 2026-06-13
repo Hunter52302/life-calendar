@@ -4,6 +4,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext.js';
 import { formatWeekRange, slotsToHours } from '../lib/utils.js';
 
+function BudgetBadge({ actual, budget }) {
+  if (budget == null) return null;
+  const pct = Math.round((actual / budget) * 100);
+  const color = pct >= 100 ? '#EF4444' : pct >= 80 ? '#F59E0B' : '#22C55E';
+  return (
+    <View style={[badgeStyles.wrap, { backgroundColor: color + '22', borderColor: color }]}>
+      <Text style={[badgeStyles.txt, { color }]}>{pct}%</Text>
+    </View>
+  );
+}
+const badgeStyles = StyleSheet.create({
+  wrap: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 5, paddingVertical: 2, marginLeft: 6 },
+  txt:  { fontSize: 10, fontWeight: '700' },
+});
+
 function hoursLabel(h) {
   if (h === 0) return '0h';
   const hh = Math.floor(h);
@@ -14,7 +29,8 @@ function hoursLabel(h) {
 }
 
 export default function RealityScreen() {
-  const { events, weekStart, prevWeek, nextWeek } = useContext(AppContext);
+  const { events, weekStart, prevWeek, nextWeek, budgets: budgetsData } = useContext(AppContext);
+  const budgets = budgetsData?.budgets ?? {};
 
   const weekPlan   = useMemo(() => events.events.filter(e => e.calendar === 'plan'   && e.week_start === weekStart), [events.events, weekStart]);
   const weekActual = useMemo(() => events.events.filter(e => e.calendar === 'actual' && e.week_start === weekStart), [events.events, weekStart]);
@@ -99,6 +115,7 @@ export default function RealityScreen() {
                   <View style={styles.catLabel}>
                     <View style={[styles.catDot, { backgroundColor: cat.color }]} />
                     <Text style={styles.catName}>{cat.label}</Text>
+                    <BudgetBadge actual={actual} budget={budgets[cat.id] ?? null} />
                   </View>
                   <View style={styles.bars}>
                     {/* Planned bar */}
