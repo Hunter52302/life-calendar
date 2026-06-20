@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { generateId } from '../lib/utils';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
+import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 
 const EVENTS_KEY       = 'life-calendar-events';
@@ -65,60 +65,41 @@ export function useEvents(authState) {
   const zkActive = isZkEnabled && masterKey;
 
   async function encryptEventForApi(event) {
-    if (!zkActive) return event;
-    const out = { ...event };
-    if ('label' in out && out.label) out.label = await encryptField(masterKey, out.label);
-    if ('notes' in out && out.notes) out.notes = await encryptField(masterKey, out.notes);
-    return out;
+    return zkActive ? encryptRecord(masterKey, event, ['label', 'notes']) : event;
   }
 
   async function decryptServerEvents(serverEvents) {
-    if (!zkActive) return serverEvents;
-    return Promise.all(serverEvents.map(async e => ({
-      ...e,
-      label: e.label ? (await decryptField(masterKey, e.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.label,
-      notes: e.notes ? (await decryptField(masterKey, e.notes)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.notes,
-    })));
+    return zkActive
+      ? Promise.all(serverEvents.map(e => decryptRecord(masterKey, e, ['label', 'notes'])))
+      : serverEvents;
   }
 
   async function encryptCategoryForApi(cat) {
-    if (!zkActive || !cat.label) return cat;
-    return { ...cat, label: await encryptField(masterKey, cat.label) };
+    return zkActive ? encryptRecord(masterKey, cat, ['label']) : cat;
   }
 
   async function decryptCategories(serverCats) {
-    if (!zkActive) return serverCats;
-    return Promise.all(serverCats.map(async c => ({
-      ...c,
-      label: c.label ? (await decryptField(masterKey, c.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.label,
-    })));
+    return zkActive ? Promise.all(serverCats.map(c => decryptRecord(masterKey, c, ['label']))) : serverCats;
   }
 
   async function encryptOverrideForApi(ovr) {
-    if (!zkActive || !ovr.label) return ovr;
-    return { ...ovr, label: await encryptField(masterKey, ovr.label) };
+    return zkActive ? encryptRecord(masterKey, ovr, ['label']) : ovr;
   }
 
   async function decryptOverrides(serverOverrides) {
     if (!zkActive) return serverOverrides;
-    const entries = await Promise.all(Object.entries(serverOverrides).map(async ([id, ovr]) => [
-      id,
-      { ...ovr, label: ovr.label ? (await decryptField(masterKey, ovr.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : ovr.label },
-    ]));
+    const entries = await Promise.all(Object.entries(serverOverrides).map(
+      async ([id, ovr]) => [id, await decryptRecord(masterKey, ovr, ['label'])]
+    ));
     return Object.fromEntries(entries);
   }
 
   async function encryptLinkedCalForApi(cal) {
-    if (!zkActive || !cal.name) return cal;
-    return { ...cal, name: await encryptField(masterKey, cal.name) };
+    return zkActive ? encryptRecord(masterKey, cal, ['name']) : cal;
   }
 
   async function decryptLinkedCalendars(serverLinked) {
-    if (!zkActive) return serverLinked;
-    return Promise.all(serverLinked.map(async c => ({
-      ...c,
-      name: c.name ? (await decryptField(masterKey, c.name)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.name,
-    })));
+    return zkActive ? Promise.all(serverLinked.map(c => decryptRecord(masterKey, c, ['name']))) : serverLinked;
   }
 
   // ── Server sync on mount / auth state change ────────────────────────────
