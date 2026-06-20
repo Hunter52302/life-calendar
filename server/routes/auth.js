@@ -3,11 +3,32 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { users, userZk } from '../db/queries.js';
 import { requireAuth } from '../middleware/auth.js';
+import { authLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 const SECRET = process.env.JWT_SECRET;
 const TOKEN_TTL = '30d';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Optional bot-signup defense. Only enforced when TURNSTILE_SECRET is set,
+ * so self-hosters without a Cloudflare Turnstile account aren't blocked.
+ */
+async function verifyTurnstile(token) {
+  if (!process.env.TURNSTILE_SECRET) return true;
+  if (!token) return false;
+  try {
+    const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret: process.env.TURNSTILE_SECRET, response: token }),
+    });
+    const data = await resp.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
 
 function makeToken(userId) {
   return jwt.sign({ userId }, SECRET, { expiresIn: TOKEN_TTL });
@@ -60,12 +81,15 @@ router.get('/status', (req, res) => {
  * Creates a new account. The first account ever becomes the admin.
  * Zero-knowledge encryption is set up at registration: the client derives
  * the key locally and sends only the salt + verification blob.
- * Body: { email, password, kdf_salt?, zk_verify? }
+ * Body: { email, password, kdf_salt?, zk_verify?, turnstile_token? }
  */
-router.post('/register', async (req, res) => {
-  const { email, password, kdf_salt, zk_verify } = req.body ?? {};
+router.post('/register', authLimiter, async (req, res) => {
+  const { email, password, kdf_salt, zk_verify, turnstile_token } = req.body ?? {};
   const normEmail = email?.trim().toLowerCase();
 
+  if (!(await verifyTurnstile(turnstile_token))) {
+    return res.status(400).json({ error: 'Bot verification failed. Please try again.' });
+  }
   if (!normEmail || !EMAIL_RE.test(normEmail)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
@@ -84,6 +108,7 @@ router.post('/register', async (req, res) => {
     role,
     kdfSalt: kdf_salt ?? null,
     zkVerify: zk_verify ?? null,
+    signupIp: req.ip ?? null,
   });
   res.json(authPayload(users.getById(id)));
 });
@@ -115,7 +140,7 @@ router.post('/setup', async (req, res) => {
  * back to the legacy single account created before emails existed (this
  * also keeps the mobile app's password-only login working).
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   const { email, password } = req.body ?? {};
   if (!password) return res.status(400).json({ error: 'Password is required.' });
 
@@ -139,10 +164,16 @@ router.post('/login', async (req, res) => {
   if (user.is_blocked) {
     return res.status(403).json({ error: 'This account has been blocked. Contact the administrator.' });
   }
+  if (user.locked_until && user.locked_until > Math.floor(Date.now() / 1000)) {
+    const minutes = Math.ceil((user.locked_until - Date.now() / 1000) / 60);
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${minutes} minute(s).` });
+  }
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) {
+    users.recordFailedLogin(user.id);
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
+  users.resetLoginAttempts(user.id);
   res.json(authPayload(user));
 });
 

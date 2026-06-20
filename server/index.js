@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 
 // ── Database (imported for side-effect: connects + runs migrations) ──────────
 import './db/index.js';
@@ -29,6 +30,10 @@ import { events, customCategories, categoryOverrides, deletedDefaults, linkedCal
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// This server only ever returns JSON, never HTML — disable the CSP/COEP
+// headers meant for HTML responses so they don't add noise to API clients.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
 // ---------------------------------------------------------------------------
 // CORS

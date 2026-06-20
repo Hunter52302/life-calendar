@@ -185,6 +185,8 @@ export default function App() {
   const [adminError, setAdminError] = useState('');
   const [adminPwdDrafts, setAdminPwdDrafts] = useState({}); // { [userId]: newPassword }
   const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
+  const [adminAuditLog, setAdminAuditLog] = useState(null); // null until first load
+  const [adminSignupClusters, setAdminSignupClusters] = useState(null);
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
   // ── Calendar subscriptions (ICS URLs) + outbound feed ────────────────────
@@ -434,8 +436,16 @@ export default function App() {
   // ── Admin panel actions ───────────────────────────────────────────────────
   async function loadAdminUsers() {
     setAdminError('');
-    try { setAdminUsers(await api.admin.listUsers()); }
-    catch (err) { setAdminError(err.message); }
+    try {
+      const [list, auditLog, clusters] = await Promise.all([
+        api.admin.listUsers(),
+        api.admin.auditLog(),
+        api.admin.signupClusters(),
+      ]);
+      setAdminUsers(list);
+      setAdminAuditLog(auditLog);
+      setAdminSignupClusters(clusters);
+    } catch (err) { setAdminError(err.message); }
   }
 
   async function handleAdminBlock(userId, blocked) {
@@ -450,6 +460,7 @@ export default function App() {
       await api.admin.resetPassword(userId, pwd);
       setAdminPwdDrafts(d => { const n = { ...d }; delete n[userId]; return n; });
       setAdminError('');
+      await loadAdminUsers();
     } catch (err) { setAdminError(err.message); }
   }
 
@@ -2019,6 +2030,30 @@ export default function App() {
                                 )}
                               </div>
                             ))}
+
+                            {adminSignupClusters?.length > 0 && (
+                              <div className="rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
+                                <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">⚠️ Bot-farm signal: shared signup IPs</p>
+                                {adminSignupClusters.map(c => (
+                                  <p key={c.signup_ip} className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
+                                    {c.signup_ip} → {c.count} accounts ({c.emails})
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {adminAuditLog?.length > 0 && (
+                              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1">
+                                <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Audit log</p>
+                                <div className="max-h-40 overflow-y-auto space-y-1">
+                                  {adminAuditLog.map(a => (
+                                    <p key={a.id} className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
+                                      {new Date(a.created_at * 1000).toLocaleString()} — {a.admin_email} {a.action.replace('_', ' ')} {a.target_email ?? '(deleted account)'}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

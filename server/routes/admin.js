@@ -6,14 +6,25 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { users } from '../db/queries.js';
+import { adminLimiter } from '../middleware/rateLimit.js';
+import { users, adminAuditLog } from '../db/queries.js';
 
 const router = Router();
-router.use(requireAuth, requireAdmin);
+router.use(adminLimiter, requireAuth, requireAdmin);
 
 /** GET /api/admin/users — list accounts (email + status only). */
 router.get('/users', (req, res) => {
   res.json(users.listAll());
+});
+
+/** GET /api/admin/audit-log — recent admin actions (who did what, to whom, when). */
+router.get('/audit-log', (req, res) => {
+  res.json(adminAuditLog.listRecent());
+});
+
+/** GET /api/admin/signup-clusters — IPs that registered more than one account (bot-farm signal). */
+router.get('/signup-clusters', (req, res) => {
+  res.json(users.getSignupIpClusters());
 });
 
 /**
@@ -31,6 +42,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
   }
   const hash = await bcrypt.hash(newPassword, 12);
   users.setPassword(target.id, hash);
+  adminAuditLog.record(req.userId, 'reset_password', target.id);
   res.json({ ok: true, zk_enabled: target.zk_enabled === 1 });
 });
 
@@ -44,7 +56,9 @@ router.put('/users/:id/block', (req, res) => {
   }
   const target = users.getById(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found.' });
-  users.setBlocked(target.id, !!req.body?.blocked);
+  const blocked = !!req.body?.blocked;
+  users.setBlocked(target.id, blocked);
+  adminAuditLog.record(req.userId, blocked ? 'block' : 'unblock', target.id);
   res.json({ ok: true });
 });
 
@@ -55,6 +69,7 @@ router.delete('/users/:id', (req, res) => {
   }
   const target = users.getById(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found.' });
+  adminAuditLog.record(req.userId, 'delete', target.id);
   users.deleteUser(target.id);
   res.json({ ok: true });
 });

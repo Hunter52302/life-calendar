@@ -169,6 +169,15 @@ export function runMigrations(db) {
       updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id             TEXT PRIMARY KEY,
+      admin_user_id  TEXT NOT NULL,
+      action         TEXT NOT NULL,
+      target_user_id TEXT,
+      created_at     INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors
@@ -181,6 +190,9 @@ export function runMigrations(db) {
     `ALTER TABLE users  ADD COLUMN role          TEXT NOT NULL DEFAULT 'user'`,
     `ALTER TABLE users  ADD COLUMN is_blocked    INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE users  ADD COLUMN ics_feed_token TEXT`,
+    `ALTER TABLE users  ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users  ADD COLUMN locked_until  INTEGER`,
+    `ALTER TABLE users  ADD COLUMN signup_ip     TEXT`,
     `ALTER TABLE linked_calendars ADD COLUMN url            TEXT`,
     `ALTER TABLE linked_calendars ADD COLUMN sync_enabled   INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE linked_calendars ADD COLUMN last_synced_at INTEGER`,

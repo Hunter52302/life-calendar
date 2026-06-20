@@ -4,7 +4,11 @@
  * To migrate to Postgres later: replace this file's internals;
  * the function signatures stay identical so routes never change.
  */
+import { randomUUID } from 'crypto';
 import { db } from './index.js';
+
+const LOGIN_LOCK_THRESHOLD = 5;
+const LOGIN_LOCK_MINUTES = 15;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,11 +40,11 @@ export const users = {
   getLegacyUsers: () => db.prepare('SELECT * FROM users WHERE email IS NULL').all(),
 
   create: (id, passwordHash, opts = {}) => {
-    const { email = null, role = 'user', kdfSalt = null, zkVerify = null } = opts;
+    const { email = null, role = 'user', kdfSalt = null, zkVerify = null, signupIp = null } = opts;
     db.prepare(`
-      INSERT INTO users (id, password_hash, email, role, kdf_salt, zk_verify, zk_enabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, passwordHash, email, role, kdfSalt, zkVerify, kdfSalt && zkVerify ? 1 : 0);
+      INSERT INTO users (id, password_hash, email, role, kdf_salt, zk_verify, zk_enabled, signup_ip)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, passwordHash, email, role, kdfSalt, zkVerify, kdfSalt && zkVerify ? 1 : 0, signupIp);
   },
 
   /** Admin view — deliberately excludes password_hash and ZK secrets. */
@@ -65,6 +69,32 @@ export const users = {
 
   deleteUser: (id) =>
     db.prepare('DELETE FROM users WHERE id = ?').run(id),
+
+  /** Bumps the failed-attempt counter and locks the account once it crosses the threshold. */
+  recordFailedLogin: (id) => {
+    const row = db.prepare('SELECT failed_login_attempts FROM users WHERE id = ?').get(id);
+    const attempts = (row?.failed_login_attempts ?? 0) + 1;
+    const lockedUntil = attempts >= LOGIN_LOCK_THRESHOLD
+      ? Math.floor(Date.now() / 1000) + LOGIN_LOCK_MINUTES * 60
+      : null;
+    db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?')
+      .run(attempts, lockedUntil, id);
+    return { attempts, lockedUntil };
+  },
+
+  resetLoginAttempts: (id) =>
+    db.prepare('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(id),
+
+  /** Bot-farm signal for the admin panel: IPs that registered more than one account. */
+  getSignupIpClusters: () =>
+    db.prepare(`
+      SELECT signup_ip, COUNT(*) AS count, GROUP_CONCAT(email, ', ') AS emails
+      FROM users
+      WHERE signup_ip IS NOT NULL
+      GROUP BY signup_ip
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `).all(),
 
   setFeedToken: (id, token) =>
     db.prepare('UPDATE users SET ics_feed_token = ? WHERE id = ?').run(token, id),
@@ -614,4 +644,27 @@ export const userZk = {
   setTimezone: (userId, tz) => {
     db.prepare('UPDATE users SET user_timezone = ? WHERE id = ?').run(tz, userId);
   },
+};
+
+// ── Admin Audit Log ───────────────────────────────────────────────────────────
+
+export const adminAuditLog = {
+  record: (adminUserId, action, targetUserId = null) => {
+    db.prepare(`
+      INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id)
+      VALUES (?, ?, ?, ?)
+    `).run(randomUUID(), adminUserId, action, targetUserId);
+  },
+
+  listRecent: (limit = 200) =>
+    db.prepare(`
+      SELECT a.id, a.action, a.created_at,
+             admin.email  AS admin_email,
+             target.email AS target_email
+      FROM admin_audit_log a
+      JOIN users admin ON admin.id = a.admin_user_id
+      LEFT JOIN users target ON target.id = a.target_user_id
+      ORDER BY a.created_at DESC
+      LIMIT ?
+    `).all(limit),
 };

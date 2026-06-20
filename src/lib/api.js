@@ -25,8 +25,8 @@ export const api = {
   auth: {
     status:      ()                    => request('GET',  '/auth/status'),
     setup:       (password)            => request('POST', '/auth/setup',     { password }),
-    register:    (email, password, kdf_salt, zk_verify) =>
-                   request('POST', '/auth/register', { email, password, kdf_salt, zk_verify }),
+    register:    (email, password, kdf_salt, zk_verify, turnstile_token) =>
+                   request('POST', '/auth/register', { email, password, kdf_salt, zk_verify, turnstile_token }),
     login:       (email, password)     => request('POST', '/auth/login',     { email, password }),
     setEmail:    (email)               => request('PUT',  '/auth/email',     { email }),
     enableZk:    (kdf_salt, zk_verify) => request('PUT',  '/auth/zk-enable', { kdf_salt, zk_verify }),
@@ -34,10 +34,12 @@ export const api = {
   },
 
   admin: {
-    listUsers:     ()                => request('GET',    '/admin/users'),
-    resetPassword: (id, newPassword) => request('POST',   `/admin/users/${id}/reset-password`, { newPassword }),
-    setBlocked:    (id, blocked)     => request('PUT',    `/admin/users/${id}/block`, { blocked }),
-    deleteUser:    (id)              => request('DELETE', `/admin/users/${id}`),
+    listUsers:      ()                => request('GET',    '/admin/users'),
+    resetPassword:  (id, newPassword) => request('POST',   `/admin/users/${id}/reset-password`, { newPassword }),
+    setBlocked:     (id, blocked)     => request('PUT',    `/admin/users/${id}/block`, { blocked }),
+    deleteUser:     (id)              => request('DELETE', `/admin/users/${id}`),
+    auditLog:       ()                => request('GET',    '/admin/audit-log'),
+    signupClusters: ()                => request('GET',    '/admin/signup-clusters'),
   },
 
   driveTime: {
