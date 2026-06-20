@@ -68,6 +68,8 @@ import ActualView from './views/ActualView';
 import DiffView from './views/DiffView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
+import ZkPromptModal from './components/ZkPromptModal';
+import ZkBanner from './components/ZkBanner';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
@@ -170,6 +172,8 @@ export default function App() {
   const [zkEnabling, setZkEnabling] = useState(false);
   const [zkPassword, setZkPassword] = useState('');
   const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
+  const [zkPromptDismissed, setZkPromptDismissed] = useState(() => localStorage.getItem('lc-zk-prompt-dismissed') === 'true');
+  const [zkBannerDismissed, setZkBannerDismissed] = useState(false);
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [newIntType, setNewIntType] = useState('discord_webhook');
   const [newIntLabel, setNewIntLabel] = useState('');
@@ -525,6 +529,8 @@ export default function App() {
       await syncProfile(key);
       setZkProgress('done');
       setZkPassword('');
+      setImportNotice('✅ Your data is now end-to-end encrypted.');
+      setTimeout(() => setImportNotice(null), 5000);
     } catch (err) {
       console.error('ZK enable failed:', err);
       setZkProgress('error');
@@ -616,6 +622,23 @@ export default function App() {
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
   const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
   const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
+
+  // Nudge accounts that predate ZK-by-default to turn it on — shown once
+  // per dismissal (not re-shown after "Maybe later"), independent of the
+  // persistent banner below.
+  const showZkPrompt = (authState === 'ready' || authState === 'offline-ok') && !isZkEnabled && !zkPromptDismissed;
+
+  function dismissZkPrompt() {
+    localStorage.setItem('lc-zk-prompt-dismissed', 'true');
+    setZkPromptDismissed(true);
+  }
+
+  function acceptZkPrompt() {
+    localStorage.setItem('lc-zk-prompt-dismissed', 'true');
+    setZkPromptDismissed(true);
+    setShowSettings(true);
+    setZkOpen(true);
+  }
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -839,6 +862,15 @@ export default function App() {
       )}
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
+      )}
+      {showZkPrompt && (
+        <ZkPromptModal onEnable={acceptZkPrompt} onDismiss={dismissZkPrompt} />
+      )}
+      {!isZkEnabled && !showZkPrompt && !zkBannerDismissed && (
+        <ZkBanner
+          onOpenSettings={() => { setShowSettings(true); setZkOpen(true); }}
+          onDismiss={() => setZkBannerDismissed(true)}
+        />
       )}
       <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
