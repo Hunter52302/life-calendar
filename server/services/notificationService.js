@@ -60,51 +60,24 @@ function addDaysToDate(dateStr, n) {
 
 // ── Dispatch functions ────────────────────────────────────────────────────────
 
-async function dispatchDiscordWebhook(url, title, body) {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [{
-          title,
-          description: body,
-          color: 0x6d28d9,
-          footer: { text: 'PLS Calendar' },
-        }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Discord responded ${res.status}`);
-  } catch (err) {
-    console.warn('[notify] Discord webhook failed:', err.message);
-    throw err;
-  }
+function discordPayload(title, body) {
+  return { embeds: [{ title, description: body, color: 0x6d28d9, footer: { text: 'PLS Calendar' } }] };
 }
 
-async function dispatchSlackWebhook(url, title, body) {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: `*${title}*\n${body}` }),
-    });
-    if (!res.ok) throw new Error(`Slack responded ${res.status}`);
-  } catch (err) {
-    console.warn('[notify] Slack webhook failed:', err.message);
-    throw err;
-  }
+function slackPayload(title, body) {
+  return { text: `*${title}*\n${body}` };
 }
 
-async function dispatchGenericWebhook(url, payload) {
+async function dispatchWebhook(url, payload, label) {
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Webhook responded ${res.status}`);
+    if (!res.ok) throw new Error(`${label} webhook responded ${res.status}`);
   } catch (err) {
-    console.warn('[notify] Generic webhook failed:', err.message);
+    console.warn(`[notify] ${label} webhook failed:`, err.message);
     throw err;
   }
 }
@@ -145,11 +118,11 @@ async function dispatchToIntegration(integration, title, body, entityId, userId)
   let status = 'sent';
   try {
     if (integration.type === 'discord_webhook' && integration.endpoint_url) {
-      await dispatchDiscordWebhook(integration.endpoint_url, title, body);
+      await dispatchWebhook(integration.endpoint_url, discordPayload(title, body), 'Discord');
     } else if (integration.type === 'slack_webhook' && integration.endpoint_url) {
-      await dispatchSlackWebhook(integration.endpoint_url, title, body);
+      await dispatchWebhook(integration.endpoint_url, slackPayload(title, body), 'Slack');
     } else if (integration.type === 'generic_webhook' && integration.endpoint_url) {
-      await dispatchGenericWebhook(integration.endpoint_url, { title, body, entity_id: entityId, timestamp: new Date().toISOString() });
+      await dispatchWebhook(integration.endpoint_url, { title, body, entity_id: entityId, timestamp: new Date().toISOString() }, 'Generic');
     } else if (integration.type === 'web_push') {
       await dispatchWebPush(userId, title, body);
     } else if (integration.type === 'expo_push' && integration.push_token) {
@@ -302,4 +275,4 @@ export function stopScheduler() {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
 }
 
-export { dispatchToIntegration, dispatchDiscordWebhook, dispatchSlackWebhook, dispatchGenericWebhook, dispatchWebPush, dispatchExpoPush };
+export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush };
