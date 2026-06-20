@@ -60,6 +60,28 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
     return out;
   }
 
+  async function encryptCategoryForApi(cat) {
+    if (!zkActive || !cat.label) return cat;
+    return { ...cat, label: await encryptField(masterKey, cat.label) };
+  }
+
+  async function decryptCategories(serverCats) {
+    if (!zkActive) return serverCats;
+    return Promise.all(serverCats.map(async c => ({
+      ...c,
+      label: c.label ? (await decryptField(masterKey, c.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.label,
+    })));
+  }
+
+  async function decryptOverrides(serverOverrides) {
+    if (!zkActive) return serverOverrides;
+    const entries = await Promise.all(Object.entries(serverOverrides).map(async ([id, ovr]) => [
+      id,
+      { ...ovr, label: ovr.label ? (await decryptField(masterKey, ovr.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : ovr.label },
+    ]));
+    return Object.fromEntries(entries);
+  }
+
   // Sync from backend when authenticated (and, for ZK accounts, unlocked)
   useEffect(() => {
     if ((authState !== 'ready') || !ready) return;
@@ -74,8 +96,8 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
             })))
           : data.events;
         setEvents(evs);
-        setCustomCats(data.customCategories);
-        setOverrides(data.categoryOverrides);
+        setCustomCats(await decryptCategories(data.customCategories));
+        setOverrides(await decryptOverrides(data.categoryOverrides));
       })
       .catch(() => {});
   }, [authState, ready, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -106,7 +128,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
   function addCategory(cat) {
     const newCat = { ...cat, id: generateId() };
     setCustomCats(p => [...p, newCat]);
-    if (isOnline) api.categories.create(newCat).catch(console.warn);
+    if (isOnline) encryptCategoryForApi(newCat).then(p => api.categories.create(p)).catch(console.warn);
   }
 
   return { ready, events, allCategories, addEvent, updateEvent, deleteEvent, addCategory };

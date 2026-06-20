@@ -54,6 +54,7 @@ const PRESET_COLORS = [
   '#6B7280', '#374151',
 ];
 import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
+import { api } from './lib/api.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
@@ -490,6 +491,16 @@ export default function App() {
       for (const h of habits) {
         if (h.label && !isBase64(h.label)) {
           await api.habits.update(h.id, { label: await encryptField(key, h.label) });
+        }
+      }
+      for (const [catId, ovr] of Object.entries(categoryOverrides)) {
+        if (ovr.label && !isBase64(ovr.label)) {
+          await api.categories.update(catId, { label: await encryptField(key, ovr.label) });
+        }
+      }
+      for (const cal of linkedCalendars) {
+        if (cal.name && !isBase64(cal.name)) {
+          await api.linkedCalendars.update(cal.id, { name: await encryptField(key, cal.name) });
         }
       }
       // Encrypt profile fields (username stays plaintext)

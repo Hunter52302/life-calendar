@@ -81,6 +81,46 @@ export function useEvents(authState) {
     })));
   }
 
+  async function encryptCategoryForApi(cat) {
+    if (!zkActive || !cat.label) return cat;
+    return { ...cat, label: await encryptField(masterKey, cat.label) };
+  }
+
+  async function decryptCategories(serverCats) {
+    if (!zkActive) return serverCats;
+    return Promise.all(serverCats.map(async c => ({
+      ...c,
+      label: c.label ? (await decryptField(masterKey, c.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.label,
+    })));
+  }
+
+  async function encryptOverrideForApi(ovr) {
+    if (!zkActive || !ovr.label) return ovr;
+    return { ...ovr, label: await encryptField(masterKey, ovr.label) };
+  }
+
+  async function decryptOverrides(serverOverrides) {
+    if (!zkActive) return serverOverrides;
+    const entries = await Promise.all(Object.entries(serverOverrides).map(async ([id, ovr]) => [
+      id,
+      { ...ovr, label: ovr.label ? (await decryptField(masterKey, ovr.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : ovr.label },
+    ]));
+    return Object.fromEntries(entries);
+  }
+
+  async function encryptLinkedCalForApi(cal) {
+    if (!zkActive || !cal.name) return cal;
+    return { ...cal, name: await encryptField(masterKey, cal.name) };
+  }
+
+  async function decryptLinkedCalendars(serverLinked) {
+    if (!zkActive) return serverLinked;
+    return Promise.all(serverLinked.map(async c => ({
+      ...c,
+      name: c.name ? (await decryptField(masterKey, c.name)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.name,
+    })));
+  }
+
   // ── Server sync on mount / auth state change ────────────────────────────
   useEffect(() => {
     if (authState !== 'ready') return;
@@ -110,9 +150,9 @@ export function useEvents(authState) {
 
   async function applyServerData(data) {
     setEvents(await decryptServerEvents(data.events));
-    setCustomCategories(data.customCategories);
-    setCategoryOverrides(data.categoryOverrides);
-    setLinkedCalendars(data.linkedCalendars);
+    setCustomCategories(await decryptCategories(data.customCategories));
+    setCategoryOverrides(await decryptOverrides(data.categoryOverrides));
+    setLinkedCalendars(await decryptLinkedCalendars(data.linkedCalendars));
     setDeletedDefaultIds(data.deletedDefaultIds);
   }
 
@@ -125,13 +165,13 @@ export function useEvents(authState) {
       }
 
       for (const cat of cats) {
-        await api.categories.create(cat);
+        await api.categories.create(await encryptCategoryForApi(cat));
       }
       for (const [catId, ovr] of Object.entries(overrides)) {
-        if (ovr.label || ovr.color) await api.categories.update(catId, ovr);
+        if (ovr.label || ovr.color) await api.categories.update(catId, await encryptOverrideForApi(ovr));
       }
       for (const cal of linked) {
-        await api.linkedCalendars.create(cal);
+        await api.linkedCalendars.create(await encryptLinkedCalForApi(cal));
       }
       // deletedDefaultIds — re-delete each one on the server
       for (const id of deletedIds) {
@@ -203,7 +243,7 @@ export function useEvents(authState) {
   /** Update sync metadata (url, lastSyncedAt, …) on a linked calendar. */
   function updateLinkedCalendar(id, updates) {
     setLinkedCalendars(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-    if (isOnline) api.linkedCalendars.update(id, updates).catch(console.warn);
+    if (isOnline) encryptLinkedCalForApi(updates).then(p => api.linkedCalendars.update(id, p)).catch(console.warn);
   }
 
   // ── Categories ────────────────────────────────────────────────────────────
@@ -211,7 +251,7 @@ export function useEvents(authState) {
   function addCategory(cat) {
     const newCat = { ...cat, id: generateId() };
     setCustomCategories(prev => [...prev, newCat]);
-    if (isOnline) api.categories.create(newCat).catch(console.warn);
+    if (isOnline) encryptCategoryForApi(newCat).then(p => api.categories.create(p)).catch(console.warn);
   }
 
   function deleteCategory(id) {
@@ -222,7 +262,7 @@ export function useEvents(authState) {
 
   function updateCategory(id, updates) {
     setCategoryOverrides(prev => ({ ...prev, [id]: { ...(prev[id] || {}), ...updates } }));
-    if (isOnline) api.categories.update(id, updates).catch(console.warn);
+    if (isOnline) encryptOverrideForApi(updates).then(p => api.categories.update(id, p)).catch(console.warn);
   }
 
   // ── Linked Calendars ──────────────────────────────────────────────────────
@@ -232,7 +272,7 @@ export function useEvents(authState) {
     const color = cal.color || IMPORT_COLORS[linkedCalendars.length % IMPORT_COLORS.length];
     const newCal = { ...cal, id, color };
     setLinkedCalendars(prev => [...prev, newCal]);
-    if (isOnline) api.linkedCalendars.create(newCal).catch(console.warn);
+    if (isOnline) encryptLinkedCalForApi(newCal).then(p => api.linkedCalendars.create(p)).catch(console.warn);
     return { id, color };
   }
 
