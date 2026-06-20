@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField } from '../lib/crypto.js';
+import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 
 const STORAGE_KEY = 'lc-profile';
@@ -51,19 +51,21 @@ async function encryptProfile(key, profile) {
 async function decryptProfile(key, raw) {
   let phones = raw.phones;
   if (phones && typeof phones === 'string') {
-    try { phones = JSON.parse(await decryptField(key, phones)); } catch { phones = []; }
+    const decrypted = await decryptField(key, phones);
+    try { phones = decrypted === null ? [] : JSON.parse(decrypted); } catch { phones = []; }
   }
   let otherAddresses = raw.otherAddresses;
   if (otherAddresses && typeof otherAddresses === 'string') {
-    try { otherAddresses = JSON.parse(await decryptField(key, otherAddresses)); } catch { otherAddresses = []; }
+    const decrypted = await decryptField(key, otherAddresses);
+    try { otherAddresses = decrypted === null ? [] : JSON.parse(decrypted); } catch { otherAddresses = []; }
   }
   return {
     username:       raw.username    ?? '',
-    displayName:    raw.displayName ? await decryptField(key, raw.displayName) : '',
-    email:          raw.email       ? await decryptField(key, raw.email)       : '',
+    displayName:    raw.displayName ? (await decryptField(key, raw.displayName)) ?? DECRYPT_FAILURE_PLACEHOLDER : '',
+    email:          raw.email       ? (await decryptField(key, raw.email))       ?? DECRYPT_FAILURE_PLACEHOLDER : '',
     phones:         Array.isArray(phones)         ? phones         : [],
-    birthday:       raw.birthday    ? await decryptField(key, raw.birthday)    : '',
-    homeAddress:    raw.homeAddress ? await decryptField(key, raw.homeAddress) : '',
+    birthday:       raw.birthday    ? (await decryptField(key, raw.birthday))    ?? DECRYPT_FAILURE_PLACEHOLDER : '',
+    homeAddress:    raw.homeAddress ? (await decryptField(key, raw.homeAddress)) ?? DECRYPT_FAILURE_PLACEHOLDER : '',
     otherAddresses: Array.isArray(otherAddresses) ? otherAddresses : [],
   };
 }

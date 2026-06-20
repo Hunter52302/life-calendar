@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId, DEFAULT_CATEGORIES } from '../lib/utils.js';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField } from '../lib/crypto.js';
+import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
 
 const EVENTS_KEY = 'lc-m-events';
 const CATS_KEY   = 'lc-m-categories';
@@ -69,8 +69,8 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
         const evs = zkActive
           ? await Promise.all(data.events.map(async e => ({
               ...e,
-              label: e.label ? await decryptField(masterKey, e.label) : e.label,
-              notes: e.notes ? await decryptField(masterKey, e.notes) : e.notes,
+              label: e.label ? (await decryptField(masterKey, e.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.label,
+              notes: e.notes ? (await decryptField(masterKey, e.notes)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.notes,
             })))
           : data.events;
         setEvents(evs);

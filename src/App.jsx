@@ -59,7 +59,7 @@ import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
 import { useIntegrations } from './hooks/useIntegrations';
 import { useCrypto } from './context/CryptoContext';
-import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField } from './lib/crypto';
+import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField, isBase64 } from './lib/crypto';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -467,7 +467,14 @@ export default function App() {
     if (!zkPassword.trim()) return;
     setZkProgress('deriving');
     try {
-      const salt = generateSalt();
+      // Resume an interrupted migration with the same salt — generating a
+      // fresh one on retry would double-encrypt whatever already succeeded
+      // last time (ciphertext encrypted again, with the original plaintext
+      // unrecoverable). Fields already encrypted are skipped via isBase64.
+      const resumeSalt = localStorage.getItem('lc-zk-migration-salt');
+      const salt = resumeSalt || generateSalt();
+      if (!resumeSalt) localStorage.setItem('lc-zk-migration-salt', salt);
+
       const key  = await deriveKey(zkPassword, salt);
       const blob = await generateVerifyBlob(key);
       setZkProgress('encrypting');
@@ -476,25 +483,32 @@ export default function App() {
       const allEvents  = getEvents('plan').concat(getEvents('actual'));
       for (const ev of allEvents) {
         const updates = {};
-        if (ev.label) updates.label = await encryptField(key, ev.label);
-        if (ev.notes) updates.notes = await encryptField(key, ev.notes);
+        if (ev.label && !isBase64(ev.label)) updates.label = await encryptField(key, ev.label);
+        if (ev.notes && !isBase64(ev.notes)) updates.notes = await encryptField(key, ev.notes);
         if (Object.keys(updates).length) await api.events.update(ev.id, updates);
       }
       for (const h of habits) {
-        if (h.label) await api.habits.update(h.id, { label: await encryptField(key, h.label) });
+        if (h.label && !isBase64(h.label)) {
+          await api.habits.update(h.id, { label: await encryptField(key, h.label) });
+        }
       }
       // Encrypt profile fields (username stays plaintext)
+      const encField = async (val) => (val && !isBase64(val)) ? await encryptField(key, val) : (val || null);
       const encProfile = {
         username:       profile.username || null,
-        displayName:    profile.displayName ? await encryptField(key, profile.displayName) : null,
-        email:          profile.email       ? await encryptField(key, profile.email)       : null,
-        phones:         profile.phones?.length      ? await encryptField(key, JSON.stringify(profile.phones))          : profile.phones,
-        birthday:       profile.birthday    ? await encryptField(key, profile.birthday)    : null,
-        homeAddress:    profile.homeAddress ? await encryptField(key, profile.homeAddress) : null,
-        otherAddresses: profile.otherAddresses?.length ? await encryptField(key, JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
+        displayName:    await encField(profile.displayName),
+        email:          await encField(profile.email),
+        phones:         profile.phones?.length      ? await encField(JSON.stringify(profile.phones))          : profile.phones,
+        birthday:       await encField(profile.birthday),
+        homeAddress:    await encField(profile.homeAddress),
+        otherAddresses: profile.otherAddresses?.length ? await encField(JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
       };
       await api.profile.set(encProfile);
+      // Only flip the server over to this key once every record above has
+      // been safely re-encrypted — otherwise a half-migrated mix of
+      // plaintext and ciphertext would be left behind under zk_enabled=false.
       await api.auth.enableZk(salt, blob);
+      localStorage.removeItem('lc-zk-migration-salt');
       setMasterKey(key);
       setIsZkEnabled(true);
       await syncProfile(key);

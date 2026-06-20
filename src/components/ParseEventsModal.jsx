@@ -58,8 +58,18 @@ function fmtDate(dateStr) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+// ── Format "HH:MM" as 12h or 24h string ────────────────────────────────────────
+function fmtTime(hhmm, military) {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  if (military) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  const ap  = h < 12 ? 'AM' : 'PM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  return `${h12}:${String(m).padStart(2, '0')} ${ap}`;
+}
+
 // ── Single parsed event card ──────────────────────────────────────────────────
-function ParsedEventCard({ draft, allCategories, onChange, onToggle }) {
+function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggle }) {
   const [expanded, setExpanded] = useState(false);
   const isMultiDay = draft.endDate !== draft.startDate;
 
@@ -96,9 +106,9 @@ function ParsedEventCard({ draft, allCategories, onChange, onToggle }) {
             )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {fmtDate(draft.startDate)} · {draft.startTime}
+            {fmtDate(draft.startDate)} · {fmtTime(draft.startTime, militaryTime)}
             {' → '}
-            {isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}{draft.endTime}
+            {isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}{fmtTime(draft.endTime, militaryTime)}
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
             <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: allCategories.find(c => c.id === draft.catId)?.color ?? '#6B7280' }} />
@@ -324,6 +334,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
                   key={d.id}
                   draft={d}
                   allCategories={allCategories}
+                  militaryTime={militaryTime}
                   onChange={updateDraft}
                   onToggle={() => toggleDraft(d.id)}
                 />

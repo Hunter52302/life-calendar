@@ -9,6 +9,9 @@ const ZK_VERIFY_CONSTANT = 'pls-calendar-zk-v1';
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** Shown in place of a field whose decryption failed, instead of garbled base64. */
+export const DECRYPT_FAILURE_PLACEHOLDER = "🔒 couldn't decrypt";
+
 // ── Salt generation ───────────────────────────────────────────────────────────
 
 /** Generate a random 32-byte salt as a hex string. */
@@ -58,8 +61,9 @@ export async function encryptField(masterKey, plaintext) {
 }
 
 /**
- * Decrypt an encrypted field. Returns the original plaintext string.
- * Throws if the key is wrong or the ciphertext is malformed.
+ * Decrypt an encrypted field. Returns the original plaintext string,
+ * or `null` if the key is wrong or the ciphertext is malformed — never
+ * the raw ciphertext, so callers can't mistake garbled base64 for real data.
  */
 export async function decryptField(masterKey, ciphertext) {
   if (!ciphertext) return ciphertext;
@@ -72,8 +76,7 @@ export async function decryptField(masterKey, ciphertext) {
     const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, masterKey, data);
     return dec.decode(plaintext);
   } catch {
-    // Decryption failed — return the raw value so the UI doesn't break
-    return ciphertext;
+    return null;
   }
 }
 
@@ -113,7 +116,7 @@ function base64ToBytes(b64) {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
 
-function isBase64(str) {
+export function isBase64(str) {
   if (typeof str !== 'string' || str.length < 16) return false;
   return /^[A-Za-z0-9+/]+=*$/.test(str);
 }

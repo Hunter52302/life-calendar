@@ -13,7 +13,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { todayStr } from '../lib/utils';
 import { api } from '../lib/api.js';
-import { timeToSlot, slotToTimeStr, addDayStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
+import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
 import ParseEventsModal from './ParseEventsModal.jsx';
 
 // ── Constants ─────────────────────────────────────────────────────────────────

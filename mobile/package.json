@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@noble/ciphers": "^2.2.0",
     "@noble/hashes": "^2.2.0",
     "@pls-calendar/shared": "*",

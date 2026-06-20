@@ -114,6 +114,7 @@ export function parseEvents(rawText, referenceDate = new Date()) {
 
     let endDate = startDate;
     let endTime = addOneHour(startTime);
+    if (endTime < startTime) endDate = addDayStr(startDate); // wrapped past midnight
     if (r.end) {
       endDate = toDateStr(r.end.date());
       endTime = padHHMM(r.end.get('hour') ?? startH + 1, r.end.get('minute') ?? 0);

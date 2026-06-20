@@ -50,6 +50,10 @@ export const users = {
       FROM users ORDER BY created_at ASC
     `).all().map(r => ({ ...r, is_blocked: r.is_blocked === 1, zk_enabled: r.zk_enabled === 1 })),
 
+  /** Scheduler-only view — every non-blocked user's id/timezone, nothing sensitive. */
+  getAllForScheduler: () =>
+    db.prepare('SELECT id, user_timezone FROM users WHERE is_blocked = 0').all(),
+
   setPassword: (id, passwordHash) =>
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id),
 
@@ -124,7 +128,7 @@ export const events = {
       UPDATE events SET ${setClause}, updated_at = unixepoch()
       WHERE id = @id AND user_id = @user_id
     `).run(params);
-    return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(id));
+    return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ? AND user_id = ?').get(id, userId));
   },
 
   delete: (userId, id) => {
@@ -328,7 +332,7 @@ export const linkedCalendars = {
     db.prepare(`UPDATE linked_calendars SET ${setClause} WHERE id = @id AND user_id = @user_id`)
       .run({ ...mapped, id, user_id: userId });
     return deserializeLinkedCal(
-      db.prepare('SELECT * FROM linked_calendars WHERE id = ?').get(id)
+      db.prepare('SELECT * FROM linked_calendars WHERE id = ? AND user_id = ?').get(id, userId)
     );
   },
 
@@ -366,7 +370,7 @@ export const habits = {
     }
     const setClause = fields.map(f => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE habits SET ${setClause} WHERE id = @id AND user_id = @user_id`).run(params);
-    const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
+    const row = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?').get(id, userId);
     return row ? { ...row, active: row.active === 1, target_days: JSON.parse(row.target_days) } : null;
   },
 

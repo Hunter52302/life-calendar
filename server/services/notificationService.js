@@ -206,7 +206,7 @@ function getHabitsNotDoneToday(userId, tzNow) {
 
 async function tick() {
   try {
-    const allUsers = [users.getFirst()].filter(Boolean);
+    const allUsers = users.getAllForScheduler();
     for (const user of allUsers) {
       const tz = user.user_timezone ?? 'UTC';
       const tzNow = nowInTz(tz);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { generateId } from '../lib/utils.js';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField } from '../lib/crypto.js';
+import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 
 const HABITS_KEY      = 'lc-habits';
@@ -77,7 +77,7 @@ export function useHabits(authState) {
         const decrypted = zkActive
           ? await Promise.all(data.habits.map(async h => ({
               ...h,
-              label: h.label ? await decryptField(masterKey, h.label) : h.label,
+              label: h.label ? (await decryptField(masterKey, h.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : h.label,
             })))
           : data.habits;
         setHabits(decrypted);

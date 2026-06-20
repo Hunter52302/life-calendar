@@ -18,6 +18,9 @@ const ZK_VERIFY_CONSTANT = 'pls-calendar-zk-v1';
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** Shown in place of a field whose decryption failed, instead of garbled base64. */
+export const DECRYPT_FAILURE_PLACEHOLDER = "🔒 couldn't decrypt";
+
 // ── Salt generation ───────────────────────────────────────────────────────────
 
 /** Generate a random 32-byte salt as a hex string. */
@@ -55,9 +58,11 @@ export async function encryptField(masterKey, plaintext) {
 }
 
 /**
- * Decrypt an encrypted field. Returns the original plaintext string.
- * Returns the raw value unchanged when it isn't a valid blob (legacy
- * plaintext rows) or the key is wrong — same semantics as the web.
+ * Decrypt an encrypted field. Returns the original plaintext string,
+ * or `null` if the key is wrong or the ciphertext is malformed — never
+ * the raw ciphertext, so callers can't mistake garbled base64 for real data.
+ * Returns the raw value unchanged only when it isn't a valid blob at all
+ * (legacy plaintext rows) — same semantics as the web.
  */
 export async function decryptField(masterKey, ciphertext) {
   if (!ciphertext) return ciphertext;
@@ -68,7 +73,7 @@ export async function decryptField(masterKey, ciphertext) {
     const data = combined.slice(12);
     return dec.decode(gcm(masterKey, iv).decrypt(data));
   } catch {
-    return ciphertext;
+    return null;
   }
 }
 

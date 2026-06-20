@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { generateId } from '../lib/utils';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField } from '../lib/crypto.js';
+import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 
 const EVENTS_KEY       = 'life-calendar-events';
@@ -76,8 +76,8 @@ export function useEvents(authState) {
     if (!zkActive) return serverEvents;
     return Promise.all(serverEvents.map(async e => ({
       ...e,
-      label: e.label ? await decryptField(masterKey, e.label) : e.label,
-      notes: e.notes ? await decryptField(masterKey, e.notes) : e.notes,
+      label: e.label ? (await decryptField(masterKey, e.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.label,
+      notes: e.notes ? (await decryptField(masterKey, e.notes)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.notes,
     })));
   }
 
@@ -254,10 +254,12 @@ export function useEvents(authState) {
   }
 
   function clearLegacyEvents(calendar) {
-    setEvents(prev => prev.filter(e =>
-      !(e.calendar === calendar && !e.source_calendar_id && e.source !== 'manual')
-    ));
-    // Note: orphaned events on the server will be cleaned up on next sync
+    const isLegacy = e => e.calendar === calendar && !e.source_calendar_id && e.source !== 'manual';
+    const removedIds = events.filter(isLegacy).map(e => e.id);
+    setEvents(prev => prev.filter(e => !isLegacy(e)));
+    if (isOnline) {
+      Promise.all(removedIds.map(id => api.events.delete(id))).catch(console.warn);
+    }
   }
 
   return {
