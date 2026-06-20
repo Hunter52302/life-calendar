@@ -180,6 +180,7 @@ export default function PlanView({
             onSlotClick={handleSlotClick} onAllDayClick={handleAllDayClick} onEventClick={handleEventClick}
             onDayHeaderClick={dayIndex => { setActiveDay(dayIndex); setView('day'); }}
             militaryTime={militaryTime}
+            onUpdateEvent={onUpdateEvent}
           />
         )}
         {view === 'month' && (
