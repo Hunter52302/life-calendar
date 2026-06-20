@@ -75,6 +75,7 @@ import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
 import InstallPrompt from './components/InstallPrompt';
+import ListFieldEditor from './components/ListFieldEditor';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -204,18 +205,6 @@ export default function App() {
   const [usernameDraft,    setUsernameDraft]    = useState(profile.username    || '');
   const [displayNameDraft, setDisplayNameDraft] = useState(profile.displayName || '');
   const [emailDraft,       setEmailDraft]       = useState(profile.email       || '');
-  const [addingAddr, setAddingAddr] = useState(false);
-  const [newAddrLabel, setNewAddrLabel] = useState('');
-  const [newAddrValue, setNewAddrValue] = useState('');
-  const [editingAddrId, setEditingAddrId] = useState(null);
-  const [editAddrDraft, setEditAddrDraft] = useState({ label: '', address: '' });
-  const [pendingDeleteAddr, setPendingDeleteAddr] = useState(null);
-  const [addingPhone, setAddingPhone] = useState(false);
-  const [newPhoneLabel, setNewPhoneLabel] = useState('');
-  const [newPhoneValue, setNewPhoneValue] = useState('');
-  const [editingPhoneId, setEditingPhoneId] = useState(null);
-  const [editPhoneDraft, setEditPhoneDraft] = useState({ label: '', number: '' });
-  const [pendingDeletePhone, setPendingDeletePhone] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   // ── PWA share target ──────────────────────────────────────────────────────
   const [shareText, setShareText] = useState(() => {
@@ -2348,122 +2337,17 @@ export default function App() {
                             {sv(['address', 'addresses', 'other']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Other Addresses</p>
-
-                              {profile.otherAddresses.length === 0 && !addingAddr && (
-                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved addresses yet.</p>
-                              )}
-
-                              {/* Existing addresses */}
-                              <div className="space-y-1">
-                                {profile.otherAddresses.map(addr => {
-                                  const isEditing    = editingAddrId === addr.id;
-                                  const isConfirming = pendingDeleteAddr === addr.id;
-                                  return (
-                                    <div key={addr.id} className="rounded-lg">
-                                      {isEditing ? (
-                                        <div className="space-y-1.5 py-1">
-                                          <input
-                                            autoFocus
-                                            value={editAddrDraft.label}
-                                            onChange={e => setEditAddrDraft(d => ({ ...d, label: e.target.value }))}
-                                            placeholder="Label (e.g. Work)"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
-                                          />
-                                          <input
-                                            value={editAddrDraft.address}
-                                            onChange={e => setEditAddrDraft(d => ({ ...d, address: e.target.value }))}
-                                            placeholder="Full address"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
-                                          />
-                                          <div className="flex gap-1.5">
-                                            <button type="button" onClick={() => setEditingAddrId(null)}
-                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                            <button type="button"
-                                              disabled={!editAddrDraft.label.trim() || !editAddrDraft.address.trim()}
-                                              onClick={() => {
-                                                setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.map(a => a.id === addr.id ? { ...a, label: editAddrDraft.label.trim(), address: editAddrDraft.address.trim() } : a) }));
-                                                setEditingAddrId(null);
-                                              }}
-                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-start gap-1.5 py-1">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{addr.label}</p>
-                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{addr.address}</p>
-                                          </div>
-                                          {!isConfirming && (
-                                            <>
-                                              <button type="button"
-                                                onClick={() => { setEditingAddrId(addr.id); setEditAddrDraft({ label: addr.label, address: addr.address }); setPendingDeleteAddr(null); }}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
-                                                title="Edit">✏</button>
-                                              <button type="button"
-                                                onClick={() => setPendingDeleteAddr(addr.id)}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                                title="Delete">×</button>
-                                            </>
-                                          )}
-                                        </div>
-                                      )}
-                                      {isConfirming && (
-                                        <div className="flex items-center gap-2 pb-1.5">
-                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{addr.label}"?</span>
-                                          <button type="button" onClick={() => setPendingDeleteAddr(null)}
-                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                          <button type="button"
-                                            onClick={() => { setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== addr.id) })); setPendingDeleteAddr(null); }}
-                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Add address form */}
-                              {addingAddr ? (
-                                <div className="space-y-1.5 pt-1">
-                                  <input
-                                    autoFocus
-                                    value={newAddrLabel}
-                                    onChange={e => setNewAddrLabel(e.target.value)}
-                                    placeholder="Label (e.g. Work, Gym, School)"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                  />
-                                  <input
-                                    value={newAddrValue}
-                                    onChange={e => setNewAddrValue(e.target.value)}
-                                    placeholder="Full address"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter' && newAddrLabel.trim() && newAddrValue.trim()) {
-                                        setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label: newAddrLabel.trim(), address: newAddrValue.trim() }] }));
-                                        setNewAddrLabel(''); setNewAddrValue(''); setAddingAddr(false);
-                                      }
-                                      if (e.key === 'Escape') { setAddingAddr(false); setNewAddrLabel(''); setNewAddrValue(''); }
-                                    }}
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button type="button" onClick={() => { setAddingAddr(false); setNewAddrLabel(''); setNewAddrValue(''); }}
-                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                    <button type="button"
-                                      disabled={!newAddrLabel.trim() || !newAddrValue.trim()}
-                                      onClick={() => {
-                                        setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label: newAddrLabel.trim(), address: newAddrValue.trim() }] }));
-                                        setNewAddrLabel(''); setNewAddrValue(''); setAddingAddr(false);
-                                      }}
-                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button"
-                                  onClick={() => { setAddingAddr(true); setNewAddrLabel(''); setNewAddrValue(''); setPendingDeleteAddr(null); setEditingAddrId(null); }}
-                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                  + Add address
-                                </button>
-                              )}
+                              <ListFieldEditor
+                                items={profile.otherAddresses}
+                                valueKey="address"
+                                labelPlaceholder="Label (e.g. Work, Gym, School)"
+                                valuePlaceholder="Full address"
+                                emptyText="No saved addresses yet."
+                                addButtonText="+ Add address"
+                                onAdd={(label, address) => setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label, address }] }))}
+                                onEdit={(id, label, address) => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.map(a => a.id === id ? { ...a, label, address } : a) }))}
+                                onDelete={id => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== id) }))}
+                              />
                             </div>
                             )}
 
@@ -2471,120 +2355,17 @@ export default function App() {
                             {sv(['phone', 'phones', 'number', 'contact']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Phone Numbers</p>
-
-                              {profile.phones.length === 0 && !addingPhone && (
-                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved numbers yet.</p>
-                              )}
-
-                              <div className="space-y-1">
-                                {profile.phones.map(phone => {
-                                  const isEditing    = editingPhoneId === phone.id;
-                                  const isConfirming = pendingDeletePhone === phone.id;
-                                  return (
-                                    <div key={phone.id} className="rounded-lg">
-                                      {isEditing ? (
-                                        <div className="space-y-1.5 py-1">
-                                          <input
-                                            autoFocus
-                                            value={editPhoneDraft.label}
-                                            onChange={e => setEditPhoneDraft(d => ({ ...d, label: e.target.value }))}
-                                            placeholder="Label (e.g. Mobile)"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
-                                          />
-                                          <input
-                                            value={editPhoneDraft.number}
-                                            onChange={e => setEditPhoneDraft(d => ({ ...d, number: e.target.value }))}
-                                            placeholder="Phone number"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
-                                          />
-                                          <div className="flex gap-1.5">
-                                            <button type="button" onClick={() => setEditingPhoneId(null)}
-                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                            <button type="button"
-                                              disabled={!editPhoneDraft.label.trim() || !editPhoneDraft.number.trim()}
-                                              onClick={() => {
-                                                setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === phone.id ? { ...ph, label: editPhoneDraft.label.trim(), number: editPhoneDraft.number.trim() } : ph) }));
-                                                setEditingPhoneId(null);
-                                              }}
-                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-start gap-1.5 py-1">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{phone.label}</p>
-                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{phone.number}</p>
-                                          </div>
-                                          {!isConfirming && (
-                                            <>
-                                              <button type="button"
-                                                onClick={() => { setEditingPhoneId(phone.id); setEditPhoneDraft({ label: phone.label, number: phone.number }); setPendingDeletePhone(null); }}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
-                                                title="Edit">✏</button>
-                                              <button type="button"
-                                                onClick={() => setPendingDeletePhone(phone.id)}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                                title="Delete">×</button>
-                                            </>
-                                          )}
-                                        </div>
-                                      )}
-                                      {isConfirming && (
-                                        <div className="flex items-center gap-2 pb-1.5">
-                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{phone.label}"?</span>
-                                          <button type="button" onClick={() => setPendingDeletePhone(null)}
-                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                          <button type="button"
-                                            onClick={() => { setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== phone.id) })); setPendingDeletePhone(null); }}
-                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {addingPhone ? (
-                                <div className="space-y-1.5 pt-1">
-                                  <input
-                                    autoFocus
-                                    value={newPhoneLabel}
-                                    onChange={e => setNewPhoneLabel(e.target.value)}
-                                    placeholder="Label (e.g. Mobile, Work)"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                  />
-                                  <input
-                                    value={newPhoneValue}
-                                    onChange={e => setNewPhoneValue(e.target.value)}
-                                    placeholder="Phone number"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter' && newPhoneLabel.trim() && newPhoneValue.trim()) {
-                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
-                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
-                                      }
-                                      if (e.key === 'Escape') { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }
-                                    }}
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button type="button" onClick={() => { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }}
-                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                    <button type="button"
-                                      disabled={!newPhoneLabel.trim() || !newPhoneValue.trim()}
-                                      onClick={() => {
-                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
-                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
-                                      }}
-                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button"
-                                  onClick={() => { setAddingPhone(true); setNewPhoneLabel(''); setNewPhoneValue(''); setPendingDeletePhone(null); setEditingPhoneId(null); }}
-                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                  + Add phone number
-                                </button>
-                              )}
+                              <ListFieldEditor
+                                items={profile.phones}
+                                valueKey="number"
+                                labelPlaceholder="Label (e.g. Mobile, Work)"
+                                valuePlaceholder="Phone number"
+                                emptyText="No saved numbers yet."
+                                addButtonText="+ Add phone number"
+                                onAdd={(label, number) => setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label, number }] }))}
+                                onEdit={(id, label, number) => setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === id ? { ...ph, label, number } : ph) }))}
+                                onDelete={id => setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== id) }))}
+                              />
                             </div>
                             )}
 
