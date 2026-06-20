@@ -4,7 +4,8 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { AppContext } from '../context/AppContext.js';
-import { parseEvents, buildSegments } from '../lib/parseEvents.js';
+import { parseEvents } from '../lib/parseEvents.js';
+import { buildSegments } from '../lib/calendarUtils.js';
 import { getWeekStart } from '../lib/utils.js';
 
 function fmtDate(dateStr) {
