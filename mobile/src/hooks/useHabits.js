@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId } from '../lib/utils.js';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
+import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 
 const HABITS_KEY      = 'lc-m-habits';
 const COMPLETIONS_KEY = 'lc-m-habit-completions';
@@ -75,8 +75,7 @@ export function useHabits(authState, masterKey = null, isZkEnabled = false) {
   const zkActive = isZkEnabled && masterKey;
 
   async function encryptHabitForApi(habit) {
-    if (!zkActive || !habit.label) return habit;
-    return { ...habit, label: await encryptField(masterKey, habit.label) };
+    return zkActive ? encryptRecord(masterKey, habit, ['label']) : habit;
   }
 
   useEffect(() => {
@@ -85,10 +84,7 @@ export function useHabits(authState, masterKey = null, isZkEnabled = false) {
     api.sync().then(async data => {
       if (data.habits) {
         const decrypted = zkActive
-          ? await Promise.all(data.habits.map(async h => ({
-              ...h,
-              label: h.label ? (await decryptField(masterKey, h.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : h.label,
-            })))
+          ? await Promise.all(data.habits.map(h => decryptRecord(masterKey, h, ['label'])))
           : data.habits;
         setHabits(decrypted);
       }

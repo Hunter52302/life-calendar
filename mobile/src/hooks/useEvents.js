@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId, DEFAULT_CATEGORIES } from '../lib/utils.js';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField, DECRYPT_FAILURE_PLACEHOLDER } from '../lib/crypto.js';
+import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 
 const EVENTS_KEY = 'lc-m-events';
 const CATS_KEY   = 'lc-m-categories';
@@ -53,32 +53,22 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
   const zkActive = isZkEnabled && masterKey;
 
   async function encryptEventForApi(event) {
-    if (!zkActive) return event;
-    const out = { ...event };
-    if ('label' in out && out.label) out.label = await encryptField(masterKey, out.label);
-    if ('notes' in out && out.notes) out.notes = await encryptField(masterKey, out.notes);
-    return out;
+    return zkActive ? encryptRecord(masterKey, event, ['label', 'notes']) : event;
   }
 
   async function encryptCategoryForApi(cat) {
-    if (!zkActive || !cat.label) return cat;
-    return { ...cat, label: await encryptField(masterKey, cat.label) };
+    return zkActive ? encryptRecord(masterKey, cat, ['label']) : cat;
   }
 
   async function decryptCategories(serverCats) {
-    if (!zkActive) return serverCats;
-    return Promise.all(serverCats.map(async c => ({
-      ...c,
-      label: c.label ? (await decryptField(masterKey, c.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : c.label,
-    })));
+    return zkActive ? Promise.all(serverCats.map(c => decryptRecord(masterKey, c, ['label']))) : serverCats;
   }
 
   async function decryptOverrides(serverOverrides) {
     if (!zkActive) return serverOverrides;
-    const entries = await Promise.all(Object.entries(serverOverrides).map(async ([id, ovr]) => [
-      id,
-      { ...ovr, label: ovr.label ? (await decryptField(masterKey, ovr.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : ovr.label },
-    ]));
+    const entries = await Promise.all(Object.entries(serverOverrides).map(
+      async ([id, ovr]) => [id, await decryptRecord(masterKey, ovr, ['label'])]
+    ));
     return Object.fromEntries(entries);
   }
 
@@ -89,11 +79,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
     api.sync()
       .then(async data => {
         const evs = zkActive
-          ? await Promise.all(data.events.map(async e => ({
-              ...e,
-              label: e.label ? (await decryptField(masterKey, e.label)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.label,
-              notes: e.notes ? (await decryptField(masterKey, e.notes)) ?? DECRYPT_FAILURE_PLACEHOLDER : e.notes,
-            })))
+          ? await Promise.all(data.events.map(e => decryptRecord(masterKey, e, ['label', 'notes'])))
           : data.events;
         setEvents(evs);
         setCustomCats(await decryptCategories(data.customCategories));
