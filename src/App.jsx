@@ -76,6 +76,7 @@ import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
 import InstallPrompt from './components/InstallPrompt';
 import ListFieldEditor from './components/ListFieldEditor';
+import { usePersistentState } from './hooks/usePersistentState';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -149,18 +150,13 @@ export default function App() {
   const { authState, zkInfo, isAdmin, accountEmail, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
-  const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
-  const [militaryTime, setMilitaryTime] = useState(() => localStorage.getItem('lc-military') === 'true');
-  const [enabledViews, setEnabledViews] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lc-enabled-views') || '[]'); } catch { return []; }
-  });
-  const [showWeekNumbers, setShowWeekNumbers] = useState(() => localStorage.getItem('lc-week-numbers') === 'true');
-  const [pinnedCategories, setPinnedCategories] = useState(() => {
-    try {
-      const stored = localStorage.getItem('lc-pinned-cats');
-      return stored ? JSON.parse(stored) : ['sleep', 'work', 'school', 'personal', 'free-time'];
-    } catch { return ['sleep', 'work', 'school', 'personal', 'free-time']; }
-  });
+  const [theme, setTheme] = usePersistentState('lc-theme', 'light');
+  const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
+  const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
+  const [showWeekNumbers, setShowWeekNumbers] = usePersistentState('lc-week-numbers', false);
+  const [pinnedCategories, setPinnedCategories] = usePersistentState(
+    'lc-pinned-cats', () => ['sleep', 'work', 'school', 'personal', 'free-time']
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -173,7 +169,7 @@ export default function App() {
   const [zkEnabling, setZkEnabling] = useState(false);
   const [zkPassword, setZkPassword] = useState('');
   const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
-  const [zkPromptDismissed, setZkPromptDismissed] = useState(() => localStorage.getItem('lc-zk-prompt-dismissed') === 'true');
+  const [zkPromptDismissed, setZkPromptDismissed] = usePersistentState('lc-zk-prompt-dismissed', false);
   const [zkBannerDismissed, setZkBannerDismissed] = useState(false);
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [newIntType, setNewIntType] = useState('discord_webhook');
@@ -225,37 +221,28 @@ export default function App() {
   const [newCatPickingColor, setNewCatPickingColor] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchJump, setSearchJump] = useState(null); // { tab, dayOfWeek, _id }
-  const [fabVisible, setFabVisible]   = useState(() => localStorage.getItem('lc-fab-visible') !== 'false');
+  const [fabVisible, setFabVisible]   = usePersistentState('lc-fab-visible', true);
   // ── Font picker ─────────────────────────────────────────────────────────
-  const [fontKey, setFontKey] = useState(() => localStorage.getItem('lc-font-key') || 'system');
-  const [customFont, setCustomFont] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lc-custom-font') || 'null'); } catch { return null; }
-  });
+  const [fontKey, setFontKey] = usePersistentState('lc-font-key', 'system');
+  const [customFont, setCustomFont] = usePersistentState('lc-custom-font', null);
   const [fontSearch, setFontSearch] = useState('');
   // ── Minimalist mode ──────────────────────────────────────────────────────
-  const [minimalistMode,      setMinimalistMode]      = useState(() => localStorage.getItem('lc-minimalist')         === 'true');
-  const [showLiveTab,         setShowLiveTab]         = useState(() => localStorage.getItem('lc-show-live-tab')      !== 'false');
-  const [showRealityTab,      setShowRealityTab]      = useState(() => localStorage.getItem('lc-show-reality-tab')   !== 'false');
-  const [searchBarVisible,    setSearchBarVisible]    = useState(() => localStorage.getItem('lc-show-search')        !== 'false');
-  const [precisionVisible,    setPrecisionVisible]    = useState(() => localStorage.getItem('lc-show-precision')     !== 'false');
-  const [categoriesVisible,   setCategoriesVisible]   = useState(() => localStorage.getItem('lc-show-categories')    !== 'false');
-  const [fabDraggable, setFabDraggable] = useState(() => localStorage.getItem('lc-fab-draggable') === 'true');
+  const [minimalistMode,      setMinimalistMode]      = usePersistentState('lc-minimalist', false);
+  const [showLiveTab,         setShowLiveTab]         = usePersistentState('lc-show-live-tab', true);
+  const [showRealityTab,      setShowRealityTab]      = usePersistentState('lc-show-reality-tab', true);
+  const [searchBarVisible,    setSearchBarVisible]    = usePersistentState('lc-show-search', true);
+  const [precisionVisible,    setPrecisionVisible]    = usePersistentState('lc-show-precision', true);
+  const [categoriesVisible,   setCategoriesVisible]   = usePersistentState('lc-show-categories', true);
+  const [fabDraggable, setFabDraggable] = usePersistentState('lc-fab-draggable', false);
   const [fabPosResetKey, setFabPosResetKey] = useState(0);
   const [settingsSearch, setSettingsSearch] = useState('');
-  const [searchKeybind, setSearchKeybind] = useState(() => {
-    try { const s = localStorage.getItem('lc-search-keybind'); return s ? JSON.parse(s) : null; }
-    catch { return null; }
-  });
+  const [searchKeybind, setSearchKeybind] = usePersistentState('lc-search-keybind', null);
   const [searchOptionsOpen, setSearchOptionsOpen] = useState(false);
   const [recordingKeybind, setRecordingKeybind] = useState(false);
   const [keybindError, setKeybindError] = useState('');
-  const [timezones, setTimezones] = useState(() => {
-    try {
-      const s = localStorage.getItem('lc-timezones');
-      if (s) { const a = JSON.parse(s); if (Array.isArray(a) && a.length) return a; }
-    } catch { /* ignore */ }
-    return [Intl.DateTimeFormat().resolvedOptions().timeZone];
-  });
+  const [timezones, setTimezones] = usePersistentState(
+    'lc-timezones', () => [Intl.DateTimeFormat().resolvedOptions().timeZone]
+  );
   const [timezonesOpen, setTimezonesOpen] = useState(false);
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
@@ -264,34 +251,14 @@ export default function App() {
   const [exportFormat, setExportFormat] = useState('csv');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showTabMenu, setShowTabMenu] = useState(false);
-  const [mobileDefaultView, setMobileDefaultView] = useState(
-    () => localStorage.getItem('lc-mobile-default-view') || 'month'
-  );
+  const [mobileDefaultView, setMobileDefaultView] = usePersistentState('lc-mobile-default-view', 'month');
   const [exporting, setExporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null); // cal id or '__legacy_plan' / '__legacy_actual'
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
-  useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
-  useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
-  useEffect(() => { localStorage.setItem('lc-week-numbers', showWeekNumbers); }, [showWeekNumbers]);
-  useEffect(() => { localStorage.setItem('lc-pinned-cats', JSON.stringify(pinnedCategories)); }, [pinnedCategories]);
   // lc-profile localStorage is managed by useProfile hook
-  useEffect(() => { localStorage.setItem('lc-fab-visible',   String(fabVisible));   }, [fabVisible]);
-  useEffect(() => { localStorage.setItem('lc-fab-draggable', String(fabDraggable)); }, [fabDraggable]);
-  useEffect(() => { localStorage.setItem('lc-minimalist',       String(minimalistMode));    }, [minimalistMode]);
-  useEffect(() => { localStorage.setItem('lc-show-live-tab',    String(showLiveTab));       }, [showLiveTab]);
-  useEffect(() => { localStorage.setItem('lc-show-reality-tab', String(showRealityTab));    }, [showRealityTab]);
-  useEffect(() => { localStorage.setItem('lc-show-search',      String(searchBarVisible));  }, [searchBarVisible]);
-  useEffect(() => { localStorage.setItem('lc-show-precision',   String(precisionVisible));  }, [precisionVisible]);
-  useEffect(() => { localStorage.setItem('lc-show-categories',  String(categoriesVisible)); }, [categoriesVisible]);
-  useEffect(() => { localStorage.setItem('lc-font-key', fontKey); }, [fontKey]);
-  useEffect(() => {
-    if (customFont) localStorage.setItem('lc-custom-font', JSON.stringify(customFont));
-    else localStorage.removeItem('lc-custom-font');
-  }, [customFont]);
   // Apply selected font to the whole app via CSS variable
   useEffect(() => {
     const preset = FONT_PRESETS.find(f => f.key === fontKey);
@@ -311,12 +278,6 @@ export default function App() {
       document.documentElement.style.setProperty('--lc-font', preset.value);
     }
   }, [fontKey, customFont]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { localStorage.setItem('lc-timezones', JSON.stringify(timezones)); }, [timezones]);
-  useEffect(() => { localStorage.setItem('lc-mobile-default-view', mobileDefaultView); }, [mobileDefaultView]);
-  useEffect(() => {
-    if (searchKeybind) localStorage.setItem('lc-search-keybind', JSON.stringify(searchKeybind));
-    else localStorage.removeItem('lc-search-keybind');
-  }, [searchKeybind]);
 
   // Ctrl+K / Cmd+K (default) + optional custom keybind open search
   useEffect(() => {
@@ -629,12 +590,10 @@ export default function App() {
   const showZkPrompt = (authState === 'ready' || authState === 'offline-ok') && !isZkEnabled && !zkPromptDismissed;
 
   function dismissZkPrompt() {
-    localStorage.setItem('lc-zk-prompt-dismissed', 'true');
     setZkPromptDismissed(true);
   }
 
   function acceptZkPrompt() {
-    localStorage.setItem('lc-zk-prompt-dismissed', 'true');
     setZkPromptDismissed(true);
     setShowSettings(true);
     setZkOpen(true);
