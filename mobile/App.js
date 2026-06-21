@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 
 import { AppContext } from './src/context/AppContext.js';
 import { useAuth } from './src/hooks/useAuth.js';
@@ -20,6 +21,7 @@ import LiveScreen from './src/screens/LiveScreen.jsx';
 import HabitsScreen from './src/screens/HabitsScreen.jsx';
 import RealityScreen from './src/screens/RealityScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
+import ParseModal from './src/components/ParseModal.jsx';
 
 const Tab = createBottomTabNavigator();
 
@@ -32,12 +34,46 @@ const TAB_ICONS = {
 };
 
 export default function App() {
+  return (
+    <ShareIntentProvider>
+      <Main />
+    </ShareIntentProvider>
+  );
+}
+
+function Main() {
   const auth        = useAuth();
   const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled);
   const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
   const profileData = useProfile(auth.authState, auth.masterKey, auth.isZkEnabled);
   const budgetsData = useBudgets(auth.authState);
   const [weekStart, setWeekStart] = useState(getWeekStart());
+
+  // Shared text arriving from the OS share sheet (SMS/email/etc., via
+  // expo-share-intent) is funneled into the same ParseModal the in-app
+  // "From Text" button opens, rendered once at the root so it's reachable
+  // regardless of which tab is active when the share arrives. Visibility is
+  // derived rather than synced via an effect, so a pending share intent and
+  // the manual "From Text" trigger share one source of truth with no
+  // render-after-mount delay.
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  const [manualParseOpen, setManualParseOpen] = useState(false);
+  const [manualParseText, setManualParseText] = useState('');
+
+  const sharedText = hasShareIntent ? shareIntent?.text : null;
+  const parseModalVisible = manualParseOpen || !!sharedText;
+  const parseModalText = sharedText || manualParseText;
+
+  function openParseModal(text = '') {
+    setManualParseText(text);
+    setManualParseOpen(true);
+  }
+
+  function closeParseModal() {
+    setManualParseOpen(false);
+    setManualParseText('');
+    if (hasShareIntent) resetShareIntent();
+  }
 
   // Loading
   if (auth.authState === 'checking') {
@@ -77,6 +113,7 @@ export default function App() {
     weekStart,
     prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
     nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
+    openParseModal,
   };
 
   return (
@@ -106,6 +143,11 @@ export default function App() {
             <Tab.Screen name="Settings"      component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
+        <ParseModal
+          visible={parseModalVisible}
+          initialText={parseModalText}
+          onClose={closeParseModal}
+        />
         <StatusBar style="dark" />
       </SafeAreaProvider>
     </AppContext.Provider>

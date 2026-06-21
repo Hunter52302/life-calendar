@@ -274,6 +274,9 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Paste any text containing dates and times. Works with shift schedules, emails, and messages. Multiple events are each shown as a separate card.
               </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                💡 On Android, once this app is installed to your home screen you can also highlight text in any app and use its Share button — it'll open straight to this screen. iOS does not support sharing into installed web apps, so paste here instead.
+              </p>
               <textarea
                 ref={textareaRef}
                 rows={7}

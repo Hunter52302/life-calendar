@@ -4,13 +4,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext.js';
 import WeekGrid from '../components/WeekGrid.jsx';
 import AddEventModal from '../components/AddEventModal.jsx';
-import ParseModal from '../components/ParseModal.jsx';
 import { formatWeekRange } from '../lib/utils.js';
 
 export default function PlanScreen() {
-  const { events, weekStart, prevWeek, nextWeek } = useContext(AppContext);
+  const { events, weekStart, prevWeek, nextWeek, openParseModal } = useContext(AppContext);
   const [formState, setFormState] = useState(null);
-  const [showParse, setShowParse] = useState(false);
 
   const planEvents = events.events.filter(e => e.calendar === 'plan');
 
@@ -32,7 +30,7 @@ export default function PlanScreen() {
           <Pressable onPress={nextWeek} hitSlop={8} style={styles.navBtn}>
             <Text style={styles.navArrow}>›</Text>
           </Pressable>
-          <Pressable onPress={() => setShowParse(true)} hitSlop={8} style={styles.navBtn}>
+          <Pressable onPress={() => openParseModal()} hitSlop={8} style={styles.navBtn}>
             <Text style={styles.clipboardIcon}>📋</Text>
           </Pressable>
         </View>
@@ -56,11 +54,6 @@ export default function PlanScreen() {
         onSave={handleSave}
         onDelete={(id) => { events.deleteEvent(id); setFormState(null); }}
         onClose={() => setFormState(null)}
-      />
-
-      <ParseModal
-        visible={showParse}
-        onClose={() => setShowParse(false)}
       />
     </SafeAreaView>
   );

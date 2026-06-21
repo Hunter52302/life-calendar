@@ -2637,8 +2637,10 @@ export default function App() {
         {/* Install prompt — "Add to Home Screen" banner */}
         <InstallPrompt />
 
-        {/* Floating quick-add button */}
-        {eff.fabVisible && (
+        {/* Floating quick-add button. Forced visible when a share-target
+            launch is pending so the shared text isn't silently dropped by
+            "Hide FAB"/minimalist mode. */}
+        {(eff.fabVisible || shareText) && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}
