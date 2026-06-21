@@ -6,6 +6,7 @@ export default function EventBlock({ event, gridPrecision, onClick, onDragStart 
   const displayStart = Math.round((event.slot_start * event.precision) / gridPrecision);
   const displayDuration = Math.max(1, Math.round((event.slot_duration * event.precision) / gridPrecision));
   const isGhost = !!event._isGhost;
+  const isAutoCompleted = !isGhost && event.source === 'auto-completed';
   const isContinuation = !!event._isContinuation;
   const overflowContinues = !!event._overflowContinues;
   const isDragPreview = !!event._isDragPreview;
@@ -61,9 +62,9 @@ export default function EventBlock({ event, gridPrecision, onClick, onDragStart 
         cursor: draggable ? 'grab' : 'pointer',
         touchAction: draggable ? 'none' : undefined,
         zIndex: isDragPreview ? 30 : 10,
-        opacity: isGhost ? 0.35 : isDragPreview ? 0.65 : 1,
+        opacity: isGhost ? 0.35 : isDragPreview ? 0.65 : isAutoCompleted ? 0.8 : 1,
         boxShadow: isDragPreview ? '0 4px 14px rgba(0,0,0,0.35)' : 'none',
-        border: isGhost ? `2px dashed ${event.color}` : 'none',
+        border: isGhost ? `2px dashed ${event.color}` : isAutoCompleted ? '2px dashed rgba(255,255,255,0.7)' : 'none',
       }}
       onPointerDown={handlePointerDown}
       onClick={e => { e.stopPropagation(); onClick(event); }}

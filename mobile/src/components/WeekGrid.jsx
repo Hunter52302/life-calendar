@@ -136,6 +136,7 @@ export default function WeekGrid({ events, weekStart, onSlotPress, onEventPress 
                     style={[
                       styles.eventPill,
                       { top, height: clampedH, backgroundColor: event.color || '#6B7280' },
+                      event._isAutoCompleted && styles.eventPillAutoCompleted,
                     ]}
                     onPress={() => onEventPress?.(event)}
                   >
@@ -174,6 +175,7 @@ const styles = StyleSheet.create({
   allDayChipText:  { color: '#fff', fontSize: 10, fontWeight: '600' },
   timeLabel:       { fontSize: 9, color: '#9CA3AF', textAlign: 'center', paddingHorizontal: 2 },
   eventPill:       { position: 'absolute', left: 2, right: 2, borderRadius: 5, paddingHorizontal: 4, paddingVertical: 2, zIndex: 1, overflow: 'hidden' },
+  eventPillAutoCompleted: { opacity: 0.8, borderWidth: 2, borderStyle: 'dashed', borderColor: 'rgba(255,255,255,0.7)' },
   eventLabel:      { color: '#fff', fontSize: 10, fontWeight: '700', lineHeight: 14 },
   eventTime:       { color: 'rgba(255,255,255,0.8)', fontSize: 9, lineHeight: 12 },
 });

@@ -29,9 +29,11 @@ export default function LiveScreen() {
     const orphans = actualEvents.filter(ae =>
       !ae.plan_event_id || !planEvents.find(pe => pe.id === ae.plan_event_id)
     );
-    return [...planDisplays, ...orphans].map(e =>
-      e._isGhost ? { ...e, color: '#D1D5DB', _ghostColor: e.color } : e
-    );
+    return [...planDisplays, ...orphans].map(e => {
+      if (e._isGhost) return { ...e, color: '#D1D5DB', _ghostColor: e.color };
+      if (e.source === 'auto-completed') return { ...e, _isAutoCompleted: true };
+      return e;
+    });
   }, [planEvents, actualEvents, actualByPlanId]);
 
   // Combine with all-week actual events for other weeks shown in the grid
@@ -72,6 +74,10 @@ export default function LiveScreen() {
           <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
           <Text style={styles.legendText}>Logged</Text>
         </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.legendDotAuto]} />
+          <Text style={styles.legendText}>Auto-logged</Text>
+        </View>
       </View>
 
       <WeekGrid
@@ -108,5 +114,6 @@ const styles = StyleSheet.create({
   legend:      { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#F3F4F6' },
   legendItem:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot:   { width: 10, height: 10, borderRadius: 5 },
+  legendDotAuto: { backgroundColor: '#7C3AED', borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#fff' },
   legendText:  { fontSize: 11, color: '#6B7280' },
 });

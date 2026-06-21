@@ -154,6 +154,7 @@ export default function App() {
   const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
   const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
   const [showWeekNumbers, setShowWeekNumbers] = usePersistentState('lc-week-numbers', false);
+  const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-assume-completed', true);
   const [pinnedCategories, setPinnedCategories] = usePersistentState(
     'lc-pinned-cats', () => ['sleep', 'work', 'school', 'personal', 'free-time']
   );
@@ -165,6 +166,7 @@ export default function App() {
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
   const [zkOpen, setZkOpen] = useState(false);
   const [zkEnabling, setZkEnabling] = useState(false);
   const [zkPassword, setZkPassword] = useState('');
@@ -577,7 +579,7 @@ export default function App() {
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
     syncing = false,
-  } = useEvents(authState);
+  } = useEvents(authState, assumeCompleted);
 
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
@@ -776,6 +778,7 @@ export default function App() {
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
+    liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
     admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
   };
@@ -1196,6 +1199,38 @@ export default function App() {
                               </div>
                             )}
                             </div>{/* end other-settings wrapper */}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Live Calendar Behavior (collapsible) ── */}
+                      {sv(SECTION_KWS.liveBehavior) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setLiveBehaviorOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Live Calendar Behavior</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(liveBehaviorOpen, SECTION_KWS.liveBehavior) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(liveBehaviorOpen, SECTION_KWS.liveBehavior) && (
+                          <div className="px-2 pb-3 space-y-2">
+                            <label className="flex items-center justify-between gap-3 cursor-pointer">
+                              <div>
+                                <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">Assume planned events happened</span>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                  When a planned event's time passes without you logging or editing it, Live automatically marks it done exactly as planned.
+                                </p>
+                              </div>
+                              <Toggle checked={assumeCompleted} onChange={() => setAssumeCompleted(v => !v)} />
+                            </label>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 leading-snug">
+                              {assumeCompleted
+                                ? "On: you only need to open Live to fix things that didn't go to plan — everything else logs itself."
+                                : "Off: nothing logs automatically. You must confirm or edit every planned event yourself in Live, or it stays unlogged and won't count toward Reality stats."}
+                            </p>
                           </div>
                         )}
                       </div>

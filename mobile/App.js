@@ -12,6 +12,7 @@ import { useEvents } from './src/hooks/useEvents.js';
 import { useHabits } from './src/hooks/useHabits.js';
 import { useProfile } from './src/hooks/useProfile.js';
 import { useBudgets } from './src/hooks/useBudgets.js';
+import { usePersistentState } from './src/hooks/usePersistentState.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { useState } from 'react';
 
@@ -43,7 +44,8 @@ export default function App() {
 
 function Main() {
   const auth        = useAuth();
-  const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-m-assume-completed', true);
+  const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled, assumeCompleted);
   const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
   const profileData = useProfile(auth.authState, auth.masterKey, auth.isZkEnabled);
   const budgetsData = useBudgets(auth.authState);
@@ -114,6 +116,8 @@ function Main() {
     prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
     nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
     openParseModal,
+    assumeCompleted,
+    setAssumeCompleted,
   };
 
   return (

@@ -87,6 +87,20 @@ export function getWeekNumber(dateStr) {
   return Math.ceil((elapsed + yearStart.getDay() + 1) / 7);
 }
 
+/** Wall-clock end time of an event (its date + start time + duration). */
+export function getEventEndDateTime(event) {
+  const dateStr = addDays(event.week_start, event.day_of_week);
+  const startHours = event.slot_start * event.precision;
+  const durationHours = event.slot_duration * event.precision;
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setTime(d.getTime() + (startHours + durationHours) * 3600000);
+  return d;
+}
+
+export function isEventPastDue(event, now = new Date()) {
+  return getEventEndDateTime(event) <= now;
+}
+
 export function generateRepeatInstances(baseEvent, repeat) {
   const baseDate = new Date(baseEvent.week_start + 'T00:00:00');
   baseDate.setDate(baseDate.getDate() + baseEvent.day_of_week);

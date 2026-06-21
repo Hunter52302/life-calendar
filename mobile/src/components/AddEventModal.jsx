@@ -60,6 +60,7 @@ export default function AddEventModal({
       is_all_day:    allDay,
       week_start:    weekStart,
       calendar:      calendar || event?.calendar || 'plan',
+      source:        'manual',
     };
     onSave(data);
   }

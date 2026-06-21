@@ -1,6 +1,6 @@
 import { useState, useContext } from 'react';
 import {
-  View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert,
+  View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext.js';
@@ -102,7 +102,7 @@ function BudgetRow({ cat, value, onSave }) {
 }
 
 export default function SettingsScreen() {
-  const { auth, profile: profileData, budgets: budgetsData } = useContext(AppContext);
+  const { auth, profile: profileData, budgets: budgetsData, assumeCompleted, setAssumeCompleted } = useContext(AppContext);
   const { profile, setProfile } = profileData;
   const { budgets, setBudget, deleteBudget } = budgetsData;
   const { events } = useContext(AppContext);
@@ -264,6 +264,31 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        {/* ── Live Calendar ── */}
+        <SectionHeader title="Live Calendar" />
+        <View style={styles.card}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchInfo}>
+              <Text style={styles.switchLabel}>Assume planned events happened</Text>
+              <Text style={styles.switchHint}>
+                When a planned event's time passes without you logging or editing it, Live automatically marks it done exactly as planned.
+              </Text>
+            </View>
+            <Switch
+              value={assumeCompleted}
+              onValueChange={setAssumeCompleted}
+              trackColor={{ false: '#D1D5DB', true: '#7C3AED' }}
+              thumbColor="#fff"
+            />
+          </View>
+          <View style={styles.divider} />
+          <Text style={styles.switchWarning}>
+            {assumeCompleted
+              ? "You only need to open Live to fix things that didn't go to plan — everything else logs itself."
+              : "Off: nothing logs automatically. You must confirm or edit every planned event yourself in Live, or it stays unlogged and won't count toward Reality stats."}
+          </Text>
+        </View>
+
         {/* ── Account ── */}
         <SectionHeader title="Account" />
         <View style={styles.card}>
@@ -328,4 +353,10 @@ const styles = StyleSheet.create({
 
   logoutRow:       { paddingHorizontal: 16, paddingVertical: 16 },
   logoutTxt:       { fontSize: 16, color: '#EF4444', fontWeight: '600', textAlign: 'center' },
+
+  switchRow:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 12 },
+  switchInfo:      { flex: 1 },
+  switchLabel:     { fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 3 },
+  switchHint:      { fontSize: 12, color: '#9CA3AF', lineHeight: 16 },
+  switchWarning:   { fontSize: 12, color: '#B45309', lineHeight: 16, paddingHorizontal: 16, paddingVertical: 12 },
 });

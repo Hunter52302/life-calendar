@@ -71,3 +71,17 @@ export function eventToPixels(event, slotH) {
 export function slotsToHours(slots, precision = 0.5) {
   return slots * (precision <= 0.5 ? 0.5 : 1);
 }
+
+/** Wall-clock end time of an event (its date + start time + duration). */
+export function getEventEndDateTime(event) {
+  const dateStr = addDays(event.week_start, event.day_of_week);
+  const startHours = slotsToHours(event.slot_start, event.precision);
+  const durationHours = slotsToHours(event.slot_duration, event.precision);
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setTime(d.getTime() + (startHours + durationHours) * 3600000);
+  return d;
+}
+
+export function isEventPastDue(event, now = new Date()) {
+  return getEventEndDateTime(event) <= now;
+}

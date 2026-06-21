@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { generateId, DEFAULT_CATEGORIES } from '../lib/utils.js';
+import { generateId, DEFAULT_CATEGORIES, getEventEndDateTime } from '../lib/utils.js';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 
 const EVENTS_KEY = 'lc-m-events';
 const CATS_KEY   = 'lc-m-categories';
 const OVRS_KEY   = 'lc-m-overrides';
+const DISMISSED_AUTO_KEY = 'lc-m-dismissed-auto-complete';
+
+// Trailing window for auto-completing past-due plan events, so turning the
+// setting on doesn't retroactively backfill someone's entire plan history.
+const AUTO_COMPLETE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const AUTO_COMPLETE_INTERVAL_MS = 5 * 60 * 1000;
 
 async function asyncLoad(key, fallback) {
   try {
@@ -15,21 +21,26 @@ async function asyncLoad(key, fallback) {
   } catch { return fallback; }
 }
 
-export function useEvents(authState, masterKey = null, isZkEnabled = false) {
+export function useEvents(authState, masterKey = null, isZkEnabled = false, assumeCompleted = true) {
   const [ready, setReady]       = useState(false);
   const [events, setEvents]     = useState([]);
   const [customCats, setCustomCats] = useState([]);
   const [overrides, setOverrides]   = useState({});
+  // Plan events whose auto-completed actual the user explicitly deleted —
+  // excluded from re-materialization so a delete isn't silently undone.
+  const [dismissedAutoIds, setDismissedAutoIds] = useState([]);
 
   useEffect(() => {
     Promise.all([
       asyncLoad(EVENTS_KEY, []),
       asyncLoad(CATS_KEY, []),
       asyncLoad(OVRS_KEY, {}),
-    ]).then(([e, c, o]) => {
+      asyncLoad(DISMISSED_AUTO_KEY, []),
+    ]).then(([e, c, o, d]) => {
       setEvents(e);
       setCustomCats(c);
       setOverrides(o);
+      setDismissedAutoIds(d);
       setReady(true);
     });
   }, []);
@@ -48,6 +59,11 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
     if (!ready) return;
     AsyncStorage.setItem(OVRS_KEY, JSON.stringify(overrides)).catch(() => {});
   }, [overrides, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    AsyncStorage.setItem(DISMISSED_AUTO_KEY, JSON.stringify(dismissedAutoIds)).catch(() => {});
+  }, [dismissedAutoIds, ready]);
 
   // Local state holds plaintext; the server only sees ciphertext when ZK is on.
   const zkActive = isZkEnabled && masterKey;
@@ -101,12 +117,69 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
     if (isOnline) encryptEventForApi(ev).then(p => api.events.create(p)).catch(console.warn);
   }
 
+  function addEvents(dataArray) {
+    const withIds = dataArray.map(d => ({ ...d, id: generateId() }));
+    setEvents(p => [...p, ...withIds]);
+    if (isOnline) {
+      Promise.all(withIds.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
+  }
+
+  // ── Auto-complete past-due plan events ──────────────────────────────────
+  // Unless the user has turned this off, a planned event that nobody logged
+  // or edited by the time it ends is assumed to have happened as planned —
+  // it gets a real "actual" row (source: 'auto-completed') so Reality stats
+  // reflect it. Editing or deleting that row later (which sets source back
+  // to 'manual') is how the user corrects anything that didn't go to plan.
+  useEffect(() => {
+    if (!ready || !assumeCompleted) return;
+    // Computes "due" against the updater's `prev`, not the outer `events` closure,
+    // so two calls in quick succession (e.g. React StrictMode's double-invoke on
+    // mount) can't both see the plan event as unlogged and double-materialize it.
+    function materializePastDue() {
+      const now = Date.now();
+      const cutoff = now - AUTO_COMPLETE_WINDOW_MS;
+      setEvents(prev => {
+        const loggedPlanIds = new Set(
+          prev.filter(e => e.calendar === 'actual' && e.plan_event_id).map(e => e.plan_event_id)
+        );
+        const due = prev.filter(e => {
+          if (e.calendar !== 'plan' || e.is_all_day) return false;
+          if (loggedPlanIds.has(e.id) || dismissedAutoIds.includes(e.id)) return false;
+          const endMs = getEventEndDateTime(e).getTime();
+          return endMs <= now && endMs >= cutoff;
+        });
+        if (due.length === 0) return prev;
+        const materialized = due.map(pe => ({
+          id: generateId(),
+          label: pe.label, category: pe.category, color: pe.color,
+          week_start: pe.week_start, day_of_week: pe.day_of_week,
+          slot_start: pe.slot_start, slot_duration: pe.slot_duration, precision: pe.precision,
+          calendar: 'actual', source: 'auto-completed', plan_event_id: pe.id,
+        }));
+        if (isOnline) {
+          Promise.all(materialized.map(encryptEventForApi))
+            .then(p => api.events.batch(p)).catch(console.warn);
+        }
+        return [...prev, ...materialized];
+      });
+    }
+    materializePastDue();
+    const id = setInterval(materializePastDue, AUTO_COMPLETE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [ready, assumeCompleted, dismissedAutoIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function updateEvent(id, updates) {
     setEvents(p => p.map(e => e.id === id ? { ...e, ...updates } : e));
     if (isOnline) encryptEventForApi(updates).then(p => api.events.update(id, p)).catch(console.warn);
   }
 
   function deleteEvent(id) {
+    const target = events.find(e => e.id === id);
+    if (target?.source === 'auto-completed' && target.plan_event_id) {
+      setDismissedAutoIds(p => p.includes(target.plan_event_id) ? p : [...p, target.plan_event_id]);
+    }
     setEvents(p => p.filter(e => e.id !== id));
     if (isOnline) api.events.delete(id).catch(console.warn);
   }
@@ -117,5 +190,5 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false) {
     if (isOnline) encryptCategoryForApi(newCat).then(p => api.categories.create(p)).catch(console.warn);
   }
 
-  return { ready, events, allCategories, addEvent, updateEvent, deleteEvent, addCategory };
+  return { ready, events, allCategories, addEvent, addEvents, updateEvent, deleteEvent, addCategory };
 }
