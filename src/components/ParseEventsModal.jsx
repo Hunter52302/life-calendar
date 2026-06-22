@@ -193,18 +193,26 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
-export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, onAddEvents, onClose }) {
+export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, autoStartVoice = false, onAddEvents, onClose }) {
   const [rawText, setRawText] = useState(initialText);
   const [drafts,  setDrafts]  = useState(null); // null = input step
   const [detecting, setDetecting] = useState(false);
   const textareaRef = useRef(null);
   const voice = useVoiceInput();
   const voiceBaseRef = useRef('');
+  const mountActionRanRef = useRef(false);
 
-  // Auto-detect when initialText is pre-filled (e.g. from PWA share target)
+  // Auto-detect when initialText is pre-filled (e.g. from PWA share target);
+  // auto-start the mic when launched from the FAB's "Record Voice" action.
+  // Guarded against StrictMode's dev-mode double-invoke so the mic/parse
+  // action (which has real side effects) only ever fires once per mount.
   useEffect(() => {
+    if (mountActionRanRef.current) return;
+    mountActionRanRef.current = true;
     if (initialText?.trim()) {
       runDetect(initialText);
+    } else if (autoStartVoice && voice.supported) {
+      toggleMic();
     } else {
       setTimeout(() => textareaRef.current?.focus(), 50);
     }

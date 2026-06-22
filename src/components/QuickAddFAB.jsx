@@ -407,6 +407,14 @@ function ClipboardIcon() {
   );
 }
 
+function MicIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm6-3a6 6 0 0 1-12 0M12 17v4" />
+    </svg>
+  );
+}
+
 // ── Action chip ───────────────────────────────────────────────────────────────
 function ActionChip({ icon, label, sublabel, color, onClick }) {
   return (
@@ -458,6 +466,7 @@ export default function QuickAddFAB({
   });
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'drive' | 'parse'
+  const [parseAutoVoice, setParseAutoVoice] = useState(false);
 
   const isDragging   = useRef(false);
   const hasDragged   = useRef(false);
@@ -548,6 +557,8 @@ export default function QuickAddFAB({
   }
 
   function openMode(m) { setMode(m); setOpen(false); }
+  function openVoiceMode() { setParseAutoVoice(true); openMode('parse'); }
+  function openTextMode()  { setParseAutoVoice(false); openMode('parse'); }
 
   function handleAddPlanEvent(event)  { onAddEvent(event);  onSwitchTab('plan');   }
   function handleAddLiveEvent(event)  { onAddActual(event); onSwitchTab('actual'); }
@@ -572,7 +583,8 @@ export default function QuickAddFAB({
             <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
             <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
             <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
-            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={() => openMode('parse')} />
+            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
+            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
           </div>
         )}
 
@@ -596,7 +608,8 @@ export default function QuickAddFAB({
         {/* Chips — below FAB (near top of screen) */}
         {open && !chipsAbove && (
           <div className="absolute top-full right-0 mt-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={() => openMode('parse')} />
+            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
+            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
             <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
             <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
             <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
@@ -628,11 +641,12 @@ export default function QuickAddFAB({
           militaryTime={militaryTime}
           keywordMap={keywordMap}
           llmSettings={llmSettings}
+          autoStartVoice={parseAutoVoice}
           onAddEvents={evts => {
             evts.filter(e => e.calendar === 'plan').forEach(handleAddPlanEvent);
             evts.filter(e => e.calendar === 'actual').forEach(handleAddLiveEvent);
           }}
-          onClose={() => { setMode(null); onClearParseText?.(); }}
+          onClose={() => { setMode(null); setParseAutoVoice(false); onClearParseText?.(); }}
         />
       )}
     </>
