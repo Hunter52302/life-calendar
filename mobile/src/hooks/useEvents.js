@@ -4,10 +4,12 @@ import { generateId, DEFAULT_CATEGORIES, getEventEndDateTime } from '../lib/util
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 
-const EVENTS_KEY = 'lc-m-events';
-const CATS_KEY   = 'lc-m-categories';
-const OVRS_KEY   = 'lc-m-overrides';
+const EVENTS_KEY  = 'lc-m-events';
+const CATS_KEY    = 'lc-m-categories';
+const OVRS_KEY    = 'lc-m-overrides';
 const DISMISSED_AUTO_KEY = 'lc-m-dismissed-auto-complete';
+const LINKED_KEY  = 'lc-m-linked';
+const TASKS_KEY   = 'lc-m-tasks';
 
 // Trailing window for auto-completing past-due plan events, so turning the
 // setting on doesn't retroactively backfill someone's entire plan history.
@@ -29,6 +31,8 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   // Plan events whose auto-completed actual the user explicitly deleted —
   // excluded from re-materialization so a delete isn't silently undone.
   const [dismissedAutoIds, setDismissedAutoIds] = useState([]);
+  const [linkedCalendars, setLinkedCals] = useState([]);
+  const [tasks, setTasks]       = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -36,29 +40,24 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
       asyncLoad(CATS_KEY, []),
       asyncLoad(OVRS_KEY, {}),
       asyncLoad(DISMISSED_AUTO_KEY, []),
-    ]).then(([e, c, o, d]) => {
+      asyncLoad(LINKED_KEY, []),
+      asyncLoad(TASKS_KEY, []),
+    ]).then(([e, c, o, d, l, t]) => {
       setEvents(e);
       setCustomCats(c);
       setOverrides(o);
       setDismissedAutoIds(d);
+      setLinkedCals(l);
+      setTasks(t);
       setReady(true);
     });
   }, []);
 
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => {});
-  }, [events, ready]);
-
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(CATS_KEY, JSON.stringify(customCats)).catch(() => {});
-  }, [customCats, ready]);
-
-  useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(OVRS_KEY, JSON.stringify(overrides)).catch(() => {});
-  }, [overrides, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(EVENTS_KEY,  JSON.stringify(events)).catch(() => {}); },        [events, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(CATS_KEY,    JSON.stringify(customCats)).catch(() => {}); },   [customCats, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(OVRS_KEY,    JSON.stringify(overrides)).catch(() => {}); },    [overrides, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(LINKED_KEY,  JSON.stringify(linkedCalendars)).catch(() => {}); }, [linkedCalendars, ready]);
+  useEffect(() => { if (ready) AsyncStorage.setItem(TASKS_KEY,   JSON.stringify(tasks)).catch(() => {}); },        [tasks, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -80,12 +79,24 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     return zkActive ? Promise.all(serverCats.map(c => decryptRecord(masterKey, c, ['label']))) : serverCats;
   }
 
+  async function encryptOverrideForApi(ovr) {
+    return zkActive ? encryptRecord(masterKey, ovr, ['label']) : ovr;
+  }
+
   async function decryptOverrides(serverOverrides) {
     if (!zkActive) return serverOverrides;
     const entries = await Promise.all(Object.entries(serverOverrides).map(
       async ([id, ovr]) => [id, await decryptRecord(masterKey, ovr, ['label'])]
     ));
     return Object.fromEntries(entries);
+  }
+
+  async function encryptLinkedCalForApi(cal) {
+    return zkActive ? encryptRecord(masterKey, cal, ['name']) : cal;
+  }
+
+  async function decryptLinkedCalendars(serverLinked) {
+    return zkActive ? Promise.all(serverLinked.map(c => decryptRecord(masterKey, c, ['name']))) : serverLinked;
   }
 
   // Sync from backend when authenticated (and, for ZK accounts, unlocked)
@@ -100,6 +111,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
         setEvents(evs);
         setCustomCats(await decryptCategories(data.customCategories));
         setOverrides(await decryptOverrides(data.categoryOverrides));
+        setLinkedCals(await decryptLinkedCalendars(data.linkedCalendars));
       })
       .catch(() => {});
   }, [authState, ready, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -111,6 +123,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
 
   const isOnline = authState === 'ready';
 
+  // ── Events ─────────────────────────────────────────────────────────────────
   function addEvent(data) {
     const ev = { ...data, id: generateId() };
     setEvents(p => [...p, ev]);
@@ -184,11 +197,72 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     if (isOnline) api.events.delete(id).catch(console.warn);
   }
 
+  // ── Categories ─────────────────────────────────────────────────────────────
   function addCategory(cat) {
     const newCat = { ...cat, id: generateId() };
     setCustomCats(p => [...p, newCat]);
     if (isOnline) encryptCategoryForApi(newCat).then(p => api.categories.create(p)).catch(console.warn);
   }
 
-  return { ready, events, allCategories, addEvent, addEvents, updateEvent, deleteEvent, addCategory };
+  function updateCategory(id, updates) {
+    // Could be a default (override) or custom
+    const isDefault = DEFAULT_CATEGORIES.some(dc => dc.id === id);
+    if (isDefault) {
+      setOverrides(p => ({ ...p, [id]: { ...(p[id] || {}), ...updates } }));
+      if (isOnline) encryptOverrideForApi(updates).then(p => api.categories.update(id, p)).catch(console.warn);
+    } else {
+      setCustomCats(p => p.map(c => c.id === id ? { ...c, ...updates } : c));
+      if (isOnline) encryptCategoryForApi(updates).then(p => api.categories.update(id, p)).catch(console.warn);
+    }
+  }
+
+  function deleteCategory(id) {
+    setCustomCats(p => p.filter(c => c.id !== id));
+    if (isOnline) api.categories.delete(id).catch(console.warn);
+  }
+
+  // ── Tasks ──────────────────────────────────────────────────────────────────
+  function addTask(data) {
+    const today = new Date().toISOString().slice(0, 10);
+    const task = { id: generateId(), title: '', status: 'pending', priority: 'medium', due_date: today, kanban_column: 'todo', sort_order: Date.now(), ...data };
+    setTasks(p => [...p, task]);
+  }
+
+  function updateTask(id, updates) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, ...updates } : t));
+  }
+
+  function deleteTask(id) {
+    setTasks(p => p.filter(t => t.id !== id));
+  }
+
+  function completeTask(id) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'completed', completed_at: Date.now(), kanban_column: 'done' } : t));
+  }
+
+  function uncompleteTask(id) {
+    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'pending', completed_at: null, kanban_column: 'todo' } : t));
+  }
+
+  // ── Linked Calendars ───────────────────────────────────────────────────────
+  function addLinkedCalendar(cal) {
+    const newCal = { ...cal, id: generateId(), importedAt: new Date().toLocaleDateString() };
+    setLinkedCals(p => [...p, newCal]);
+    if (isOnline) encryptLinkedCalForApi(newCal).then(p => api.linkedCalendars.create(p)).catch(console.warn);
+  }
+
+  function deleteLinkedCalendar(id) {
+    setLinkedCals(p => p.filter(c => c.id !== id));
+    // Also remove events from that source
+    setEvents(p => p.filter(e => e.source_calendar_id !== id));
+    if (isOnline) api.linkedCalendars.delete(id).catch(console.warn);
+  }
+
+  return {
+    ready, events, allCategories, linkedCalendars, tasks,
+    addEvent, addEvents, updateEvent, deleteEvent,
+    addCategory, updateCategory, deleteCategory,
+    addLinkedCalendar, deleteLinkedCalendar,
+    addTask, updateTask, deleteTask, completeTask, uncompleteTask,
+  };
 }

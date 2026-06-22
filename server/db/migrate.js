@@ -197,6 +197,17 @@ export function runMigrations(db) {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS secrets (
+      key_name                  TEXT PRIMARY KEY,
+      service_name              TEXT NOT NULL,
+      description               TEXT,
+      encrypted_previous_value  TEXT,
+      expires_at                INTEGER,
+      infisical_managed         INTEGER NOT NULL DEFAULT 0,
+      created_at                INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at                INTEGER NOT NULL DEFAULT (unixepoch())
+    );
   `);
 
   // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors

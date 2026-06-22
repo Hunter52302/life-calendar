@@ -34,6 +34,7 @@
 
 import { Router } from 'express';
 import { geocodeAddress, osrmRoute } from '../lib/geo.js';
+import { getSecret } from '../lib/secrets.js';
 
 const router = Router();
 
@@ -119,15 +120,16 @@ router.post('/', async (req, res) => {
   try {
     return res.status(200).json(await osrmDriveTime(origin, destination));
   } catch (err) {
-    if (err.userError && !process.env.GOOGLE_MAPS_API_KEY) {
-      return res.status(400).json({ error: err.message });
-    }
     osrmError = err;
   }
 
-  // ── Fallback: Google (only when a key is configured) ─────────────────────
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  // ── Fallback: Google (only when a key is configured) ──────────────────────
+  // Resolves from Infisical → process.env
+  const apiKey = await getSecret('GOOGLE_MAPS_API_KEY');
   if (!apiKey) {
+    if (osrmError.userError) {
+      return res.status(400).json({ error: osrmError.message });
+    }
     return res.status(502).json({
       error: 'Could not calculate the route (routing service unreachable).',
       details: osrmError?.message,

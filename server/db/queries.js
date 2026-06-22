@@ -371,6 +371,51 @@ export const linkedCalendars = {
   },
 };
 
+// ── Secrets ───────────────────────────────────────────────────────────────────
+
+export const secrets = {
+  getAll: () =>
+    db.prepare('SELECT * FROM secrets ORDER BY service_name ASC, key_name ASC').all(),
+
+  getByKey: (keyName) =>
+    db.prepare('SELECT * FROM secrets WHERE key_name = ?').get(keyName),
+
+  upsert: (keyName, data) => {
+    db.prepare(`
+      INSERT INTO secrets (key_name, service_name, description, encrypted_previous_value, expires_at, infisical_managed)
+      VALUES (@key_name, @service_name, @description, @encrypted_previous_value, @expires_at, @infisical_managed)
+      ON CONFLICT(key_name) DO UPDATE SET
+        service_name             = excluded.service_name,
+        description              = excluded.description,
+        encrypted_previous_value = COALESCE(excluded.encrypted_previous_value, secrets.encrypted_previous_value),
+        expires_at               = excluded.expires_at,
+        infisical_managed        = excluded.infisical_managed,
+        updated_at               = unixepoch()
+    `).run({
+      key_name:                  keyName,
+      service_name:              data.serviceName,
+      description:               data.description ?? null,
+      encrypted_previous_value:  data.encryptedPreviousValue ?? null,
+      expires_at:                data.expiresAt ?? null,
+      infisical_managed:         data.infisicalManaged ? 1 : 0,
+    });
+    return db.prepare('SELECT * FROM secrets WHERE key_name = ?').get(keyName);
+  },
+
+  patch: (keyName, fields) => {
+    const allowed = ['service_name', 'description', 'encrypted_previous_value', 'expires_at', 'infisical_managed'];
+    const keys = Object.keys(fields).filter(k => allowed.includes(k));
+    if (!keys.length) return;
+    const setClause = keys.map(k => `${k} = @${k}`).join(', ');
+    db.prepare(`UPDATE secrets SET ${setClause}, updated_at = unixepoch() WHERE key_name = @key_name`)
+      .run({ ...fields, key_name: keyName });
+    return db.prepare('SELECT * FROM secrets WHERE key_name = ?').get(keyName);
+  },
+
+  delete: (keyName) =>
+    db.prepare('DELETE FROM secrets WHERE key_name = ?').run(keyName),
+};
+
 // ── Habits ────────────────────────────────────────────────────────────────────
 
 export const habits = {

@@ -66,19 +66,25 @@ import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils'
 import PlanView from './views/PlanView';
 import ActualView from './views/ActualView';
 import DiffView from './views/DiffView';
+import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import ZkPromptModal from './components/ZkPromptModal';
 import ZkBanner from './components/ZkBanner';
+import TodoTutorialModal from './components/TodoTutorialModal';
+import AdminSecrets from './components/AdminSecrets';
+import DownloadModal from './components/DownloadModal';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
 import { useCategoryKeywords } from './hooks/useCategoryKeywords';
 import { useLlmSettings } from './hooks/useLlmSettings';
-import InstallPrompt from './components/InstallPrompt';
 import ListFieldEditor from './components/ListFieldEditor';
 import { usePersistentState } from './hooks/usePersistentState';
+import { useTasks } from './hooks/useTasks';
+import InstallPrompt from './components/InstallPrompt';
+import UpdateBanner from './components/UpdateBanner';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -149,7 +155,13 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, isAdmin, accountEmail, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
+  const { authState, zkInfo, isAdmin, accountEmail, setup, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
+  const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
+  const [todoView,          setTodoView]          = useState(() => localStorage.getItem('lc-todo-view') || 'list');
+  const [autoHideCompleted, setAutoHideCompleted] = useState(() => localStorage.getItem('lc-auto-hide-completed') === 'true');
+  const [todoFabOpen,       setTodoFabOpen]       = useState(false);
+  const [showTodoTutorial,  setShowTodoTutorial]  = useState(false);
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'light');
@@ -164,7 +176,15 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountOpen,    setAccountOpen]    = useState(false);
+  const [aboutOpen,      setAboutOpen]      = useState(false);
+  const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
+  const [downloadOpen,   setDownloadOpen]   = useState(false);
+  const [showDownload,   setShowDownload]   = useState(false);
+  const [updateStatus,   setUpdateStatus]   = useState('idle'); // 'idle' | 'checking' | 'available' | 'latest' | 'error'
+  const [updateVersion,  setUpdateVersion]  = useState(null);
+  const [addingHabit,    setAddingHabit]    = useState(false);
+  const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -249,10 +269,37 @@ export default function App() {
     'lc-timezones', () => [Intl.DateTimeFormat().resolvedOptions().timeZone]
   );
   const [timezonesOpen, setTimezonesOpen] = useState(false);
+
+  // Derived: how many settings sections are currently open
+  const settingsOpenCount = [
+    appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
+    habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
+    searchOptionsOpen, timezonesOpen, downloadOpen, noTouchyOpen,
+  ].filter(Boolean).length;
+
+  function collapseAllSettings() {
+    setAppearanceOpen(false);
+    setCategoriesOpen(false);
+    setConnectedOpen(false);
+    setAccountOpen(false);
+    setAboutOpen(false);
+    setHabitsOpen(false);
+    setBudgetsOpen(false);
+    setNotificationsOpen(false);
+    setZkOpen(false);
+    setSearchOptionsOpen(false);
+    setTimezonesOpen(false);
+    setDownloadOpen(false);
+    setNoTouchyOpen(false);
+    setShowCalUrlForm(false);
+    setAddingHabit(false);
+  }
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
-  const [planPrecision, setPlanPrecision] = useState(1);
-  const [livePrecision, setLivePrecision] = useState(1);
+  const [precision, setPrecision] = useState(() => {
+    const stored = localStorage.getItem('lc-precision');
+    return stored ? parseInt(stored, 10) : 1;
+  });
   const [exportFormat, setExportFormat] = useState('csv');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showTabMenu, setShowTabMenu] = useState(false);
@@ -263,6 +310,10 @@ export default function App() {
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
+  useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
+  useEffect(() => { localStorage.setItem('lc-precision', String(precision)); }, [precision]);
+  useEffect(() => { localStorage.setItem('lc-auto-hide-completed', String(autoHideCompleted)); }, [autoHideCompleted]);
+  // theme / militaryTime / enabledViews / showWeekNumbers / pinnedCategories persist themselves via usePersistentState
   // lc-profile localStorage is managed by useProfile hook
   // Apply selected font to the whole app via CSS variable
   useEffect(() => {
@@ -584,6 +635,7 @@ export default function App() {
     syncing = false,
   } = useEvents(authState, assumeCompleted);
 
+  const { tasks = [], addTask, updateTask, deleteTask, completeTask, uncompleteTask, moveKanbanCard, reorderTasks } = useTasks(authState);
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
   const { keywordMap } = useCategoryKeywords(authState);
   const { llmSettings, setLlmSettings } = useLlmSettings(authState);
@@ -621,10 +673,10 @@ export default function App() {
     setEnabledViews(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   }
 
-  function showImportNotice(added) {
-    const msg = added > 0
+  function showImportNotice(added, customMsg) {
+    const msg = customMsg ?? (added > 0
       ? `${added} event${added !== 1 ? 's' : ''} imported`
-      : 'No events found in file';
+      : 'No events found in file');
     setImportNotice(msg);
     setTimeout(() => setImportNotice(null), 5000);
   }
@@ -644,7 +696,7 @@ export default function App() {
         calendar: 'plan',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = icsToAppEvents(content, 'plan', planPrecision, calId, calColor);
+      const appEvents = icsToAppEvents(content, 'plan', precision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
@@ -657,7 +709,6 @@ export default function App() {
     if (!url) return;
     setSubBusy(true); setSubError('');
     const calendar = activeTab === 'actual' ? 'actual' : 'plan';
-    const precision = calendar === 'plan' ? planPrecision : livePrecision;
     try {
       const { ics } = await api.ical.fetch(url);
       const calName = parseIcalCalName(ics) || new URL(url.replace(/^webcal:/, 'https:')).hostname;
@@ -681,7 +732,6 @@ export default function App() {
   }
 
   async function syncSubscribedCalendar(cal) {
-    const precision = cal.calendar === 'plan' ? planPrecision : livePrecision;
     const { ics } = await api.ical.fetch(cal.url);
     const appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
     replaceEventsBySourceCalendar(cal.id, appEvents);
@@ -750,7 +800,7 @@ export default function App() {
         calendar: 'actual',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = icsToAppEvents(content, 'actual', livePrecision, calId, calColor);
+      const appEvents = icsToAppEvents(content, 'actual', precision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
@@ -787,6 +837,7 @@ export default function App() {
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
     admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
+    noTouchy:      ['no touchy', 'admin', 'api key', 'api keys', 'secrets', 'key', 'infisical', 'vault', 'credentials', 'token', 'expiry', 'expiration', 'rotate'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -828,6 +879,12 @@ export default function App() {
           onClose={() => setShowSearch(false)}
         />
       )}
+      {showDownload && (
+        <DownloadModal onClose={() => setShowDownload(false)} />
+      )}
+      {showTodoTutorial && (
+        <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
+      )}
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
       )}
@@ -844,7 +901,44 @@ export default function App() {
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">PLS Calendar</span>
+            {/* App switcher */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAppSwitcherOpen(v => !v)}
+                className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
+                title="Switch app"
+              >
+                {activePage === 'todo' ? 'PLS Do It' : 'PLS Calendar'}
+                <svg className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${appSwitcherOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {appSwitcherOpen && (
+                <>
+                  <div className="fixed inset-0 z-[60]" onClick={() => setAppSwitcherOpen(false)} />
+                  <div className="absolute left-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-[70]">
+                    {[
+                      { id: 'calendar', label: '📅 PLS Calendar' },
+                      { id: 'todo',     label: '✓ PLS Do It' },
+                    ].map(app => (
+                      <button
+                        key={app.id}
+                        type="button"
+                        onClick={() => { setActivePage(app.id); setAppSwitcherOpen(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          activePage === app.id
+                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        {app.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             {syncing && (
               <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
             )}
@@ -879,8 +973,20 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Tab switcher — mobile/tablet: dropdown, wide desktop: pills */}
-            <div className="relative lg:hidden">
+            {/* Task count — shown when on PLS Do It page */}
+            {activePage === 'todo' && (() => {
+              const today = new Date().toISOString().slice(0, 10);
+              const pendingToday = tasks.filter(t => t.due_date === today && t.status !== 'completed').length;
+              const rolledOver   = tasks.filter(t => t.status !== 'completed' && t.original_date && t.original_date !== t.due_date).length;
+              const total = pendingToday + rolledOver;
+              return (
+                <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                  {total === 0 ? 'All done ✓' : `${total} task${total !== 1 ? 's' : ''} today`}
+                </span>
+              );
+            })()}
+            {/* Tab switcher — only visible on calendar page */}
+            {activePage === 'calendar' && (<div className="relative lg:hidden">
               <button
                 type="button"
                 onClick={() => setShowTabMenu(s => !s)}
@@ -912,8 +1018,8 @@ export default function App() {
                   </div>
                 </>
               )}
-            </div>
-            <nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+            </div>)}
+            {activePage === 'calendar' && (<nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
               {visibleTabs.map(tab => (
                 <button
                   key={tab.id}
@@ -928,7 +1034,7 @@ export default function App() {
                   {tab.label}
                 </button>
               ))}
-            </nav>
+            </nav>)}
 
             {/* Settings button */}
             <div className="relative">
@@ -968,6 +1074,22 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* ── Collapse-all button — sticky so it stays visible while scrolling ── */}
+                    {settingsOpenCount > 1 && (
+                      <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-gray-800">
+                        <button
+                          type="button"
+                          onClick={collapseAllSettings}
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />
+                          </svg>
+                          Collapse all sections
+                        </button>
+                      </div>
+                    )}
+
                     <div className="space-y-1">
 
                       {/* ── Appearance (collapsible) ── */}
@@ -983,8 +1105,29 @@ export default function App() {
                         </button>
                         {so(appearanceOpen, SECTION_KWS.appearance) && (
                           <div className="px-2 pb-2 space-y-3">
+                            {/* ── Quick toggles ── */}
+                            <div className="space-y-3">
+                            {sv(['dark', 'mode', 'theme']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
+                                <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                              </label>
+                            )}
+                            {activePage === 'calendar' && sv(['military', 'time']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
+                                <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
+                              </label>
+                            )}
+                            {activePage === 'calendar' && sv(['week', 'numbers', 'month', 'view']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
+                                <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
+                              </label>
+                            )}
+                            </div>
                             {/* ── Minimalist Mode ── */}
-                            {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
+                            {activePage === 'calendar' && sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
                               <div className="space-y-2">
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
                                   <div>
@@ -1119,26 +1262,8 @@ export default function App() {
                             )}
 
                             <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
-                            {sv(['dark', 'mode', 'theme']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
-                                <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
-                              </label>
-                            )}
-                            {sv(['military', 'time']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
-                                <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
-                              </label>
-                            )}
-                            {sv(['week', 'numbers', 'month', 'view']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
-                                <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
-                              </label>
-                            )}
-                            {/* ── Mobile default view ── */}
-                            {sv(['mobile', 'phone', 'default', 'view']) && (
+                            {/* ── Mobile default view (calendar only) ── */}
+                            {activePage === 'calendar' && sv(['mobile', 'phone', 'default', 'view']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Mobile default view</p>
                                 <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">What view opens first on phones</p>
@@ -1162,7 +1287,7 @@ export default function App() {
                             )}
 
                             {/* ── Floating Button Options ── */}
-                            {sv(['floating', 'button', 'drag', 'show']) && (
+                            {activePage === 'calendar' && sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Floating Button</p>
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
@@ -1188,7 +1313,7 @@ export default function App() {
                                 )}
                               </div>
                             )}
-                            {sv(['views', 'quarter', 'half', 'extra']) && (
+                            {activePage === 'calendar' && sv(['views', 'quarter', 'half', 'extra']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Extra views</p>
                                 {[{ id: 'quarter', label: 'Quarter view' }, { id: 'half', label: 'Half-year view' }].map(v => (
@@ -1202,6 +1327,38 @@ export default function App() {
                                     <span className="text-sm text-gray-600 dark:text-gray-400">{v.label}</span>
                                   </label>
                                 ))}
+                              </div>
+                            )}
+                            {/* ── To-Do View (todo page only) ── */}
+                            {activePage === 'todo' && sv(['todo', 'kanban', 'list', 'task', 'tasks', 'do it', 'completed', 'hide', 'auto']) && (
+                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">PLS Do It view</p>
+                                <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
+                                  {[{ id: 'list', label: 'List' }, { id: 'kanban', label: 'Kanban' }].map(v => (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => setTodoView(v.id)}
+                                      className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors ${
+                                        todoView === v.id
+                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {v.label}
+                                    </button>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setAutoHideCompleted(v => !v)}
+                                  className="flex items-center justify-between w-full py-0.5 group"
+                                >
+                                  <span className="text-xs text-gray-600 dark:text-gray-300 group-hover:text-gray-800 dark:group-hover:text-gray-100 transition-colors">Auto-hide completed tasks</span>
+                                  <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${autoHideCompleted ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${autoHideCompleted ? 'translate-x-4' : 'translate-x-0'}`} />
+                                  </span>
+                                </button>
                               </div>
                             )}
                             </div>{/* end other-settings wrapper */}
@@ -1317,8 +1474,8 @@ export default function App() {
                       </div>
                       )}
 
-                      {/* ── Search Options (collapsible) ── */}
-                      {sv(SECTION_KWS.search) && (
+                      {/* ── Search Options (collapsible, calendar only) ── */}
+                      {activePage === 'calendar' && sv(SECTION_KWS.search) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1417,7 +1574,7 @@ export default function App() {
                       )}
 
                       {/* ── Time Zones (collapsible) ── */}
-                      {sv(SECTION_KWS.timezone) && (
+                      {activePage === 'calendar' && sv(SECTION_KWS.timezone) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1544,7 +1701,7 @@ export default function App() {
                       )}
 
                       {/* ── Manage Categories (collapsible) ── */}
-                      {sv(SECTION_KWS.categories) && (
+                      {activePage === 'calendar' && sv(SECTION_KWS.categories) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1815,14 +1972,25 @@ export default function App() {
                         </button>
                         {so(habitsOpen, SECTION_KWS.habits) && (
                           <div className="px-2 pb-2 space-y-1">
+                            {/* Link to See Your Life */}
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
-                              Manage your daily habits. You can also add, edit, and check off habits directly in the See Your Life tab.
+                              Add and check off habits directly in the{' '}
+                              <button
+                                type="button"
+                                onClick={() => { setActiveTab('reality'); setShowSettings(false); }}
+                                className="text-indigo-500 dark:text-indigo-400 hover:underline font-medium"
+                              >
+                                See Your Life
+                              </button>
+                              {' '}tab.
                             </p>
+
+                            {/* Habit list */}
                             {habits.length === 0 && (
-                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-2">No habits yet.</p>
+                              <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-1">No habits yet.</p>
                             )}
                             {habits.map(habit => (
-                              <div key={habit.id} className="flex items-center gap-2 py-0.5">
+                              <div key={habit.id} className="flex items-center gap-2 py-0.5 group/habit">
                                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: habit.color }} />
                                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{habit.label}</span>
                                 <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
@@ -1834,7 +2002,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => deleteHabit(habit.id)}
-                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors flex-shrink-0"
+                                  className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-300 dark:text-gray-600 hover:text-red-500 transition-colors flex-shrink-0"
                                   title="Delete habit"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1843,6 +2011,74 @@ export default function App() {
                                 </button>
                               </div>
                             ))}
+
+                            {/* Add habit inline form */}
+                            {(() => {
+                              const HABIT_COLORS = ['#7C3AED','#3B82F6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#F97316'];
+                              function submitHabit() {
+                                if (!habitDraft.label.trim()) return;
+                                addHabit({ label: habitDraft.label.trim(), color: habitDraft.color, target_days: habitDraft.target_days });
+                                setHabitDraft({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
+                                setAddingHabit(false);
+                              }
+                              return addingHabit ? (
+                                <div className="rounded-lg border border-indigo-200 dark:border-indigo-700 bg-white dark:bg-gray-800 p-2.5 space-y-2 mt-1">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={habitDraft.label}
+                                    onChange={e => setHabitDraft(d => ({ ...d, label: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === 'Enter') submitHabit(); if (e.key === 'Escape') setAddingHabit(false); }}
+                                    placeholder="Habit name…"
+                                    className="w-full text-sm bg-transparent border-b border-gray-200 dark:border-gray-600 pb-1 text-gray-800 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:border-indigo-400"
+                                  />
+                                  {/* Color picker */}
+                                  <div className="flex gap-1.5 flex-wrap">
+                                    {HABIT_COLORS.map(c => (
+                                      <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => setHabitDraft(d => ({ ...d, color: c }))}
+                                        className="w-5 h-5 rounded-full transition-transform hover:scale-110"
+                                        style={{ backgroundColor: c, outline: habitDraft.color === c ? `2px solid ${c}` : 'none', outlineOffset: 2 }}
+                                      />
+                                    ))}
+                                  </div>
+                                  {/* Frequency */}
+                                  <div className="flex gap-1">
+                                    {[
+                                      { label: 'Daily', days: [0,1,2,3,4,5,6] },
+                                      { label: 'Weekdays', days: [1,2,3,4,5] },
+                                      { label: 'Weekends', days: [0,6] },
+                                    ].map(opt => (
+                                      <button
+                                        key={opt.label}
+                                        type="button"
+                                        onClick={() => setHabitDraft(d => ({ ...d, target_days: opt.days }))}
+                                        className={`flex-1 text-[10px] py-1 rounded-md transition-colors ${JSON.stringify(habitDraft.target_days) === JSON.stringify(opt.days) ? 'bg-indigo-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-1.5 pt-0.5">
+                                    <button type="button" onClick={submitHabit} disabled={!habitDraft.label.trim()} className="flex-1 text-xs py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
+                                    <button type="button" onClick={() => setAddingHabit(false)} className="text-xs px-3 py-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setAddingHabit(true)}
+                                  className="w-full text-left text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 px-1 py-1.5 transition-colors flex items-center gap-1"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                  </svg>
+                                  Add habit
+                                </button>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
@@ -2124,7 +2360,7 @@ export default function App() {
                       )}
 
                       {/* ── Connected Calendars (collapsible) ── */}
-                      {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
+                      {activePage === 'calendar' && (activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
                           <button
                             type="button"
@@ -2228,6 +2464,133 @@ export default function App() {
                                   )}
                                 </div>
                               </div>
+
+                              {/* ── Linked Calendars list ── */}
+                              {(() => {
+                                const legacyPlan   = events.filter(e => e.calendar === 'plan'   && !e.source_calendar_id && e.source !== 'manual').length;
+                                const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
+                                if (linkedCalendars.length === 0 && legacyPlan === 0 && legacyActual === 0) return null;
+                                return (
+                                  <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
+                                    <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pb-0.5">Linked Calendars</p>
+                                    {[...linkedCalendars].reverse().map(cal => {
+                                      const count = events.filter(e => e.source_calendar_id === cal.id).length;
+                                      const isConfirming = pendingDelete === cal.id;
+                                      const calColor = cal.color || '#6B7280';
+                                      const isPickingColor = editingCalColor === cal.id;
+                                      return (
+                                        <div key={cal.id} className="rounded-lg overflow-hidden">
+                                          <div className="flex items-start gap-2 py-1">
+                                            <button type="button" title="Change color" onClick={() => setEditingCalColor(isPickingColor ? null : cal.id)}
+                                              className="flex-shrink-0 mt-1.5 w-3.5 h-3.5 rounded-full border-2 border-white/30 dark:border-gray-700 shadow-sm hover:scale-125 transition-transform"
+                                              style={{ backgroundColor: calColor }} />
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className={`inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${cal.calendar === 'plan' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'}`}>
+                                                  {cal.calendar === 'plan' ? 'Plan' : 'Live'}
+                                                </span>
+                                                <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">{cal.name}</span>
+                                              </div>
+                                              <div className="flex items-center justify-between mt-0.5">
+                                                <p className="text-xs text-gray-400 dark:text-gray-500">
+                                                  {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
+                                                  {cal.url && (
+                                                    <>
+                                                      {' · '}
+                                                      <button
+                                                        type="button"
+                                                        disabled={syncingCalId === cal.id}
+                                                        onClick={() => handleSyncNow(cal)}
+                                                        className="text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50 font-medium"
+                                                        title={cal.lastSyncedAt ? `Last synced ${new Date(cal.lastSyncedAt * 1000).toLocaleString()}` : 'Subscribed calendar'}
+                                                      >
+                                                        {syncingCalId === cal.id ? 'Syncing…' : '↻ Sync now'}
+                                                      </button>
+                                                    </>
+                                                  )}
+                                                </p>
+                                                {/* Skip SYL toggle */}
+                                                <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                                                  <label className="flex items-center gap-1 cursor-pointer" title="When checked, this calendar's events are excluded from See Your Life stats and charts">
+                                                    <input type="checkbox" checked={!!cal.excludeFromReality} onChange={e => updateLinkedCalendarExclude(cal.id, e.target.checked)} className="w-3 h-3 rounded accent-blue-500" />
+                                                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">Skip SYL</span>
+                                                  </label>
+                                                  <span className="text-gray-300 dark:text-gray-600 text-[10px]" title="Skip SYL — exclude this calendar from the See Your Life tab stats and charts">ⓘ</span>
+                                                </div>
+                                              </div>
+                                              {isPickingColor && (
+                                                <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+                                                  {IMPORT_COLORS.map(c => (
+                                                    <button key={c} type="button" onClick={() => { updateLinkedCalendarColor(cal.id, c); setEditingCalColor(null); }}
+                                                      className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-110 ${c === calColor ? 'border-gray-300 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-gray-500'}`}
+                                                      style={{ backgroundColor: c }} />
+                                                  ))}
+                                                </div>
+                                              )}
+                                            </div>
+                                            {!isConfirming && (
+                                              <button type="button" onClick={() => { setEditingCalColor(null); setPendingDelete(cal.id); }}
+                                                className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none" title="Remove calendar">×</button>
+                                            )}
+                                          </div>
+                                          {isConfirming && (
+                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
+                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {count} event{count !== 1 ? 's' : ''}?</span>
+                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                              <button type="button" onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+
+                                    {/* Legacy / untracked rows */}
+                                    {[
+                                      { key: '__legacy_plan', label: 'Unlinked plan events', count: legacyPlan, calendar: 'plan' },
+                                      { key: '__legacy_actual', label: 'Unlinked live events', count: legacyActual, calendar: 'actual' },
+                                    ].filter(r => r.count > 0).map(row => {
+                                      const isConfirming = pendingDelete === row.key;
+                                      return (
+                                        <div key={row.key} className="rounded-lg overflow-hidden">
+                                          <div className="flex items-start gap-2 py-1 opacity-70">
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                                                  {row.calendar === 'plan' ? 'Plan' : 'Live'}
+                                                </span>
+                                                <span className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">{row.label}</span>
+                                              </div>
+                                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-0.5">
+                                                {row.count} event{row.count !== 1 ? 's' : ''} · not linked to a source
+                                              </p>
+                                            </div>
+                                            {!isConfirming && (
+                                              <button type="button" onClick={() => setPendingDelete(row.key)}
+                                                className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
+                                                title="Remove unlinked events"
+                                              >×</button>
+                                            )}
+                                          </div>
+                                          {isConfirming && (
+                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
+                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {row.count} unlinked event{row.count !== 1 ? 's' : ''}?</span>
+                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                              <button type="button" onClick={() => { clearLegacyEvents(row.calendar); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+
+                                    {/* Skip SYL explainer */}
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug px-1 pt-0.5">
+                                      <span className="font-semibold">Skip SYL</span> — excludes this calendar's events from the{' '}
+                                      <button type="button" onClick={() => { setActiveTab('reality'); setShowSettings(false); }} className="text-blue-500 dark:text-blue-400 hover:underline font-medium">See Your Life</button>
+                                      {' '}stats and charts. Useful for imported holidays or read-only feeds you don't want skewing your totals.
+                                    </p>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -2448,6 +2811,98 @@ export default function App() {
                               )}
                             </div>
 
+                            {/* ── About (nested collapsible inside Account Settings) ── */}
+                            <div className="rounded-lg overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => setAboutOpen(v => !v)}
+                                className="flex items-center justify-between w-full px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                              >
+                                <span className="text-sm text-gray-600 dark:text-gray-400">About</span>
+                                <span className="text-[10px] text-gray-400 dark:text-gray-500">{aboutOpen ? '▲' : '▼'}</span>
+                              </button>
+                              {aboutOpen && (
+                                <div className="px-2 pb-3 space-y-2">
+                                  {/* App identity */}
+                                  <div className="flex items-center gap-2.5 pt-1">
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                      </svg>
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">PLS Calendar</p>
+                                      <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">
+                                        v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
+                                        {' · '}
+                                        {typeof window.__TAURI__ !== 'undefined' ? '🖥 Desktop' : window.matchMedia('(display-mode: standalone)').matches ? '📱 PWA' : '🌐 Web'}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Info rows */}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Build</span>
+                                      <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400">v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Platform</span>
+                                      <span className="text-[11px] text-gray-500 dark:text-gray-400">{typeof window.__TAURI__ !== 'undefined' ? 'Tauri Desktop' : 'Web / PWA'}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Source</span>
+                                      <button type="button" onClick={async () => {
+                                        const url = 'https://github.com/Hunter52302/life-calendar';
+                                        if (typeof window.__TAURI__ !== 'undefined') {
+                                          const { open } = await import('@tauri-apps/plugin-opener');
+                                          await open(url);
+                                        } else { window.open(url, '_blank'); }
+                                      }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
+                                    </div>
+                                  </div>
+
+                                  {/* Check for Updates */}
+                                  <div className="pt-1 border-t border-gray-100 dark:border-gray-800">
+                                    {typeof window.__TAURI__ !== 'undefined' ? (
+                                      <button
+                                        type="button"
+                                        disabled={updateStatus === 'checking'}
+                                        onClick={async () => {
+                                          setUpdateStatus('checking'); setUpdateVersion(null);
+                                          try {
+                                            const { check } = await import('@tauri-apps/plugin-updater');
+                                            const update = await check();
+                                            if (update?.available) { setUpdateStatus('available'); setUpdateVersion(update.version); }
+                                            else { setUpdateStatus('latest'); }
+                                          } catch { setUpdateStatus('error'); }
+                                        }}
+                                        className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                                      >
+                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
+                                          {updateStatus === 'checking' ? 'Checking…' : updateStatus === 'available' ? `v${updateVersion} available!` : updateStatus === 'latest' ? 'Up to date ✓' : updateStatus === 'error' ? 'Check failed — try again' : 'Check for Updates'}
+                                        </span>
+                                        {updateStatus === 'checking'
+                                          ? <svg className="w-3.5 h-3.5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                                          : updateStatus === 'available'
+                                            ? <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-400">Install →</span>
+                                            : <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                        }
+                                      </button>
+                                    ) : (
+                                      <a href="https://github.com/Hunter52302/life-calendar/releases/latest" target="_blank" rel="noopener noreferrer"
+                                        className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Check for Updates</span>
+                                        <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                                      </a>
+                                    )}
+                                  </div>
+
+                                  <p className="text-[10px] text-gray-300 dark:text-gray-700 text-center">© {new Date().getFullYear()} PLS Calendar</p>
+                                </div>
+                              )}
+                            </div>
+
                           </div>
                         )}
                       </div>
@@ -2488,188 +2943,100 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Linked Calendars — always visible when any exist */}
+                    {/* Linked Calendars — now lives inside Connected Calendars above */}
                     {(() => {
                       const legacyPlan = events.filter(e => e.calendar === 'plan' && !e.source_calendar_id && e.source !== 'manual').length;
                       const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
                       const hasAny = linkedCalendars.length > 0 || legacyPlan > 0 || legacyActual > 0;
-                      if (!hasAny || !sv(SECTION_KWS.linked)) return null;
-                      return (
-                        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-                          <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-                            Linked Calendars
-                          </p>
-                          <div className="space-y-1">
-                            {[...linkedCalendars].reverse().map(cal => {
-                              const count = events.filter(e => e.source_calendar_id === cal.id).length;
-                              const isConfirming = pendingDelete === cal.id;
-                              const calColor = cal.color || '#6B7280';
-                              const isPickingColor = editingCalColor === cal.id;
-                              return (
-                                <div key={cal.id} className="rounded-lg overflow-hidden">
-                                  <div className="flex items-start gap-2 py-1">
-                                    {/* Color dot — click to toggle inline picker */}
-                                    <button
-                                      type="button"
-                                      title="Change color"
-                                      onClick={() => setEditingCalColor(isPickingColor ? null : cal.id)}
-                                      className="flex-shrink-0 mt-1.5 w-3.5 h-3.5 rounded-full border-2 border-white/30 dark:border-gray-700 shadow-sm hover:scale-125 transition-transform"
-                                      style={{ backgroundColor: calColor }}
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className={`inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 ${
-                                          cal.calendar === 'plan'
-                                            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
-                                            : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400'
-                                        }`}>
-                                          {cal.calendar === 'plan' ? 'Plan' : 'Live'}
-                                        </span>
-                                        <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">
-                                          {cal.name}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center justify-between mt-0.5">
-                                        <p className="text-xs text-gray-400 dark:text-gray-500">
-                                          {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
-                                          {cal.url && (
-                                            <>
-                                              {' · '}
-                                              <button
-                                                type="button"
-                                                disabled={syncingCalId === cal.id}
-                                                onClick={() => handleSyncNow(cal)}
-                                                className="text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50 font-medium"
-                                                title={cal.lastSyncedAt ? `Last synced ${new Date(cal.lastSyncedAt * 1000).toLocaleString()}` : 'Subscribed calendar'}
-                                              >
-                                                {syncingCalId === cal.id ? 'Syncing…' : '↻ Sync now'}
-                                              </button>
-                                            </>
-                                          )}
-                                        </p>
-                                        <label className="flex items-center gap-1 cursor-pointer flex-shrink-0 ml-2" title="Exclude this calendar from Reality Check">
-                                          <input
-                                            type="checkbox"
-                                            checked={!!cal.excludeFromReality}
-                                            onChange={e => updateLinkedCalendarExclude(cal.id, e.target.checked)}
-                                            className="w-3 h-3 rounded accent-blue-500"
-                                          />
-                                          <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">Skip RC</span>
-                                        </label>
-                                      </div>
-                                      {/* Inline color swatches */}
-                                      {isPickingColor && (
-                                        <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
-                                          {IMPORT_COLORS.map(c => (
-                                            <button
-                                              key={c}
-                                              type="button"
-                                              onClick={() => { updateLinkedCalendarColor(cal.id, c); setEditingCalColor(null); }}
-                                              className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-110 ${c === calColor ? 'border-gray-300 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-gray-500'}`}
-                                              style={{ backgroundColor: c }}
-                                            />
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                    {!isConfirming && (
-                                      <button
-                                        type="button"
-                                        onClick={() => { setEditingCalColor(null); setPendingDelete(cal.id); }}
-                                        className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                        title="Remove calendar"
-                                      >×</button>
-                                    )}
-                                  </div>
-                                  {isConfirming && (
-                                    <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                      <span className="text-xs text-red-500 dark:text-red-400 flex-1">
-                                        Remove {count} event{count !== 1 ? 's' : ''}?
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(null)}
-                                        className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                      >Cancel</button>
-                                      <button
-                                        type="button"
-                                        onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }}
-                                        className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
-                                      >Delete</button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-
-                            {/* Legacy / untracked rows */}
-                            {[
-                              { key: '__legacy_plan', label: 'Unlinked plan events', count: legacyPlan, calendar: 'plan' },
-                              { key: '__legacy_actual', label: 'Unlinked live events', count: legacyActual, calendar: 'actual' },
-                            ].filter(r => r.count > 0).map(row => {
-                              const isConfirming = pendingDelete === row.key;
-                              return (
-                                <div key={row.key} className="rounded-lg overflow-hidden">
-                                  <div className="flex items-start gap-2 py-1 opacity-70">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                          {row.calendar === 'plan' ? 'Plan' : 'Live'}
-                                        </span>
-                                        <span className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">{row.label}</span>
-                                      </div>
-                                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-0.5">
-                                        {row.count} event{row.count !== 1 ? 's' : ''} · not linked to a source
-                                      </p>
-                                    </div>
-                                    {!isConfirming && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(row.key)}
-                                        className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                        title="Remove unlinked events"
-                                      >×</button>
-                                    )}
-                                  </div>
-                                  {isConfirming && (
-                                    <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                      <span className="text-xs text-red-500 dark:text-red-400 flex-1">
-                                        Remove {row.count} unlinked event{row.count !== 1 ? 's' : ''}?
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setPendingDelete(null)}
-                                        className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                      >Cancel</button>
-                                      <button
-                                        type="button"
-                                        onClick={() => { clearLegacyEvents(row.calendar); setPendingDelete(null); }}
-                                        className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors"
-                                      >Delete</button>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
+                      if (activePage !== 'calendar' || !hasAny || !sv(SECTION_KWS.linked)) return null;
+                      return null; // Linked calendars now shown inside Connected Calendars
                     })()}
 
-                      {/* ── Tutorial ── */}
+                      {/* ── Download Desktop App ── */}
+                      {sv(['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native']) && (
+                        <div className="rounded-lg overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setDownloadOpen(v => !v)}
+                            className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Download Desktop App</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{downloadOpen ? '▲' : 'Windows · Linux'}</span>
+                          </button>
+                          {downloadOpen && (
+                            <div className="px-2 pb-2 space-y-0.5">
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug px-1 mb-1.5">
+                                Native desktop builds for Windows, Linux, and macOS.
+                              </p>
+                              {[
+                                { label: 'Windows (.exe)', platform: 'windows', icon: '🪟' },
+                                { label: 'Linux (.deb)',   platform: 'linux',   icon: '🐧' },
+                                { label: 'Linux (.AppImage)', platform: 'linux-appimage', icon: '🐧' },
+                                { label: 'macOS (.dmg)',   platform: 'mac',     icon: '🍎' },
+                              ].map(({ label, icon }) => (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => { setDownloadOpen(false); setShowSettings(false); setShowDownload(true); }}
+                                  className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                                >
+                                  <span>{icon}</span>
+                                  <span>{label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── No Touchy (Admin Secrets) ── */}
+                      {sv(SECTION_KWS.noTouchy) && (
+                        <div className="rounded-lg overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setNoTouchyOpen(v => !v)}
+                            className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">🔑 No Touchy</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(noTouchyOpen, SECTION_KWS.noTouchy) ? '▲' : '▼'}</span>
+                          </button>
+                          {so(noTouchyOpen, SECTION_KWS.noTouchy) && (
+                            <div className="mt-1">
+                              <AdminSecrets />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Tutorial (page-specific) ── */}
                       <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
-                        <button
-                          type="button"
-                          onClick={() => { setShowSettings(false); setShowTutorial(true); }}
-                          className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                        >
-                          <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                          </svg>
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Tutorial</span>
-                          <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
-                        </button>
+                        {activePage === 'calendar' ? (
+                          <button
+                            type="button"
+                            onClick={() => { setShowSettings(false); setShowTutorial(true); }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Calendar Tutorial</span>
+                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setShowSettings(false); setShowTodoTutorial(true); }}
+                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                          >
+                            <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Do It Tutorial</span>
+                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">6 steps</span>
+                          </button>
+                        )}
                       </div>
+
                   </div>
                 </>
               )}
@@ -2679,12 +3046,28 @@ export default function App() {
 
         {/* Main content */}
         <main className="flex-1 overflow-hidden pb-safe">
-          {activeTab === 'plan' && (
+          {/* PLS Do It page */}
+          {activePage === 'todo' && (
+            <TodoView
+              tasks={tasks}
+              todoView={todoView}
+              fabOpen={todoFabOpen}
+              onFabClose={() => setTodoFabOpen(false)}
+              onAddTask={addTask}
+              onUpdateTask={updateTask}
+              onDeleteTask={deleteTask}
+              onCompleteTask={completeTask}
+              onUncompleteTask={uncompleteTask}
+              onMoveCard={moveKanbanCard}
+              onReorderTasks={reorderTasks}
+            />
+          )}
+          {activePage === 'calendar' && activeTab === 'plan' && (
             <PlanView
               events={planEvents}
               weekStart={weekStart}
-              precision={planPrecision}
-              onPrecisionChange={setPlanPrecision}
+              precision={precision}
+              onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
               enabledViews={eff.enabledViews}
@@ -2703,15 +3086,17 @@ export default function App() {
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
+              homeAddress={profile.homeAddress || ''}
+              savedAddresses={profile.otherAddresses || []}
             />
           )}
-          {activeTab === 'actual' && (
+          {activePage === 'calendar' && activeTab === 'actual' && (
             <ActualView
               planEvents={planEvents}
               actualEvents={actualEvents}
               weekStart={weekStart}
-              precision={livePrecision}
-              onPrecisionChange={setLivePrecision}
+              precision={precision}
+              onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
               enabledViews={eff.enabledViews}
@@ -2730,9 +3115,11 @@ export default function App() {
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
+              homeAddress={profile.homeAddress || ''}
+              savedAddresses={profile.otherAddresses || []}
             />
           )}
-          {activeTab === 'reality' && (
+          {activePage === 'calendar' && activeTab === 'reality' && (
             <DiffView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -2752,11 +3139,27 @@ export default function App() {
 
         {/* Install prompt — "Add to Home Screen" banner */}
         <InstallPrompt />
+        <UpdateBanner />
 
-        {/* Floating quick-add button. Forced visible when a share-target
-            launch is pending so the shared text isn't silently dropped by
-            "Hide FAB"/minimalist mode. */}
-        {(eff.fabVisible || shareText) && (
+        {/* Floating quick-add button — todo page */}
+        {activePage === 'todo' && todoView === 'list' && (
+          <button
+            type="button"
+            onClick={() => setTodoFabOpen(true)}
+            className="fixed bottom-6 right-6 z-30 rounded-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white shadow-lg flex items-center justify-center transition-all"
+            style={{ width: '3.25rem', height: '3.25rem' }}
+            aria-label="Add task"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
+
+        {/* Floating quick-add button — calendar page. Forced visible when a
+            share-target launch is pending so the shared text isn't silently
+            dropped by "Hide FAB"/minimalist mode. */}
+        {activePage === 'calendar' && (eff.fabVisible || shareText) && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}

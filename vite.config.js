@@ -2,8 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { readFileSync } from 'fs'
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_NAME__:    JSON.stringify(pkg.name),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -98,8 +104,17 @@ export default defineConfig({
   ],
 
   optimizeDeps: {
-    exclude: ['jspdf', 'jspdf-autotable'],
+    exclude: ['jspdf', 'jspdf-autotable', '@tauri-apps/api', '@tauri-apps/plugin-opener', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
     include: ['chrono-node'],
+  },
+
+  // Tauri packages are provided by the Tauri runtime — never bundle them
+  build: {
+    rollupOptions: {
+      external: [
+        /^@tauri-apps\/.*/,
+      ],
+    },
   },
 
   server: {

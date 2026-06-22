@@ -24,6 +24,7 @@ import llmSettingsRoute     from './routes/llmSettings.js';
 import adminRoute           from './routes/admin.js';
 import icalFetchRoute       from './routes/icalFetch.js';
 import feedRoute            from './routes/feed.js';
+import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
@@ -77,6 +78,8 @@ app.use('/api/llm-settings',    llmSettingsRoute);
 app.use('/api/admin',           adminRoute);
 app.use('/api/ical-fetch',      icalFetchRoute);
 app.use('/api/feed',            feedRoute);
+
+await initializeInfisical();
 
 /**
  * GET /api/sync

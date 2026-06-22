@@ -2,6 +2,31 @@ import { storage } from './storage.js';
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api';
 
+const ADMIN_TOKEN_KEY = 'lc-admin-token';
+
+async function adminRequest(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const adminToken = sessionStorage.getItem(ADMIN_TOKEN_KEY);
+  if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
+  const res = await fetch(`${BASE}${path}`, {
+    method,
+    headers,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  if (res.status === 401 || res.status === 403) {
+    sessionStorage.removeItem(ADMIN_TOKEN_KEY);
+    const err = new Error('Admin session expired');
+    err.adminExpired = true;
+    throw err;
+  }
+  if (!res.ok) {
+    let msg = `${method} ${path} → ${res.status}`;
+    try { const j = await res.json(); msg = j.error ?? msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 async function request(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
   const token = storage.getToken();
@@ -40,6 +65,18 @@ export const api = {
     deleteUser:     (id)              => request('DELETE', `/admin/users/${id}`),
     auditLog:       ()                => request('GET',    '/admin/audit-log'),
     signupClusters: ()                => request('GET',    '/admin/signup-clusters'),
+
+    auth:            (password)        => request('POST',   '/admin/auth',             { password }),
+    infisicalStatus: ()                => adminRequest('GET',    '/admin/infisical/status'),
+    listSecrets:     ()                => adminRequest('GET',    '/admin/secrets'),
+    createSecret:    (data)            => adminRequest('POST',   '/admin/secrets',          data),
+    updateSecret:    (key, data)       => adminRequest('PUT',    `/admin/secrets/${key}`,    data),
+    rotateSecret:    (key, data)       => adminRequest('POST',   `/admin/secrets/${key}/rotate`, data),
+    restoreSecret:   (key)             => adminRequest('POST',   `/admin/secrets/${key}/restore`),
+    deleteSecret:    (key)             => adminRequest('DELETE', `/admin/secrets/${key}`),
+    storeAdminToken: (token)           => sessionStorage.setItem(ADMIN_TOKEN_KEY, token),
+    clearAdminToken: ()                => sessionStorage.removeItem(ADMIN_TOKEN_KEY),
+    hasAdminToken:   ()                => !!sessionStorage.getItem(ADMIN_TOKEN_KEY),
   },
 
   driveTime: {

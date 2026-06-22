@@ -15,6 +15,7 @@ export default function ActualView({
   planEvents, actualEvents, weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
+  homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
 }) {
@@ -67,6 +68,20 @@ export default function ActualView({
   const visibleViews = ALL_VIEWS.filter(v => !OPTIONAL_VIEWS.has(v) || enabledViews.includes(v));
 
   function navigatePeriod(dir) {
+    if (view === 'week') {
+      const d = new Date(weekStart + 'T00:00:00');
+      d.setDate(d.getDate() + 7 * dir);
+      onNavigateToDate?.(d.toISOString().slice(0, 10));
+      return;
+    }
+    if (view === 'day') {
+      // Start from the ACTIVE day, not weekStart (weekStart is the Sunday anchor)
+      const activeDate = new Date(weekStart + 'T00:00:00');
+      activeDate.setDate(activeDate.getDate() + activeDay + dir);
+      onNavigateToDate?.(activeDate.toISOString().slice(0, 10));
+      setActiveDay(activeDate.getDay());
+      return;
+    }
     setViewDate(prev => {
       const d = new Date(prev);
       if (view === 'month') d.setMonth(d.getMonth() + dir);
@@ -83,6 +98,21 @@ export default function ActualView({
     if (view === 'quarter') return `Q${Math.floor(m / 3) + 1} ${y}`;
     if (view === 'half') return `${m < 6 ? 'H1' : 'H2'} ${y}`;
     if (view === 'year') return `${y}`;
+    if (view === 'week') {
+      const ws = new Date(weekStart + 'T00:00:00');
+      const we = new Date(ws); we.setDate(we.getDate() + 6);
+      const sameMonth = ws.getMonth() === we.getMonth();
+      const sameYear  = ws.getFullYear() === we.getFullYear();
+      const opts = { month: 'short', day: 'numeric' };
+      if (sameMonth) return `${ws.toLocaleDateString('en-US', opts)} – ${we.getDate()}, ${ws.getFullYear()}`;
+      if (sameYear)  return `${ws.toLocaleDateString('en-US', opts)} – ${we.toLocaleDateString('en-US', opts)}, ${ws.getFullYear()}`;
+      return `${ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${we.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+    if (view === 'day') {
+      const ws = new Date(weekStart + 'T00:00:00');
+      ws.setDate(ws.getDate() + activeDay);
+      return ws.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
+    }
     return '';
   }
 
@@ -197,17 +227,17 @@ export default function ActualView({
           />
         </div>}
 
-        {/* Period navigator — own row on mobile/tablet, absolutely centered on wide screens */}
-        {isMultiMonth && (
+        {/* Period navigator — shown for all views, centered */}
+        {(
           <div className="w-full flex justify-center items-center gap-1 order-3 lg:order-none lg:w-auto lg:absolute lg:left-1/2 lg:-translate-x-1/2">
-            <button onClick={() => navigatePeriod(-1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">←</button>
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-32 text-center">{getPeriodLabel()}</span>
-            <button onClick={() => navigatePeriod(1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400">→</button>
+            <button onClick={() => navigatePeriod(-1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors">←</button>
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-40 text-center select-none">{getPeriodLabel()}</span>
+            <button onClick={() => navigatePeriod(1)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors">→</button>
           </div>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-hidden overflow-x-auto">
+      <div className="flex-1 overflow-y-hidden overflow-x-auto px-2 pt-1">
         {(view === 'day' || view === 'week') && (
           <CalendarGrid
             events={displayEvents} weekStart={weekStart} precision={precision}
@@ -242,6 +272,7 @@ export default function ActualView({
           allCategories={allCategories} militaryTime={militaryTime}
           onSave={handleSave} onDelete={onDeleteEvent}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
+          homeAddress={homeAddress} savedAddresses={savedAddresses}
           onClose={() => setFormState(null)}
         />
       )}

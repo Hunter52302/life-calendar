@@ -1,0 +1,141 @@
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: '--target x86_64-pc-windows-msvc'
+            os: windows
+          - platform: ubuntu-22.04
+            args: ''
+            os: linux
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'windows-latest' && 'x86_64-pc-windows-msvc' || '' }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_URL: '/api'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'PLS Calendar ${{ github.ref_name }}'
+          releaseBody: |
+            ## Downloads
+
+            | Platform | File |
+            |----------|------|
+            | Windows  | `PLS.Calendar_*_x64-setup.exe` |
+            | Linux    | `PLS.Calendar_*_amd64.deb` or `PLS.Calendar_*_amd64.AppImage` |
+
+            macOS support coming soon.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      # Generate latest.json right in the Linux job where the sig files are available
+      - name: Generate and upload latest.json (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(node -p "require('./package.json').version")
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          BASE="https://github.com/Hunter52302/life-calendar/releases/download/${TAG}"
+
+          echo "=== Searching for AppImage sig files ==="
+          find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null
+
+          # Read sig content — handles spaces in filenames safely
+          SIG_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null | head -1)
+          TGZ_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz" ! -name "*.sig" 2>/dev/null | head -1)
+
+          if [ -z "$SIG_FILE" ] || [ -z "$TGZ_FILE" ]; then
+            echo "ERROR: Could not find AppImage.tar.gz or its .sig file"
+            exit 0
+          fi
+
+          SIG_CONTENT=$(cat "$SIG_FILE")
+          TGZ_NAME=$(basename "$TGZ_FILE")
+
+          echo "Found sig: $SIG_FILE"
+          echo "Found tar.gz: $TGZ_FILE"
+          echo "Sig content (first 40 chars): ${SIG_CONTENT:0:40}"
+
+          # Upload the AppImage.tar.gz to the release (needed for the updater download)
+          echo "Uploading $TGZ_NAME to release..."
+          gh release upload "$TAG" "$TGZ_FILE" --clobber --repo Hunter52302/life-calendar
+
+          # Build latest.json with Linux platform
+          node -e "
+            const fs = require('fs');
+            const json = {
+              version: '$VERSION',
+              notes: 'See the GitHub releases page for what is new.',
+              pub_date: '$DATE',
+              platforms: {
+                'linux-x86_64': {
+                  url: '$BASE/$TGZ_NAME',
+                  signature: fs.readFileSync('$SIG_FILE', 'utf8').trim()
+                }
+              }
+            };
+            fs.writeFileSync('latest.json', JSON.stringify(json, null, 2));
+            console.log('Generated latest.json:');
+            console.log(JSON.stringify(json, null, 2));
+          "
+
+          # Upload latest.json
+          gh release upload "$TAG" latest.json --clobber --repo Hunter52302/life-calendar
+          echo "Uploaded latest.json"
+
+      # Publish the release after both jobs finish
+      - name: Publish release (Linux only — runs after both jobs)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Wait a bit for Windows job artifacts to also upload
+          sleep 30
+          gh release edit "${{ github.ref_name }}" --draft=false --repo Hunter52302/life-calendar
+          echo "Release published"

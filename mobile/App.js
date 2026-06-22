@@ -16,15 +16,17 @@ import { useCategoryKeywords } from './src/hooks/useCategoryKeywords.js';
 import { useLlmSettings } from './src/hooks/useLlmSettings.js';
 import { usePersistentState } from './src/hooks/usePersistentState.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
+import { getTheme } from './src/lib/theme.js';
 import { useState } from 'react';
 
-import AuthScreen from './src/screens/AuthScreen.jsx';
-import PlanScreen from './src/screens/PlanScreen.jsx';
-import LiveScreen from './src/screens/LiveScreen.jsx';
-import HabitsScreen from './src/screens/HabitsScreen.jsx';
-import RealityScreen from './src/screens/RealityScreen.jsx';
+import AuthScreen     from './src/screens/AuthScreen.jsx';
+import PlanScreen     from './src/screens/PlanScreen.jsx';
+import LiveScreen     from './src/screens/LiveScreen.jsx';
+import HabitsScreen   from './src/screens/HabitsScreen.jsx';
+import RealityScreen  from './src/screens/RealityScreen.jsx';
+import TodoScreen     from './src/screens/TodoScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
-import ParseModal from './src/components/ParseModal.jsx';
+import ParseModal     from './src/components/ParseModal.jsx';
 
 const Tab = createBottomTabNavigator();
 
@@ -33,6 +35,7 @@ const TAB_ICONS = {
   Live:            'time-outline',
   Habits:          'checkmark-circle-outline',
   'See Your Life': 'bar-chart-outline',
+  'PLS Do It':     'checkbox-outline',
   Settings:        'settings-outline',
 };
 
@@ -54,6 +57,49 @@ function Main() {
   const categoryKeywordsData = useCategoryKeywords(auth.authState);
   const { llmSettings, setLlmSettings } = useLlmSettings(auth.authState, auth.masterKey, auth.isZkEnabled);
   const [weekStart, setWeekStart] = useState(getWeekStart());
+
+  // ── Settings: Display ─────────────────────────────────────────────────────
+  const [militaryTime,        setMilitaryTime]        = usePersistentState('lc-m-military-time', false);
+  const [darkMode,            setDarkMode]            = usePersistentState('lc-m-dark-mode', false);
+  const [weekNumbers,         setWeekNumbers]         = usePersistentState('lc-m-week-numbers', false);
+  const [weekStartsMonday,    setWeekStartsMonday]    = usePersistentState('lc-m-week-starts-monday', false);
+  const [showLiveTab,         setShowLiveTab]         = usePersistentState('lc-m-show-live-tab', true);
+  const [showRealityTab,      setShowRealityTab]      = usePersistentState('lc-m-show-reality-tab', true);
+  const [defaultView,         setDefaultView]         = usePersistentState('lc-m-default-view', 'Plan');
+  const [pushEnabled,         setPushEnabled]         = usePersistentState('lc-m-push-enabled', false);
+
+  // ── Settings: Minimalist / UI chrome ──────────────────────────────────────
+  const [minimalistMode,      setMinimalistMode]      = usePersistentState('lc-m-minimalist-mode', false);
+  const [showQuickAdd,        setShowQuickAdd]        = usePersistentState('lc-m-show-quick-add', true);
+  const [showPrecisionToggle, setShowPrecisionToggle] = usePersistentState('lc-m-show-precision-toggle', true);
+  const [showCategoriesMenu,  setShowCategoriesMenu]  = usePersistentState('lc-m-show-categories-menu', true);
+  const [showFab,             setShowFab]             = usePersistentState('lc-m-show-fab', true);
+  const [fabDraggable,        setFabDraggable]        = usePersistentState('lc-m-fab-draggable', false);
+
+  // ── Settings: Font ────────────────────────────────────────────────────────
+  const [fontPreference,      setFontPreference]      = usePersistentState('lc-m-font-preference', 'system');
+
+  // ── Settings: Time Zones ──────────────────────────────────────────────────
+  const [timezones, setTimezones] = usePersistentState('lc-m-timezones', ['America/New_York']);
+
+  // ── Settings: Budgets ──────────────────────────────────────────────────────
+  const { budgets, setBudget, deleteBudget } = budgetsData;
+
+  // ── Settings: Integrations (Discord/Slack webhooks) ───────────────────────
+  const [integrations, setIntegrations] = usePersistentState('lc-m-integrations', []);
+
+  function addIntegration(data) {
+    setIntegrations(p => [...p, { ...data, id: Date.now().toString(36), enabled: true }]);
+  }
+  function updateIntegration(id, updates) {
+    setIntegrations(p => p.map(i => i.id === id ? { ...i, ...updates } : i));
+  }
+  function deleteIntegration(id) {
+    setIntegrations(p => p.filter(i => i.id !== id));
+  }
+
+  // ── Settings: Profile ─────────────────────────────────────────────────────
+  const { profile, setProfile } = profileData;
 
   // Shared text arriving from the OS share sheet (SMS/email/etc., via
   // expo-share-intent) is funneled into the same ParseModal the in-app
@@ -110,21 +156,62 @@ function Main() {
     );
   }
 
+  const T = getTheme(darkMode);
+
+  // ── Effective values: minimalistMode overrides individual toggles ─────────
+  const effShowLiveTab         = !minimalistMode && showLiveTab;
+  const effShowRealityTab      = !minimalistMode && showRealityTab;
+  const effShowFab             = !minimalistMode && showFab;
+  const effShowQuickAdd        = !minimalistMode && showQuickAdd;
+  const effShowPrecisionToggle = !minimalistMode && showPrecisionToggle;
+  const effShowCategoriesMenu  = !minimalistMode && showCategoriesMenu;
+
   const ctx = {
     auth,
-    events:   eventsData,
-    habits:   habitsData,
-    profile:  profileData,
-    budgets:  budgetsData,
+    events:           eventsData,
+    habits:           habitsData,
     categoryKeywords: categoryKeywordsData,
-    llmSettings,
-    setLlmSettings,
+    llmSettings,      setLlmSettings,
     weekStart,
-    prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
-    nextWeek: () => setWeekStart(ws => addDays(ws, 7)),
+    prevWeek:         () => setWeekStart(ws => addDays(ws, -7)),
+    nextWeek:         () => setWeekStart(ws => addDays(ws, 7)),
     openParseModal,
-    assumeCompleted,
-    setAssumeCompleted,
+    assumeCompleted,  setAssumeCompleted,
+    // display settings
+    militaryTime,        setMilitaryTime,
+    darkMode,            setDarkMode,
+    weekNumbers,         setWeekNumbers,
+    weekStartsMonday,    setWeekStartsMonday,
+    showLiveTab,         setShowLiveTab,
+    showRealityTab,      setShowRealityTab,
+    defaultView,         setDefaultView,
+    pushEnabled,         setPushEnabled,
+    // minimalist / UI chrome (raw values for settings screen)
+    minimalistMode,      setMinimalistMode,
+    showQuickAdd,        setShowQuickAdd,
+    showPrecisionToggle, setShowPrecisionToggle,
+    showCategoriesMenu,  setShowCategoriesMenu,
+    showFab,             setShowFab,
+    fabDraggable,        setFabDraggable,
+    // effective values (apply minimalistMode — use these in screens)
+    effShowLiveTab,
+    effShowRealityTab,
+    effShowFab,
+    effShowQuickAdd,
+    effShowPrecisionToggle,
+    effShowCategoriesMenu,
+    // font
+    fontPreference,      setFontPreference,
+    // timezones
+    timezones,           setTimezones,
+    // budgets
+    budgets,             setBudget,           deleteBudget,
+    // integrations
+    integrations,        addIntegration,      updateIntegration,   deleteIntegration,
+    // profile
+    profile,             setProfile,
+    // theme colours (pre-computed so screens don't re-derive on every render)
+    T,
   };
 
   return (
@@ -132,25 +219,27 @@ function Main() {
       <SafeAreaProvider>
         <NavigationContainer>
           <Tab.Navigator
+            initialRouteName={defaultView}
             screenOptions={({ route }) => ({
               headerShown: false,
               tabBarIcon: ({ color, size }) => (
                 <Ionicons name={TAB_ICONS[route.name]} size={size} color={color} />
               ),
-              tabBarActiveTintColor:   '#7C3AED',
-              tabBarInactiveTintColor: '#9CA3AF',
+              tabBarActiveTintColor:   T.accent,
+              tabBarInactiveTintColor: T.textFaint,
               tabBarStyle: {
-                backgroundColor:  '#fff',
-                borderTopColor:   '#E5E7EB',
-                borderTopWidth:   StyleSheet.hairlineWidth,
+                backgroundColor: T.tabBar,
+                borderTopColor:  T.tabBorder,
+                borderTopWidth:  StyleSheet.hairlineWidth,
               },
               tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
             })}
           >
             <Tab.Screen name="Plan"          component={PlanScreen} />
-            <Tab.Screen name="Live"          component={LiveScreen} />
+            {effShowLiveTab    && <Tab.Screen name="Live"          component={LiveScreen} />}
             <Tab.Screen name="Habits"        component={HabitsScreen} />
-            <Tab.Screen name="See Your Life" component={RealityScreen} />
+            {effShowRealityTab && <Tab.Screen name="See Your Life" component={RealityScreen} />}
+            <Tab.Screen name="PLS Do It"     component={TodoScreen} />
             <Tab.Screen name="Settings"      component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
@@ -159,7 +248,7 @@ function Main() {
           initialText={parseModalText}
           onClose={closeParseModal}
         />
-        <StatusBar style="dark" />
+        <StatusBar style={darkMode ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </AppContext.Provider>
   );

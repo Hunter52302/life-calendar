@@ -37,3 +37,26 @@ export function requireAdmin(req, res, next) {
   }
   next();
 }
+
+/**
+ * Elevated middleware for the most sensitive admin routes (server secrets).
+ * Requires a short-lived admin JWT (issued by POST /api/admin/auth, 1h TTL,
+ * after re-entering your password) carrying { userId, isAdmin: true } — a
+ * leaked regular session token alone is not enough to touch secrets.
+ */
+export function requireElevatedAdmin(req, res, next) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  try {
+    const payload = jwt.verify(header.slice(7), SECRET);
+    if (!payload.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    req.userId = payload.userId;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired admin token' });
+  }
+}
