@@ -170,6 +170,34 @@ export function runMigrations(db) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id             TEXT PRIMARY KEY,
+      admin_user_id  TEXT NOT NULL,
+      action         TEXT NOT NULL,
+      target_user_id TEXT,
+      created_at     INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS category_keywords (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      keyword     TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS user_llm_settings (
+      user_id    TEXT PRIMARY KEY,
+      provider   TEXT NOT NULL DEFAULT 'none',
+      api_key    TEXT,
+      endpoint   TEXT,
+      model      TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS secrets (
       key_name                  TEXT PRIMARY KEY,
       service_name              TEXT NOT NULL,
@@ -188,10 +216,33 @@ export function runMigrations(db) {
     `ALTER TABLE users  ADD COLUMN kdf_salt      TEXT`,
     `ALTER TABLE users  ADD COLUMN zk_enabled    INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE users  ADD COLUMN zk_verify     TEXT`,
+    `ALTER TABLE users  ADD COLUMN email         TEXT`,
+    `ALTER TABLE users  ADD COLUMN role          TEXT NOT NULL DEFAULT 'user'`,
+    `ALTER TABLE users  ADD COLUMN is_blocked    INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users  ADD COLUMN ics_feed_token TEXT`,
+    `ALTER TABLE users  ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users  ADD COLUMN locked_until  INTEGER`,
+    `ALTER TABLE users  ADD COLUMN signup_ip     TEXT`,
+    `ALTER TABLE linked_calendars ADD COLUMN url            TEXT`,
+    `ALTER TABLE linked_calendars ADD COLUMN sync_enabled   INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE linked_calendars ADD COLUMN last_synced_at INTEGER`,
     `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
     `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
   ];
   for (const sql of alters) {
     try { db.exec(sql); } catch { /* column already exists — ignore */ }
+  }
+
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL`);
+
+  // Admin lockout guard: if no admin exists, promote the earliest user.
+  // Covers pre-multi-user deployments (their single user becomes admin) and
+  // prevents a deployment from ever ending up with zero admins.
+  const { n: adminCount } = db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`).get();
+  if (adminCount === 0) {
+    db.prepare(`
+      UPDATE users SET role = 'admin'
+      WHERE id = (SELECT id FROM users ORDER BY created_at LIMIT 1)
+    `).run();
   }
 }

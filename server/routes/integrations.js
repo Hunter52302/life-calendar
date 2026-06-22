@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { userIntegrations, notificationSchedules } from '../db/queries.js';
-import { dispatchDiscordWebhook, dispatchSlackWebhook, dispatchGenericWebhook, dispatchWebPush, dispatchExpoPush } from '../services/notificationService.js';
+import { dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush } from '../services/notificationService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -47,11 +47,11 @@ router.post('/:id/test', async (req, res) => {
   const body  = 'Your integration is working correctly!';
   try {
     if (integration.type === 'discord_webhook' && integration.endpoint_url) {
-      await dispatchDiscordWebhook(integration.endpoint_url, title, body);
+      await dispatchWebhook(integration.endpoint_url, discordPayload(title, body), 'Discord');
     } else if (integration.type === 'slack_webhook' && integration.endpoint_url) {
-      await dispatchSlackWebhook(integration.endpoint_url, title, body);
+      await dispatchWebhook(integration.endpoint_url, slackPayload(title, body), 'Slack');
     } else if (integration.type === 'generic_webhook' && integration.endpoint_url) {
-      await dispatchGenericWebhook(integration.endpoint_url, { title, body, test: true });
+      await dispatchWebhook(integration.endpoint_url, { title, body, test: true }, 'Generic');
     } else if (integration.type === 'web_push') {
       await dispatchWebPush(req.userId, title, body);
     } else if (integration.type === 'expo_push' && integration.push_token) {

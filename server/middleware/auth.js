@@ -1,10 +1,12 @@
 import jwt from 'jsonwebtoken';
+import { users } from '../db/queries.js';
 
 const SECRET = process.env.JWT_SECRET;
 
 /**
  * Express middleware that verifies the Bearer token and attaches
- * `req.userId` so routes don't have to repeat this logic.
+ * `req.userId` / `req.userRole` so routes don't have to repeat this logic.
+ * Blocked or deleted accounts are rejected even with a valid token.
  */
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization;
@@ -13,21 +15,36 @@ export function requireAuth(req, res, next) {
   }
   try {
     const payload = jwt.verify(header.slice(7), SECRET);
-    req.userId = payload.userId;
+    const user = users.getById(payload.userId);
+    if (!user) {
+      return res.status(401).json({ error: 'Account no longer exists' });
+    }
+    if (user.is_blocked) {
+      return res.status(403).json({ error: 'Account is blocked' });
+    }
+    req.userId = user.id;
+    req.userRole = user.role ?? 'user';
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
-/**
- * Elevated middleware for admin-only routes.
- * Requires an admin JWT (issued by POST /api/admin/auth, 1h TTL)
- * which carries { userId, isAdmin: true }.
- *
- * Regular user tokens (no isAdmin claim) are rejected with 403.
- */
+/** Use after requireAuth. Rejects non-admin accounts. */
 export function requireAdmin(req, res, next) {
+  if (req.userRole !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+/**
+ * Elevated middleware for the most sensitive admin routes (server secrets).
+ * Requires a short-lived admin JWT (issued by POST /api/admin/auth, 1h TTL,
+ * after re-entering your password) carrying { userId, isAdmin: true } — a
+ * leaked regular session token alone is not enough to touch secrets.
+ */
+export function requireElevatedAdmin(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });

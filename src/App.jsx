@@ -54,12 +54,13 @@ const PRESET_COLORS = [
   '#6B7280', '#374151',
 ];
 import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
+import { api } from './lib/api.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
 import { useIntegrations } from './hooks/useIntegrations';
 import { useCrypto } from './context/CryptoContext';
-import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField } from './lib/crypto';
+import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField, isBase64 } from './lib/crypto';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -68,6 +69,8 @@ import DiffView from './views/DiffView';
 import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
+import ZkPromptModal from './components/ZkPromptModal';
+import ZkBanner from './components/ZkBanner';
 import TodoTutorialModal from './components/TodoTutorialModal';
 import AdminSecrets from './components/AdminSecrets';
 import DownloadModal from './components/DownloadModal';
@@ -75,6 +78,10 @@ import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
+import { useCategoryKeywords } from './hooks/useCategoryKeywords';
+import { useLlmSettings } from './hooks/useLlmSettings';
+import ListFieldEditor from './components/ListFieldEditor';
+import { usePersistentState } from './hooks/usePersistentState';
 import { useTasks } from './hooks/useTasks';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
@@ -110,6 +117,29 @@ function fmtKeybind(kb) {
   return parts.join('+');
 }
 
+/**
+ * Parse raw ICS text into app events for a given calendar, expanding RRULEs.
+ * Shared by file imports and URL subscriptions.
+ */
+function icsToAppEvents(content, calendar, precision, calId, calColor) {
+  const parsed = parseIcal(content);
+  return parsed.flatMap(p => {
+    const ev = icalToAppEvent(p, calendar, precision);
+    if (!ev) return [];
+    const base = { ...ev, source_calendar_id: calId, color: calColor };
+    const rrule = parseRrule(p.rrule);
+    if (!rrule) return [base];
+    let instances = generateRepeatInstances(base, rrule.repeat);
+    if (rrule.untilDate) instances = instances.filter(e => {
+      const d = new Date(e.week_start + 'T00:00:00');
+      d.setDate(d.getDate() + e.day_of_week);
+      return d <= rrule.untilDate;
+    });
+    if (rrule.count) instances = instances.slice(0, rrule.count);
+    return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
+  });
+}
+
 function Toggle({ checked, onChange }) {
   return (
     <button
@@ -125,7 +155,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, setup, login, logout, continueOffline } = useAuth();
+  const { authState, zkInfo, isAdmin, accountEmail, setup, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
   const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
   const [todoView,          setTodoView]          = useState(() => localStorage.getItem('lc-todo-view') || 'list');
   const [autoHideCompleted, setAutoHideCompleted] = useState(() => localStorage.getItem('lc-auto-hide-completed') === 'true');
@@ -134,26 +164,18 @@ export default function App() {
   const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
-  const [theme, setTheme] = useState(() => localStorage.getItem('lc-theme') || 'light');
-  const [militaryTime, setMilitaryTime] = useState(() => localStorage.getItem('lc-military') === 'true');
-  const [enabledViews, setEnabledViews] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lc-enabled-views') || '[]'); } catch { return []; }
-  });
-  const [showWeekNumbers, setShowWeekNumbers] = useState(() => localStorage.getItem('lc-week-numbers') === 'true');
-  const [pinnedCategories, setPinnedCategories] = useState(() => {
-    try {
-      const stored = localStorage.getItem('lc-pinned-cats');
-      return stored ? JSON.parse(stored) : ['sleep', 'work', 'school', 'personal', 'free-time'];
-    } catch { return ['sleep', 'work', 'school', 'personal', 'free-time']; }
-  });
+  const [theme, setTheme] = usePersistentState('lc-theme', 'light');
+  const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
+  const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
+  const [showWeekNumbers, setShowWeekNumbers] = usePersistentState('lc-week-numbers', false);
+  const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-assume-completed', true);
+  const [pinnedCategories, setPinnedCategories] = usePersistentState(
+    'lc-pinned-cats', () => ['sleep', 'work', 'school', 'personal', 'free-time']
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
-  const [showCalUrlForm, setShowCalUrlForm] = useState(false);
-  const [calUrlName, setCalUrlName] = useState('');
-  const [calUrl, setCalUrl] = useState('');
-  const [subscribing, setSubscribing] = useState(false);
   const [accountOpen,    setAccountOpen]    = useState(false);
   const [aboutOpen,      setAboutOpen]      = useState(false);
   const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
@@ -166,15 +188,36 @@ export default function App() {
   const [habitsOpen, setHabitsOpen] = useState(false);
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
+  const [aiParsingOpen, setAiParsingOpen] = useState(false);
   const [zkOpen, setZkOpen] = useState(false);
   const [zkEnabling, setZkEnabling] = useState(false);
   const [zkPassword, setZkPassword] = useState('');
   const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
+  const [zkPromptDismissed, setZkPromptDismissed] = usePersistentState('lc-zk-prompt-dismissed', false);
+  const [zkBannerDismissed, setZkBannerDismissed] = useState(false);
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [newIntType, setNewIntType] = useState('discord_webhook');
   const [newIntLabel, setNewIntLabel] = useState('');
   const [newIntUrl, setNewIntUrl] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
+  // ── Admin panel ──────────────────────────────────────────────────────────
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminUsers, setAdminUsers] = useState(null);   // null until first load
+  const [adminError, setAdminError] = useState('');
+  const [adminPwdDrafts, setAdminPwdDrafts] = useState({}); // { [userId]: newPassword }
+  const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
+  const [adminAuditLog, setAdminAuditLog] = useState(null); // null until first load
+  const [adminSignupClusters, setAdminSignupClusters] = useState(null);
+  const [accountEmailDraft, setAccountEmailDraft] = useState('');
+  const [accountEmailMsg, setAccountEmailMsg] = useState('');
+  // ── Calendar subscriptions (ICS URLs) + outbound feed ────────────────────
+  const [subUrl, setSubUrl] = useState('');
+  const [subBusy, setSubBusy] = useState(false);
+  const [subError, setSubError] = useState('');
+  const [syncingCalId, setSyncingCalId] = useState(null);
+  const [feedInfo, setFeedInfo] = useState(null);   // null (not loaded) | { enabled, path? }
+  const [feedCopied, setFeedCopied] = useState(false);
   // ── User profile ─────────────────────────────────────────────────────────
   const { profile, setProfile, syncProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
@@ -183,19 +226,14 @@ export default function App() {
   const [usernameDraft,    setUsernameDraft]    = useState(profile.username    || '');
   const [displayNameDraft, setDisplayNameDraft] = useState(profile.displayName || '');
   const [emailDraft,       setEmailDraft]       = useState(profile.email       || '');
-  const [addingAddr, setAddingAddr] = useState(false);
-  const [newAddrLabel, setNewAddrLabel] = useState('');
-  const [newAddrValue, setNewAddrValue] = useState('');
-  const [editingAddrId, setEditingAddrId] = useState(null);
-  const [editAddrDraft, setEditAddrDraft] = useState({ label: '', address: '' });
-  const [pendingDeleteAddr, setPendingDeleteAddr] = useState(null);
-  const [addingPhone, setAddingPhone] = useState(false);
-  const [newPhoneLabel, setNewPhoneLabel] = useState('');
-  const [newPhoneValue, setNewPhoneValue] = useState('');
-  const [editingPhoneId, setEditingPhoneId] = useState(null);
-  const [editPhoneDraft, setEditPhoneDraft] = useState({ label: '', number: '' });
-  const [pendingDeletePhone, setPendingDeletePhone] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  // ── PWA share target ──────────────────────────────────────────────────────
+  const [shareText, setShareText] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const t = p.get('share_text') || '';
+    if (t) window.history.replaceState({}, '', '/');
+    return t;
+  });
 
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState(null);
   const [editingCatColor, setEditingCatColor] = useState(null);
@@ -208,37 +246,28 @@ export default function App() {
   const [newCatPickingColor, setNewCatPickingColor] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchJump, setSearchJump] = useState(null); // { tab, dayOfWeek, _id }
-  const [fabVisible, setFabVisible]   = useState(() => localStorage.getItem('lc-fab-visible') !== 'false');
+  const [fabVisible, setFabVisible]   = usePersistentState('lc-fab-visible', true);
   // ── Font picker ─────────────────────────────────────────────────────────
-  const [fontKey, setFontKey] = useState(() => localStorage.getItem('lc-font-key') || 'system');
-  const [customFont, setCustomFont] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lc-custom-font') || 'null'); } catch { return null; }
-  });
+  const [fontKey, setFontKey] = usePersistentState('lc-font-key', 'system');
+  const [customFont, setCustomFont] = usePersistentState('lc-custom-font', null);
   const [fontSearch, setFontSearch] = useState('');
   // ── Minimalist mode ──────────────────────────────────────────────────────
-  const [minimalistMode,      setMinimalistMode]      = useState(() => localStorage.getItem('lc-minimalist')         === 'true');
-  const [showLiveTab,         setShowLiveTab]         = useState(() => localStorage.getItem('lc-show-live-tab')      !== 'false');
-  const [showRealityTab,      setShowRealityTab]      = useState(() => localStorage.getItem('lc-show-reality-tab')   !== 'false');
-  const [searchBarVisible,    setSearchBarVisible]    = useState(() => localStorage.getItem('lc-show-search')        !== 'false');
-  const [precisionVisible,    setPrecisionVisible]    = useState(() => localStorage.getItem('lc-show-precision')     !== 'false');
-  const [categoriesVisible,   setCategoriesVisible]   = useState(() => localStorage.getItem('lc-show-categories')    !== 'false');
-  const [fabDraggable, setFabDraggable] = useState(() => localStorage.getItem('lc-fab-draggable') === 'true');
+  const [minimalistMode,      setMinimalistMode]      = usePersistentState('lc-minimalist', false);
+  const [showLiveTab,         setShowLiveTab]         = usePersistentState('lc-show-live-tab', true);
+  const [showRealityTab,      setShowRealityTab]      = usePersistentState('lc-show-reality-tab', true);
+  const [searchBarVisible,    setSearchBarVisible]    = usePersistentState('lc-show-search', true);
+  const [precisionVisible,    setPrecisionVisible]    = usePersistentState('lc-show-precision', true);
+  const [categoriesVisible,   setCategoriesVisible]   = usePersistentState('lc-show-categories', true);
+  const [fabDraggable, setFabDraggable] = usePersistentState('lc-fab-draggable', false);
   const [fabPosResetKey, setFabPosResetKey] = useState(0);
   const [settingsSearch, setSettingsSearch] = useState('');
-  const [searchKeybind, setSearchKeybind] = useState(() => {
-    try { const s = localStorage.getItem('lc-search-keybind'); return s ? JSON.parse(s) : null; }
-    catch { return null; }
-  });
+  const [searchKeybind, setSearchKeybind] = usePersistentState('lc-search-keybind', null);
   const [searchOptionsOpen, setSearchOptionsOpen] = useState(false);
   const [recordingKeybind, setRecordingKeybind] = useState(false);
   const [keybindError, setKeybindError] = useState('');
-  const [timezones, setTimezones] = useState(() => {
-    try {
-      const s = localStorage.getItem('lc-timezones');
-      if (s) { const a = JSON.parse(s); if (Array.isArray(a) && a.length) return a; }
-    } catch { /* ignore */ }
-    return [Intl.DateTimeFormat().resolvedOptions().timeZone];
-  });
+  const [timezones, setTimezones] = usePersistentState(
+    'lc-timezones', () => [Intl.DateTimeFormat().resolvedOptions().timeZone]
+  );
   const [timezonesOpen, setTimezonesOpen] = useState(false);
 
   // Derived: how many settings sections are currently open
@@ -274,9 +303,7 @@ export default function App() {
   const [exportFormat, setExportFormat] = useState('csv');
   const [showTutorial, setShowTutorial] = useState(false);
   const [showTabMenu, setShowTabMenu] = useState(false);
-  const [mobileDefaultView, setMobileDefaultView] = useState(
-    () => localStorage.getItem('lc-mobile-default-view') || 'month'
-  );
+  const [mobileDefaultView, setMobileDefaultView] = usePersistentState('lc-mobile-default-view', 'month');
   const [exporting, setExporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null); // cal id or '__legacy_plan' / '__legacy_actual'
@@ -286,25 +313,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
   useEffect(() => { localStorage.setItem('lc-precision', String(precision)); }, [precision]);
   useEffect(() => { localStorage.setItem('lc-auto-hide-completed', String(autoHideCompleted)); }, [autoHideCompleted]);
-  useEffect(() => { localStorage.setItem('lc-theme', theme); }, [theme]);
-  useEffect(() => { localStorage.setItem('lc-military', militaryTime); }, [militaryTime]);
-  useEffect(() => { localStorage.setItem('lc-enabled-views', JSON.stringify(enabledViews)); }, [enabledViews]);
-  useEffect(() => { localStorage.setItem('lc-week-numbers', showWeekNumbers); }, [showWeekNumbers]);
-  useEffect(() => { localStorage.setItem('lc-pinned-cats', JSON.stringify(pinnedCategories)); }, [pinnedCategories]);
+  // theme / militaryTime / enabledViews / showWeekNumbers / pinnedCategories persist themselves via usePersistentState
   // lc-profile localStorage is managed by useProfile hook
-  useEffect(() => { localStorage.setItem('lc-fab-visible',   String(fabVisible));   }, [fabVisible]);
-  useEffect(() => { localStorage.setItem('lc-fab-draggable', String(fabDraggable)); }, [fabDraggable]);
-  useEffect(() => { localStorage.setItem('lc-minimalist',       String(minimalistMode));    }, [minimalistMode]);
-  useEffect(() => { localStorage.setItem('lc-show-live-tab',    String(showLiveTab));       }, [showLiveTab]);
-  useEffect(() => { localStorage.setItem('lc-show-reality-tab', String(showRealityTab));    }, [showRealityTab]);
-  useEffect(() => { localStorage.setItem('lc-show-search',      String(searchBarVisible));  }, [searchBarVisible]);
-  useEffect(() => { localStorage.setItem('lc-show-precision',   String(precisionVisible));  }, [precisionVisible]);
-  useEffect(() => { localStorage.setItem('lc-show-categories',  String(categoriesVisible)); }, [categoriesVisible]);
-  useEffect(() => { localStorage.setItem('lc-font-key', fontKey); }, [fontKey]);
-  useEffect(() => {
-    if (customFont) localStorage.setItem('lc-custom-font', JSON.stringify(customFont));
-    else localStorage.removeItem('lc-custom-font');
-  }, [customFont]);
   // Apply selected font to the whole app via CSS variable
   useEffect(() => {
     const preset = FONT_PRESETS.find(f => f.key === fontKey);
@@ -324,12 +334,6 @@ export default function App() {
       document.documentElement.style.setProperty('--lc-font', preset.value);
     }
   }, [fontKey, customFont]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { localStorage.setItem('lc-timezones', JSON.stringify(timezones)); }, [timezones]);
-  useEffect(() => { localStorage.setItem('lc-mobile-default-view', mobileDefaultView); }, [mobileDefaultView]);
-  useEffect(() => {
-    if (searchKeybind) localStorage.setItem('lc-search-keybind', JSON.stringify(searchKeybind));
-    else localStorage.removeItem('lc-search-keybind');
-  }, [searchKeybind]);
 
   // Ctrl+K / Cmd+K (default) + optional custom keybind open search
   useEffect(() => {
@@ -397,44 +401,153 @@ export default function App() {
     if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
   }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auth handlers (ZK key derivation happens client-side) ────────────────
+  async function handleRegister(email, password) {
+    // ZK on by default: derive the master key locally before the account
+    // exists; the server only ever sees the salt + verification blob.
+    const salt = generateSalt();
+    const key  = await deriveKey(password, salt);
+    const blob = await generateVerifyBlob(key);
+    await register(email, password, salt, blob);
+    setMasterKey(key);
+    setIsZkEnabled(true);
+    markUnlocked();
+  }
+
+  async function handleLogin(email, password) {
+    const res = await login(email, password);
+    if (res.zk_enabled) {
+      const key = await deriveKey(password, res.kdf_salt);
+      if (await verifyKey(key, res.zk_verify)) {
+        setMasterKey(key);
+        setIsZkEnabled(true);
+        markUnlocked();
+      }
+      // verify failed (e.g. admin reset the password) — stay 'locked';
+      // AuthGate prompts for the previous/encryption password.
+    }
+  }
+
+  async function handleUnlock(password) {
+    if (!zkInfo) return;
+    const key = await deriveKey(password, zkInfo.kdf_salt);
+    if (!(await verifyKey(key, zkInfo.zk_verify))) {
+      throw new Error('Incorrect password — your data stays encrypted until the right one is entered.');
+    }
+    setMasterKey(key);
+    setIsZkEnabled(true);
+    markUnlocked();
+  }
+
+  // ── Admin panel actions ───────────────────────────────────────────────────
+  async function loadAdminUsers() {
+    setAdminError('');
+    try {
+      const [list, auditLog, clusters] = await Promise.all([
+        api.admin.listUsers(),
+        api.admin.auditLog(),
+        api.admin.signupClusters(),
+      ]);
+      setAdminUsers(list);
+      setAdminAuditLog(auditLog);
+      setAdminSignupClusters(clusters);
+    } catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminBlock(userId, blocked) {
+    try { await api.admin.setBlocked(userId, blocked); await loadAdminUsers(); }
+    catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminResetPassword(userId) {
+    const pwd = adminPwdDrafts[userId];
+    if (!pwd || pwd.length < 8) { setAdminError('New password must be at least 8 characters.'); return; }
+    try {
+      await api.admin.resetPassword(userId, pwd);
+      setAdminPwdDrafts(d => { const n = { ...d }; delete n[userId]; return n; });
+      setAdminError('');
+      await loadAdminUsers();
+    } catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleAdminDelete(userId) {
+    try { await api.admin.deleteUser(userId); setPendingDeleteUser(null); await loadAdminUsers(); }
+    catch (err) { setAdminError(err.message); }
+  }
+
+  async function handleSetAccountEmail() {
+    if (!accountEmailDraft.trim()) return;
+    setAccountEmailMsg('');
+    try {
+      await setAccountEmail(accountEmailDraft.trim());
+      setAccountEmailMsg('Login email saved.');
+      setAccountEmailDraft('');
+    } catch (err) { setAccountEmailMsg(err.message); }
+  }
+
   async function handleEnableZk() {
     if (!zkPassword.trim()) return;
     setZkProgress('deriving');
     try {
-      const salt = generateSalt();
+      // Resume an interrupted migration with the same salt — generating a
+      // fresh one on retry would double-encrypt whatever already succeeded
+      // last time (ciphertext encrypted again, with the original plaintext
+      // unrecoverable). Fields already encrypted are skipped via isBase64.
+      const resumeSalt = localStorage.getItem('lc-zk-migration-salt');
+      const salt = resumeSalt || generateSalt();
+      if (!resumeSalt) localStorage.setItem('lc-zk-migration-salt', salt);
+
       const key  = await deriveKey(zkPassword, salt);
       const blob = await generateVerifyBlob(key);
       setZkProgress('encrypting');
-      // Encrypt existing events and habits
+      // Encrypt existing events and habits — straight to the API so local
+      // state (and the UI) keeps showing plaintext.
       const allEvents  = getEvents('plan').concat(getEvents('actual'));
       for (const ev of allEvents) {
-        const encLabel = ev.label ? await encryptField(key, ev.label) : ev.label;
-        const encNotes = ev.notes ? await encryptField(key, ev.notes) : ev.notes;
-        if (encLabel !== ev.label || encNotes !== ev.notes) {
-          updateEvent(ev.id, { label: encLabel, notes: encNotes });
-        }
+        const updates = {};
+        if (ev.label && !isBase64(ev.label)) updates.label = await encryptField(key, ev.label);
+        if (ev.notes && !isBase64(ev.notes)) updates.notes = await encryptField(key, ev.notes);
+        if (Object.keys(updates).length) await api.events.update(ev.id, updates);
       }
       for (const h of habits) {
-        const encLabel = h.label ? await encryptField(key, h.label) : h.label;
-        if (encLabel !== h.label) updateHabit(h.id, { label: encLabel });
+        if (h.label && !isBase64(h.label)) {
+          await api.habits.update(h.id, { label: await encryptField(key, h.label) });
+        }
+      }
+      for (const [catId, ovr] of Object.entries(categoryOverrides)) {
+        if (ovr.label && !isBase64(ovr.label)) {
+          await api.categories.update(catId, { label: await encryptField(key, ovr.label) });
+        }
+      }
+      for (const cal of linkedCalendars) {
+        if (cal.name && !isBase64(cal.name)) {
+          await api.linkedCalendars.update(cal.id, { name: await encryptField(key, cal.name) });
+        }
       }
       // Encrypt profile fields (username stays plaintext)
+      const encField = async (val) => (val && !isBase64(val)) ? await encryptField(key, val) : (val || null);
       const encProfile = {
         username:       profile.username || null,
-        displayName:    profile.displayName ? await encryptField(key, profile.displayName) : null,
-        email:          profile.email       ? await encryptField(key, profile.email)       : null,
-        phones:         profile.phones?.length      ? await encryptField(key, JSON.stringify(profile.phones))          : profile.phones,
-        birthday:       profile.birthday    ? await encryptField(key, profile.birthday)    : null,
-        homeAddress:    profile.homeAddress ? await encryptField(key, profile.homeAddress) : null,
-        otherAddresses: profile.otherAddresses?.length ? await encryptField(key, JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
+        displayName:    await encField(profile.displayName),
+        email:          await encField(profile.email),
+        phones:         profile.phones?.length      ? await encField(JSON.stringify(profile.phones))          : profile.phones,
+        birthday:       await encField(profile.birthday),
+        homeAddress:    await encField(profile.homeAddress),
+        otherAddresses: profile.otherAddresses?.length ? await encField(JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
       };
       await api.profile.set(encProfile);
+      // Only flip the server over to this key once every record above has
+      // been safely re-encrypted — otherwise a half-migrated mix of
+      // plaintext and ciphertext would be left behind under zk_enabled=false.
       await api.auth.enableZk(salt, blob);
+      localStorage.removeItem('lc-zk-migration-salt');
       setMasterKey(key);
       setIsZkEnabled(true);
       await syncProfile(key);
       setZkProgress('done');
       setZkPassword('');
+      setImportNotice('✅ Your data is now end-to-end encrypted.');
+      setTimeout(() => setImportNotice(null), 5000);
     } catch (err) {
       console.error('ZK enable failed:', err);
       setZkProgress('error');
@@ -511,20 +624,39 @@ export default function App() {
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds = [], replaceEventsBySource = () => {},
+    replaceEventsBySourceCalendar = () => {},
     linkedCalendars = [],
     addLinkedCalendar = () => ({ id: null, color: '#6B7280' }),
     deleteLinkedCalendar = () => {},
+    updateLinkedCalendar = () => {},
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
     syncing = false,
-  } = useEvents(authState);
+  } = useEvents(authState, assumeCompleted);
 
   const { tasks = [], addTask, updateTask, deleteTask, completeTask, uncompleteTask, moveKanbanCard, reorderTasks } = useTasks(authState);
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
+  const { keywordMap } = useCategoryKeywords(authState);
+  const { llmSettings, setLlmSettings } = useLlmSettings(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
   const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
   const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
+
+  // Nudge accounts that predate ZK-by-default to turn it on — shown once
+  // per dismissal (not re-shown after "Maybe later"), independent of the
+  // persistent banner below.
+  const showZkPrompt = (authState === 'ready' || authState === 'offline-ok') && !isZkEnabled && !zkPromptDismissed;
+
+  function dismissZkPrompt() {
+    setZkPromptDismissed(true);
+  }
+
+  function acceptZkPrompt() {
+    setZkPromptDismissed(true);
+    setShowSettings(true);
+    setZkOpen(true);
+  }
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -558,32 +690,99 @@ export default function App() {
     reader.onload = ev => {
       const content = ev.target.result;
       const calName = parseIcalCalName(content) || file.name.replace(/\.ics$/i, '');
-      const parsed = parseIcal(content);
       const { id: calId, color: calColor } = addLinkedCalendar({
         name: calName,
         filename: file.name,
         calendar: 'plan',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'plan', precision);
-        if (!ev) return [];
-        const base = { ...ev, source_calendar_id: calId, color: calColor };
-        const rrule = parseRrule(p.rrule);
-        if (!rrule) return [base];
-        let instances = generateRepeatInstances(base, rrule.repeat);
-        if (rrule.untilDate) instances = instances.filter(e => {
-          const d = new Date(e.week_start + 'T00:00:00');
-          d.setDate(d.getDate() + e.day_of_week);
-          return d <= rrule.untilDate;
-        });
-        if (rrule.count) instances = instances.slice(0, rrule.count);
-        return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
-      });
+      const appEvents = icsToAppEvents(content, 'plan', precision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
     reader.readAsText(file); e.target.value = '';
+  }
+
+  // ── Calendar subscriptions (auto-refreshing ICS URLs) ────────────────────
+  async function handleSubscribeUrl() {
+    const url = subUrl.trim();
+    if (!url) return;
+    setSubBusy(true); setSubError('');
+    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
+    try {
+      const { ics } = await api.ical.fetch(url);
+      const calName = parseIcalCalName(ics) || new URL(url.replace(/^webcal:/, 'https:')).hostname;
+      const { id: calId, color: calColor } = addLinkedCalendar({
+        name: calName,
+        calendar,
+        url,
+        syncEnabled: true,
+        importedAt: new Date().toISOString().split('T')[0],
+        lastSyncedAt: Math.floor(Date.now() / 1000),
+      });
+      const appEvents = icsToAppEvents(ics, calendar, precision, calId, calColor);
+      replaceEventsBySourceCalendar(calId, appEvents);
+      showImportNotice(appEvents.length);
+      setSubUrl('');
+    } catch (err) {
+      setSubError(err.message ?? 'Could not subscribe to this calendar.');
+    } finally {
+      setSubBusy(false);
+    }
+  }
+
+  async function syncSubscribedCalendar(cal) {
+    const { ics } = await api.ical.fetch(cal.url);
+    const appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
+    replaceEventsBySourceCalendar(cal.id, appEvents);
+    updateLinkedCalendar(cal.id, { lastSyncedAt: Math.floor(Date.now() / 1000) });
+  }
+
+  async function handleSyncNow(cal) {
+    setSyncingCalId(cal.id);
+    try { await syncSubscribedCalendar(cal); }
+    catch (err) { console.warn('Calendar sync failed:', err); }
+    finally { setSyncingCalId(null); }
+  }
+
+  // Auto-refresh all subscribed calendars shortly after login and every 30 min.
+  const syncSubsRef = useRef(() => {});
+  syncSubsRef.current = async () => {
+    for (const cal of linkedCalendars) {
+      if (!cal.url || !cal.syncEnabled) continue;
+      try { await syncSubscribedCalendar(cal); }
+      catch (err) { console.warn(`Sync failed for "${cal.name}":`, err); }
+    }
+  };
+  useEffect(() => {
+    if (authState !== 'ready') return;
+    const t  = setTimeout(()  => syncSubsRef.current(), 8000);
+    const iv = setInterval(() => syncSubsRef.current(), 30 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(iv); };
+  }, [authState]);
+
+  // Load outbound feed status once the Connected Calendars section opens
+  useEffect(() => {
+    if (!connectedOpen || authState !== 'ready' || feedInfo !== null) return;
+    api.feed.status().then(setFeedInfo).catch(() => {});
+  }, [connectedOpen, authState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleFeedToggle() {
+    try {
+      if (feedInfo?.enabled) {
+        await api.feed.disable();
+        setFeedInfo({ enabled: false });
+      } else {
+        setFeedInfo(await api.feed.enable());
+      }
+    } catch (err) { console.warn('Feed toggle failed:', err); }
+  }
+
+  function handleCopyFeedUrl() {
+    if (!feedInfo?.path) return;
+    navigator.clipboard?.writeText(`${window.location.origin}${feedInfo.path}`);
+    setFeedCopied(true);
+    setTimeout(() => setFeedCopied(false), 2000);
   }
 
   function handleLiveExportIcal() {
@@ -595,82 +794,17 @@ export default function App() {
     reader.onload = ev => {
       const content = ev.target.result;
       const calName = parseIcalCalName(content) || file.name.replace(/\.ics$/i, '');
-      const parsed = parseIcal(content);
       const { id: calId, color: calColor } = addLinkedCalendar({
         name: calName,
         filename: file.name,
         calendar: 'actual',
         importedAt: new Date().toISOString().split('T')[0],
       });
-      const appEvents = parsed.flatMap(p => {
-        const ev = icalToAppEvent(p, 'actual', precision);
-        if (!ev) return [];
-        const base = { ...ev, source_calendar_id: calId, color: calColor };
-        const rrule = parseRrule(p.rrule);
-        if (!rrule) return [base];
-        let instances = generateRepeatInstances(base, rrule.repeat);
-        if (rrule.untilDate) instances = instances.filter(e => {
-          const d = new Date(e.week_start + 'T00:00:00');
-          d.setDate(d.getDate() + e.day_of_week);
-          return d <= rrule.untilDate;
-        });
-        if (rrule.count) instances = instances.slice(0, rrule.count);
-        return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
-      });
+      const appEvents = icsToAppEvents(content, 'actual', precision, calId, calColor);
       if (appEvents.length > 0) addEvents(appEvents);
       showImportNotice(appEvents.length);
     };
     reader.readAsText(file); e.target.value = '';
-  }
-
-  // Subscribe to an ICS calendar by URL (parity with mobile "Add calendar URL").
-  // Persists the subscription (which syncs to the server to refresh the feed, like
-  // mobile), and best-effort fetches it client-side so events appear immediately
-  // whenever the feed permits CORS.
-  async function handleSubscribeCalendarUrl() {
-    const url = calUrl.trim();
-    if (!url || subscribing) return;
-    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
-    const name = calUrlName.trim() || 'Subscribed calendar';
-    setSubscribing(true);
-
-    const { id: calId, color: calColor } = addLinkedCalendar({
-      name,
-      url,
-      calendar,
-      importedAt: new Date().toISOString().split('T')[0],
-    });
-
-    let added = 0;
-    try {
-      const fetchUrl = url.replace(/^webcal:\/\//i, 'https://');
-      const res = await fetch(fetchUrl);
-      if (res.ok) {
-        const content = await res.text();
-        const appEvents = parseIcal(content).flatMap(p => {
-          const ev = icalToAppEvent(p, calendar, precision);
-          if (!ev) return [];
-          const base = { ...ev, source_calendar_id: calId, color: calColor };
-          const rrule = parseRrule(p.rrule);
-          if (!rrule) return [base];
-          let instances = generateRepeatInstances(base, rrule.repeat);
-          if (rrule.untilDate) instances = instances.filter(e => {
-            const d = new Date(e.week_start + 'T00:00:00');
-            d.setDate(d.getDate() + e.day_of_week);
-            return d <= rrule.untilDate;
-          });
-          if (rrule.count) instances = instances.slice(0, rrule.count);
-          return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
-        });
-        added = appEvents.length;
-        if (added > 0) addEvents(appEvents);
-      }
-    } catch {
-      // CORS or network error — the server will fetch & sync the feed instead.
-    }
-
-    showImportNotice(added, added > 0 ? undefined : 'Subscribed — events will sync shortly');
-    setCalUrlName(''); setCalUrl(''); setShowCalUrlForm(false); setSubscribing(false);
   }
 
   async function handleRealityCheckExport() {
@@ -692,14 +826,17 @@ export default function App() {
     appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
-    connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics'],
+    connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'username', 'display', 'name', 'email', 'phone', 'phones'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
+    liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
+    aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
+    admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
     noTouchy:      ['no touchy', 'admin', 'api key', 'api keys', 'secrets', 'key', 'infisical', 'vault', 'credentials', 'token', 'expiry', 'expiration', 'rotate'],
   };
   // sv: is this section visible given the current search query?
@@ -708,13 +845,15 @@ export default function App() {
   function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
   const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
 
-  // Show auth screen when not yet authenticated
-  if (['checking', 'setup', 'login', 'offline'].includes(authState)) {
+  // Show auth screen when not yet authenticated (or ZK-locked)
+  if (['checking', 'setup', 'login', 'locked', 'offline'].includes(authState)) {
     return (
       <AuthGate
         authState={authState}
-        onSetup={setup}
-        onLogin={login}
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        onUnlock={handleUnlock}
+        onLogout={logout}
         onContinueOffline={continueOffline}
         theme={theme}
       />
@@ -748,6 +887,15 @@ export default function App() {
       )}
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
+      )}
+      {showZkPrompt && (
+        <ZkPromptModal onEnable={acceptZkPrompt} onDismiss={dismissZkPrompt} />
+      )}
+      {!isZkEnabled && !showZkPrompt && !zkBannerDismissed && (
+        <ZkBanner
+          onOpenSettings={() => { setShowSettings(true); setZkOpen(true); }}
+          onDismiss={() => setZkBannerDismissed(true)}
+        />
       )}
       <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
@@ -1214,6 +1362,113 @@ export default function App() {
                               </div>
                             )}
                             </div>{/* end other-settings wrapper */}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Live Calendar Behavior (collapsible) ── */}
+                      {sv(SECTION_KWS.liveBehavior) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setLiveBehaviorOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Live Calendar Behavior</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(liveBehaviorOpen, SECTION_KWS.liveBehavior) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(liveBehaviorOpen, SECTION_KWS.liveBehavior) && (
+                          <div className="px-2 pb-3 space-y-2">
+                            <label className="flex items-center justify-between gap-3 cursor-pointer">
+                              <div>
+                                <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">Assume planned events happened</span>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                  When a planned event's time passes without you logging or editing it, Live automatically marks it done exactly as planned.
+                                </p>
+                              </div>
+                              <Toggle checked={assumeCompleted} onChange={() => setAssumeCompleted(v => !v)} />
+                            </label>
+                            <p className="text-xs text-amber-600 dark:text-amber-400 leading-snug">
+                              {assumeCompleted
+                                ? "On: you only need to open Live to fix things that didn't go to plan — everything else logs itself."
+                                : "Off: nothing logs automatically. You must confirm or edit every planned event yourself in Live, or it stays unlogged and won't count toward Reality stats."}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── AI-Assisted Text/Voice Parsing (collapsible) ── */}
+                      {sv(SECTION_KWS.aiParsing) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setAiParsingOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI-Assisted Text/Voice Parsing</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(aiParsingOpen, SECTION_KWS.aiParsing) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(aiParsingOpen, SECTION_KWS.aiParsing) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            <p className="text-xs text-gray-400 dark:text-gray-500 leading-snug">
+                              By default, "Add Events from Text" uses a free, local, offline parser. Optionally connect your own LLM for smarter multi-event extraction and category guessing. Your text and API key are sent directly from your browser to the provider you choose below — never through any third-party server.
+                            </p>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Provider</p>
+                              <select
+                                value={llmSettings.provider}
+                                onChange={e => setLlmSettings(prev => ({ ...prev, provider: e.target.value }))}
+                                className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none"
+                              >
+                                <option value="none">None (use local parser only)</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="custom">Custom endpoint (e.g. Ollama)</option>
+                              </select>
+                            </div>
+                            {llmSettings.provider !== 'none' && (
+                              <>
+                                <div>
+                                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">
+                                    {llmSettings.provider === 'custom' ? 'API key (optional)' : 'API key'}
+                                  </p>
+                                  <input
+                                    type="password"
+                                    value={llmSettings.apiKey}
+                                    onChange={e => setLlmSettings(prev => ({ ...prev, apiKey: e.target.value }))}
+                                    placeholder="sk-..."
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                  />
+                                </div>
+                                {llmSettings.provider === 'custom' && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Endpoint URL</p>
+                                    <input
+                                      type="text"
+                                      value={llmSettings.endpoint}
+                                      onChange={e => setLlmSettings(prev => ({ ...prev, endpoint: e.target.value }))}
+                                      placeholder="http://localhost:11434/api/chat"
+                                      className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                    />
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Model (optional)</p>
+                                  <input
+                                    type="text"
+                                    value={llmSettings.model}
+                                    onChange={e => setLlmSettings(prev => ({ ...prev, model: e.target.value }))}
+                                    placeholder={llmSettings.provider === 'anthropic' ? 'claude-3-5-haiku-latest' : llmSettings.provider === 'openai' ? 'gpt-4o-mini' : 'llama3.1'}
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                  />
+                                </div>
+                                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+                                  If the request ever fails (bad key, offline, etc.) parsing silently falls back to the local parser — it never blocks adding events.
+                                </p>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2002,6 +2257,108 @@ export default function App() {
                       </div>
                       )}
 
+                      {/* ── Admin Panel (collapsible, admins only) ── */}
+                      {isAdmin && sv(SECTION_KWS.admin) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button type="button"
+                          onClick={() => { setAdminOpen(v => !v); if (!adminUsers) loadAdminUsers(); }}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Admin · Manage Users</span>
+                            <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>
+                          </div>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(adminOpen, SECTION_KWS.admin) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(adminOpen, SECTION_KWS.admin) && (
+                          <div className="px-2 pb-3 space-y-2">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                              Zero-trust: you can only see account emails — never anyone's calendar, profile, or encrypted data.
+                            </p>
+                            {adminError && <p className="text-xs text-red-500">{adminError}</p>}
+                            {adminUsers === null ? (
+                              <p className="text-xs text-gray-400">Loading…</p>
+                            ) : adminUsers.map(u => (
+                              <div key={u.id} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
+                                <div className="flex items-center justify-between gap-2 min-w-0">
+                                  <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{u.email ?? '(no email — legacy account)'}</span>
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {u.role === 'admin' && <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>}
+                                    {u.zk_enabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ZK</span>}
+                                    {u.is_blocked && <span className="text-[9px] bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded-full font-semibold">BLOCKED</span>}
+                                  </div>
+                                </div>
+                                <p className="text-[10px] text-gray-400 dark:text-gray-500">Joined {new Date(u.created_at * 1000).toLocaleDateString()}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <input
+                                    type="password"
+                                    value={adminPwdDrafts[u.id] ?? ''}
+                                    onChange={e => setAdminPwdDrafts(d => ({ ...d, [u.id]: e.target.value }))}
+                                    placeholder="New password"
+                                    className="flex-1 min-w-[120px] text-xs bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
+                                  />
+                                  <button type="button" onClick={() => handleAdminResetPassword(u.id)}
+                                    disabled={!(adminPwdDrafts[u.id]?.length >= 8)}
+                                    className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-40 text-gray-700 dark:text-gray-200 font-medium transition-colors">
+                                    Reset
+                                  </button>
+                                  <button type="button" onClick={() => handleAdminBlock(u.id, !u.is_blocked)}
+                                    className="text-xs px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-medium transition-colors">
+                                    {u.is_blocked ? 'Unblock' : 'Block'}
+                                  </button>
+                                  {pendingDeleteUser === u.id ? (
+                                    <>
+                                      <button type="button" onClick={() => handleAdminDelete(u.id)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">
+                                        Confirm delete
+                                      </button>
+                                      <button type="button" onClick={() => setPendingDeleteUser(null)}
+                                        className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors">
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button type="button" onClick={() => setPendingDeleteUser(u.id)}
+                                      className="text-xs px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 font-medium transition-colors">
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                                {u.zk_enabled && (adminPwdDrafts[u.id]?.length > 0) && (
+                                  <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-snug">
+                                    ZK account: after a reset they'll need their previous password to unlock their encrypted data.
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+
+                            {adminSignupClusters?.length > 0 && (
+                              <div className="rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
+                                <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">⚠️ Bot-farm signal: shared signup IPs</p>
+                                {adminSignupClusters.map(c => (
+                                  <p key={c.signup_ip} className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
+                                    {c.signup_ip} → {c.count} accounts ({c.emails})
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {adminAuditLog?.length > 0 && (
+                              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1">
+                                <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Audit log</p>
+                                <div className="max-h-40 overflow-y-auto space-y-1">
+                                  {adminAuditLog.map(a => (
+                                    <p key={a.id} className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
+                                      {new Date(a.created_at * 1000).toLocaleString()} — {a.admin_email} {a.action.replace('_', ' ')} {a.target_email ?? '(deleted account)'}
+                                    </p>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
                       {/* ── Connected Calendars (collapsible) ── */}
                       {activePage === 'calendar' && (activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
@@ -2042,53 +2399,71 @@ export default function App() {
                                 </p>
                               )}
 
-                              {/* ── Subscribe by URL ── */}
-                              <button
-                                type="button"
-                                onClick={() => setShowCalUrlForm(v => !v)}
-                                className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                              >
-                                🔗 Subscribe via URL
-                              </button>
-                              {showCalUrlForm && (
-                                <div className="px-1 pb-1 space-y-2">
-                                  <input
-                                    type="text"
-                                    value={calUrlName}
-                                    onChange={e => setCalUrlName(e.target.value)}
-                                    placeholder="Calendar name (optional)"
-                                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500"
-                                  />
+                              {/* ── Subscribe to an external calendar URL ── */}
+                              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Subscribe to a calendar</p>
+                                <p className="px-2 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                  Paste a secret ICS address (Google Calendar → Settings → "Secret address in iCal format", or any webcal/ics URL).
+                                  It auto-refreshes every 30 minutes while the app is open.
+                                </p>
+                                <div className="flex gap-1.5 items-center px-2">
                                   <input
                                     type="url"
-                                    value={calUrl}
-                                    onChange={e => setCalUrl(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleSubscribeCalendarUrl(); }}
-                                    placeholder="https://… or webcal://…"
-                                    className="w-full text-xs rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2.5 py-1.5 text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-500"
+                                    value={subUrl}
+                                    onChange={e => { setSubUrl(e.target.value); setSubError(''); }}
+                                    placeholder="https://calendar.google.com/…/basic.ics"
+                                    className="flex-1 min-w-0 text-xs bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 placeholder-gray-400 dark:placeholder-gray-500"
                                   />
-                                  <div className="flex gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={handleSubscribeCalendarUrl}
-                                      disabled={!calUrl.trim() || subscribing}
-                                      className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors"
-                                    >
-                                      {subscribing ? 'Subscribing…' : 'Subscribe'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => { setShowCalUrlForm(false); setCalUrl(''); setCalUrlName(''); }}
-                                      className="text-xs px-3 py-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                  <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
-                                    Paste any public ICS/iCal feed URL — Google Calendar, Outlook, Apple, sports schedules, holidays, etc.
-                                  </p>
+                                  <button
+                                    type="button"
+                                    disabled={!subUrl.trim() || subBusy}
+                                    onClick={handleSubscribeUrl}
+                                    className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors"
+                                  >
+                                    {subBusy ? 'Adding…' : `Add to ${activeTab === 'actual' ? 'Live' : 'Plan'}`}
+                                  </button>
                                 </div>
-                              )}
+                                {subError && <p className="px-2 text-[11px] text-red-500">{subError}</p>}
+                              </div>
+
+                              {/* ── Publish your calendar as an ICS feed ── */}
+                              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Publish your calendar</p>
+                                <p className="px-2 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                  Get a secret URL that Google, Outlook or Apple Calendar can subscribe to.
+                                  {isZkEnabled && ' With encryption on, events appear as "Busy" — times visible, content private.'}
+                                </p>
+                                <div className="px-2 space-y-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={handleFeedToggle}
+                                    className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                                      feedInfo?.enabled
+                                        ? 'bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400'
+                                        : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                    }`}
+                                  >
+                                    {feedInfo?.enabled ? 'Disable feed' : 'Enable feed'}
+                                  </button>
+                                  {feedInfo?.enabled && feedInfo.path && (
+                                    <div className="flex gap-1.5 items-center">
+                                      <input
+                                        readOnly
+                                        value={`${window.location.origin}${feedInfo.path}`}
+                                        onFocus={e => e.target.select()}
+                                        className="flex-1 min-w-0 text-[11px] bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-600 dark:text-gray-300 outline-none border border-gray-200 dark:border-gray-600 font-mono"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleCopyFeedUrl}
+                                        className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 font-medium transition-colors"
+                                      >
+                                        {feedCopied ? 'Copied ✓' : 'Copy'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
 
                               {/* ── Linked Calendars list ── */}
                               {(() => {
@@ -2117,7 +2492,23 @@ export default function App() {
                                                 <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">{cal.name}</span>
                                               </div>
                                               <div className="flex items-center justify-between mt-0.5">
-                                                <p className="text-xs text-gray-400 dark:text-gray-500">{count} event{count !== 1 ? 's' : ''} · {cal.importedAt}</p>
+                                                <p className="text-xs text-gray-400 dark:text-gray-500">
+                                                  {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
+                                                  {cal.url && (
+                                                    <>
+                                                      {' · '}
+                                                      <button
+                                                        type="button"
+                                                        disabled={syncingCalId === cal.id}
+                                                        onClick={() => handleSyncNow(cal)}
+                                                        className="text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50 font-medium"
+                                                        title={cal.lastSyncedAt ? `Last synced ${new Date(cal.lastSyncedAt * 1000).toLocaleString()}` : 'Subscribed calendar'}
+                                                      >
+                                                        {syncingCalId === cal.id ? 'Syncing…' : '↻ Sync now'}
+                                                      </button>
+                                                    </>
+                                                  )}
+                                                </p>
                                                 {/* Skip SYL toggle */}
                                                 <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                                                   <label className="flex items-center gap-1 cursor-pointer" title="When checked, this calendar's events are excluded from See Your Life stats and charts">
@@ -2152,6 +2543,45 @@ export default function App() {
                                         </div>
                                       );
                                     })}
+
+                                    {/* Legacy / untracked rows */}
+                                    {[
+                                      { key: '__legacy_plan', label: 'Unlinked plan events', count: legacyPlan, calendar: 'plan' },
+                                      { key: '__legacy_actual', label: 'Unlinked live events', count: legacyActual, calendar: 'actual' },
+                                    ].filter(r => r.count > 0).map(row => {
+                                      const isConfirming = pendingDelete === row.key;
+                                      return (
+                                        <div key={row.key} className="rounded-lg overflow-hidden">
+                                          <div className="flex items-start gap-2 py-1 opacity-70">
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                                                  {row.calendar === 'plan' ? 'Plan' : 'Live'}
+                                                </span>
+                                                <span className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">{row.label}</span>
+                                              </div>
+                                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-0.5">
+                                                {row.count} event{row.count !== 1 ? 's' : ''} · not linked to a source
+                                              </p>
+                                            </div>
+                                            {!isConfirming && (
+                                              <button type="button" onClick={() => setPendingDelete(row.key)}
+                                                className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
+                                                title="Remove unlinked events"
+                                              >×</button>
+                                            )}
+                                          </div>
+                                          {isConfirming && (
+                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
+                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {row.count} unlinked event{row.count !== 1 ? 's' : ''}?</span>
+                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                              <button type="button" onClick={() => { clearLegacyEvents(row.calendar); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+
                                     {/* Skip SYL explainer */}
                                     <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug px-1 pt-0.5">
                                       <span className="font-semibold">Skip SYL</span> — excludes this calendar's events from the{' '}
@@ -2179,6 +2609,38 @@ export default function App() {
                         </button>
                         {so(accountOpen, SECTION_KWS.account) && (
                           <div className="px-2 pb-2 space-y-1">
+
+                            {/* ── Login email (account identity, plaintext — used for sign-in) ── */}
+                            {sv(['email', 'login', 'account']) && (
+                            <div className="space-y-1.5 px-2 pb-2">
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Login Email</p>
+                              {accountEmail ? (
+                                <p className="text-sm text-gray-600 dark:text-gray-400">{accountEmail}</p>
+                              ) : (
+                                <>
+                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    Your account predates email sign-in. Add an email so you can log in once more accounts exist.
+                                  </p>
+                                  <div className="flex gap-1.5 items-center">
+                                    <input
+                                      type="email"
+                                      value={accountEmailDraft}
+                                      onChange={e => setAccountEmailDraft(e.target.value)}
+                                      placeholder="you@example.com"
+                                      className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={!accountEmailDraft.trim()}
+                                      onClick={handleSetAccountEmail}
+                                      className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                    >Save</button>
+                                  </div>
+                                </>
+                              )}
+                              {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
+                            </div>
+                            )}
 
                             {/* ── User Profile (nested collapsible) ── */}
                             <div className="rounded-lg overflow-hidden">
@@ -2313,122 +2775,17 @@ export default function App() {
                             {sv(['address', 'addresses', 'other']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Other Addresses</p>
-
-                              {profile.otherAddresses.length === 0 && !addingAddr && (
-                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved addresses yet.</p>
-                              )}
-
-                              {/* Existing addresses */}
-                              <div className="space-y-1">
-                                {profile.otherAddresses.map(addr => {
-                                  const isEditing    = editingAddrId === addr.id;
-                                  const isConfirming = pendingDeleteAddr === addr.id;
-                                  return (
-                                    <div key={addr.id} className="rounded-lg">
-                                      {isEditing ? (
-                                        <div className="space-y-1.5 py-1">
-                                          <input
-                                            autoFocus
-                                            value={editAddrDraft.label}
-                                            onChange={e => setEditAddrDraft(d => ({ ...d, label: e.target.value }))}
-                                            placeholder="Label (e.g. Work)"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
-                                          />
-                                          <input
-                                            value={editAddrDraft.address}
-                                            onChange={e => setEditAddrDraft(d => ({ ...d, address: e.target.value }))}
-                                            placeholder="Full address"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
-                                          />
-                                          <div className="flex gap-1.5">
-                                            <button type="button" onClick={() => setEditingAddrId(null)}
-                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                            <button type="button"
-                                              disabled={!editAddrDraft.label.trim() || !editAddrDraft.address.trim()}
-                                              onClick={() => {
-                                                setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.map(a => a.id === addr.id ? { ...a, label: editAddrDraft.label.trim(), address: editAddrDraft.address.trim() } : a) }));
-                                                setEditingAddrId(null);
-                                              }}
-                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-start gap-1.5 py-1">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{addr.label}</p>
-                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{addr.address}</p>
-                                          </div>
-                                          {!isConfirming && (
-                                            <>
-                                              <button type="button"
-                                                onClick={() => { setEditingAddrId(addr.id); setEditAddrDraft({ label: addr.label, address: addr.address }); setPendingDeleteAddr(null); }}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
-                                                title="Edit">✏</button>
-                                              <button type="button"
-                                                onClick={() => setPendingDeleteAddr(addr.id)}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                                title="Delete">×</button>
-                                            </>
-                                          )}
-                                        </div>
-                                      )}
-                                      {isConfirming && (
-                                        <div className="flex items-center gap-2 pb-1.5">
-                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{addr.label}"?</span>
-                                          <button type="button" onClick={() => setPendingDeleteAddr(null)}
-                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                          <button type="button"
-                                            onClick={() => { setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== addr.id) })); setPendingDeleteAddr(null); }}
-                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Add address form */}
-                              {addingAddr ? (
-                                <div className="space-y-1.5 pt-1">
-                                  <input
-                                    autoFocus
-                                    value={newAddrLabel}
-                                    onChange={e => setNewAddrLabel(e.target.value)}
-                                    placeholder="Label (e.g. Work, Gym, School)"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                  />
-                                  <input
-                                    value={newAddrValue}
-                                    onChange={e => setNewAddrValue(e.target.value)}
-                                    placeholder="Full address"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter' && newAddrLabel.trim() && newAddrValue.trim()) {
-                                        setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label: newAddrLabel.trim(), address: newAddrValue.trim() }] }));
-                                        setNewAddrLabel(''); setNewAddrValue(''); setAddingAddr(false);
-                                      }
-                                      if (e.key === 'Escape') { setAddingAddr(false); setNewAddrLabel(''); setNewAddrValue(''); }
-                                    }}
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button type="button" onClick={() => { setAddingAddr(false); setNewAddrLabel(''); setNewAddrValue(''); }}
-                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                    <button type="button"
-                                      disabled={!newAddrLabel.trim() || !newAddrValue.trim()}
-                                      onClick={() => {
-                                        setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label: newAddrLabel.trim(), address: newAddrValue.trim() }] }));
-                                        setNewAddrLabel(''); setNewAddrValue(''); setAddingAddr(false);
-                                      }}
-                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button"
-                                  onClick={() => { setAddingAddr(true); setNewAddrLabel(''); setNewAddrValue(''); setPendingDeleteAddr(null); setEditingAddrId(null); }}
-                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                  + Add address
-                                </button>
-                              )}
+                              <ListFieldEditor
+                                items={profile.otherAddresses}
+                                valueKey="address"
+                                labelPlaceholder="Label (e.g. Work, Gym, School)"
+                                valuePlaceholder="Full address"
+                                emptyText="No saved addresses yet."
+                                addButtonText="+ Add address"
+                                onAdd={(label, address) => setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label, address }] }))}
+                                onEdit={(id, label, address) => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.map(a => a.id === id ? { ...a, label, address } : a) }))}
+                                onDelete={id => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== id) }))}
+                              />
                             </div>
                             )}
 
@@ -2436,120 +2793,17 @@ export default function App() {
                             {sv(['phone', 'phones', 'number', 'contact']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Phone Numbers</p>
-
-                              {profile.phones.length === 0 && !addingPhone && (
-                                <p className="text-[11px] text-gray-400 dark:text-gray-500">No saved numbers yet.</p>
-                              )}
-
-                              <div className="space-y-1">
-                                {profile.phones.map(phone => {
-                                  const isEditing    = editingPhoneId === phone.id;
-                                  const isConfirming = pendingDeletePhone === phone.id;
-                                  return (
-                                    <div key={phone.id} className="rounded-lg">
-                                      {isEditing ? (
-                                        <div className="space-y-1.5 py-1">
-                                          <input
-                                            autoFocus
-                                            value={editPhoneDraft.label}
-                                            onChange={e => setEditPhoneDraft(d => ({ ...d, label: e.target.value }))}
-                                            placeholder="Label (e.g. Mobile)"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500"
-                                          />
-                                          <input
-                                            value={editPhoneDraft.number}
-                                            onChange={e => setEditPhoneDraft(d => ({ ...d, number: e.target.value }))}
-                                            placeholder="Phone number"
-                                            className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500"
-                                          />
-                                          <div className="flex gap-1.5">
-                                            <button type="button" onClick={() => setEditingPhoneId(null)}
-                                              className="flex-1 text-xs py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                            <button type="button"
-                                              disabled={!editPhoneDraft.label.trim() || !editPhoneDraft.number.trim()}
-                                              onClick={() => {
-                                                setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === phone.id ? { ...ph, label: editPhoneDraft.label.trim(), number: editPhoneDraft.number.trim() } : ph) }));
-                                                setEditingPhoneId(null);
-                                              }}
-                                              className="flex-1 text-xs py-1 rounded bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Save</button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-start gap-1.5 py-1">
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 truncate">{phone.label}</p>
-                                            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{phone.number}</p>
-                                          </div>
-                                          {!isConfirming && (
-                                            <>
-                                              <button type="button"
-                                                onClick={() => { setEditingPhoneId(phone.id); setEditPhoneDraft({ label: phone.label, number: phone.number }); setPendingDeletePhone(null); }}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
-                                                title="Edit">✏</button>
-                                              <button type="button"
-                                                onClick={() => setPendingDeletePhone(phone.id)}
-                                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                                title="Delete">×</button>
-                                            </>
-                                          )}
-                                        </div>
-                                      )}
-                                      {isConfirming && (
-                                        <div className="flex items-center gap-2 pb-1.5">
-                                          <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove "{phone.label}"?</span>
-                                          <button type="button" onClick={() => setPendingDeletePhone(null)}
-                                            className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                          <button type="button"
-                                            onClick={() => { setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== phone.id) })); setPendingDeletePhone(null); }}
-                                            className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove</button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {addingPhone ? (
-                                <div className="space-y-1.5 pt-1">
-                                  <input
-                                    autoFocus
-                                    value={newPhoneLabel}
-                                    onChange={e => setNewPhoneLabel(e.target.value)}
-                                    placeholder="Label (e.g. Mobile, Work)"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-blue-400 dark:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                  />
-                                  <input
-                                    value={newPhoneValue}
-                                    onChange={e => setNewPhoneValue(e.target.value)}
-                                    placeholder="Phone number"
-                                    className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                    onKeyDown={e => {
-                                      if (e.key === 'Enter' && newPhoneLabel.trim() && newPhoneValue.trim()) {
-                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
-                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
-                                      }
-                                      if (e.key === 'Escape') { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }
-                                    }}
-                                  />
-                                  <div className="flex gap-1.5">
-                                    <button type="button" onClick={() => { setAddingPhone(false); setNewPhoneLabel(''); setNewPhoneValue(''); }}
-                                      className="flex-1 text-xs py-1 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                    <button type="button"
-                                      disabled={!newPhoneLabel.trim() || !newPhoneValue.trim()}
-                                      onClick={() => {
-                                        setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label: newPhoneLabel.trim(), number: newPhoneValue.trim() }] }));
-                                        setNewPhoneLabel(''); setNewPhoneValue(''); setAddingPhone(false);
-                                      }}
-                                      className="flex-1 text-xs py-1 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 text-white font-medium transition-colors">Add</button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button"
-                                  onClick={() => { setAddingPhone(true); setNewPhoneLabel(''); setNewPhoneValue(''); setPendingDeletePhone(null); setEditingPhoneId(null); }}
-                                  className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-1 py-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                  + Add phone number
-                                </button>
-                              )}
+                              <ListFieldEditor
+                                items={profile.phones}
+                                valueKey="number"
+                                labelPlaceholder="Label (e.g. Mobile, Work)"
+                                valuePlaceholder="Phone number"
+                                emptyText="No saved numbers yet."
+                                addButtonText="+ Add phone number"
+                                onAdd={(label, number) => setProfile(p => ({ ...p, phones: [...p.phones, { id: generateId(), label, number }] }))}
+                                onEdit={(id, label, number) => setProfile(p => ({ ...p, phones: p.phones.map(ph => ph.id === id ? { ...ph, label, number } : ph) }))}
+                                onDelete={id => setProfile(p => ({ ...p, phones: p.phones.filter(ph => ph.id !== id) }))}
+                              />
                             </div>
                             )}
 
@@ -2902,8 +3156,10 @@ export default function App() {
           </button>
         )}
 
-        {/* Floating quick-add button — calendar page */}
-        {activePage === 'calendar' && eff.fabVisible && (
+        {/* Floating quick-add button — calendar page. Forced visible when a
+            share-target launch is pending so the shared text isn't silently
+            dropped by "Hide FAB"/minimalist mode. */}
+        {activePage === 'calendar' && (eff.fabVisible || shareText) && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}
@@ -2913,6 +3169,10 @@ export default function App() {
             onAddEvent={event => addEvent({ ...event, calendar: 'plan' })}
             onAddActual={event => addEvent({ ...event, calendar: 'actual' })}
             onSwitchTab={setActiveTab}
+            initialParseText={shareText}
+            keywordMap={keywordMap}
+            llmSettings={llmSettings}
+            onClearParseText={() => setShareText('')}
           />
         )}
       </div>

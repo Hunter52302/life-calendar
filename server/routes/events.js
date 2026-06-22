@@ -47,4 +47,12 @@ router.post('/replace-by-source', (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/events/replace-by-source-calendar — atomic re-sync of a subscribed calendar
+router.post('/replace-by-source-calendar', (req, res) => {
+  const { sourceCalendarId, events: eventsArray } = req.body;
+  if (!sourceCalendarId) return res.status(400).json({ error: 'sourceCalendarId is required' });
+  events.replaceBySourceCalendar(req.userId, sourceCalendarId, eventsArray ?? []);
+  res.json({ ok: true });
+});
+
 export default router;

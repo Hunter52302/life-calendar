@@ -94,9 +94,11 @@ export default function LiveScreen() {
     const orphans = actualEvents.filter(ae =>
       !ae.plan_event_id || !planEvents.find(pe => pe.id === ae.plan_event_id)
     );
-    return [...planDisplays, ...orphans].map(e =>
-      e._isGhost ? { ...e, color: '#D1D5DB', _ghostColor: e.color } : e
-    );
+    return [...planDisplays, ...orphans].map(e => {
+      if (e._isGhost) return { ...e, color: '#D1D5DB', _ghostColor: e.color };
+      if (e.source === 'auto-completed') return { ...e, _isAutoCompleted: true };
+      return e;
+    });
   }, [planEvents, actualEvents, actualByPlanId]);
 
   // For month/year views: all actual events
@@ -167,6 +169,10 @@ export default function LiveScreen() {
           <View style={s.legendItem}>
             <View style={[s.legendDot, { backgroundColor: T.accent }]} />
             <Text style={[s.legendTxt, { color: T.textMuted }]}>Logged</Text>
+          </View>
+          <View style={s.legendItem}>
+            <View style={[s.legendDot, s.legendDotAuto, { backgroundColor: T.accent }]} />
+            <Text style={[s.legendTxt, { color: T.textMuted }]}>Auto-logged</Text>
           </View>
         </View>
       )}
@@ -260,6 +266,7 @@ const s = StyleSheet.create({
   legend:     { flexDirection: 'row', gap: 16, paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot:  { width: 10, height: 10, borderRadius: 5 },
+  legendDotAuto: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#fff' },
   legendTxt:  { fontSize: 13 },
   // FAB
   fab:        { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6 },

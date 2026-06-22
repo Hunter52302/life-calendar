@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api.js';
-import { encryptField, decryptField } from '../lib/crypto.js';
+import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 
 const STORAGE_KEY = 'lc-profile';
@@ -34,38 +34,21 @@ function loadFromStorage() {
   }
 }
 
+const PROFILE_TEXT_FIELDS = ['displayName', 'email', 'birthday', 'homeAddress'];
+const PROFILE_JSON_FIELDS = ['phones', 'otherAddresses'];
+
 async function encryptProfile(key, profile) {
-  let phones = profile.phones;
-  let otherAddresses = profile.otherAddresses;
-  return {
-    username:       profile.username,
-    displayName:    profile.displayName ? await encryptField(key, profile.displayName) : profile.displayName || null,
-    email:          profile.email       ? await encryptField(key, profile.email)       : profile.email       || null,
-    phones:         phones?.length      ? await encryptField(key, JSON.stringify(phones))          : phones,
-    birthday:       profile.birthday    ? await encryptField(key, profile.birthday)    : profile.birthday    || null,
-    homeAddress:    profile.homeAddress ? await encryptField(key, profile.homeAddress) : profile.homeAddress || null,
-    otherAddresses: otherAddresses?.length ? await encryptField(key, JSON.stringify(otherAddresses)) : otherAddresses,
-  };
+  const out = await encryptRecord(key, profile, PROFILE_TEXT_FIELDS);
+  for (const f of PROFILE_JSON_FIELDS) out[f] = await encryptJsonField(key, profile[f]);
+  return out;
 }
 
+// Callers always run normalize() on the result, which fills in '' / [] for any
+// field left untouched here (absent, or not actually encrypted on the server).
 async function decryptProfile(key, raw) {
-  let phones = raw.phones;
-  if (phones && typeof phones === 'string') {
-    try { phones = JSON.parse(await decryptField(key, phones)); } catch { phones = []; }
-  }
-  let otherAddresses = raw.otherAddresses;
-  if (otherAddresses && typeof otherAddresses === 'string') {
-    try { otherAddresses = JSON.parse(await decryptField(key, otherAddresses)); } catch { otherAddresses = []; }
-  }
-  return {
-    username:       raw.username    ?? '',
-    displayName:    raw.displayName ? await decryptField(key, raw.displayName) : '',
-    email:          raw.email       ? await decryptField(key, raw.email)       : '',
-    phones:         Array.isArray(phones)         ? phones         : [],
-    birthday:       raw.birthday    ? await decryptField(key, raw.birthday)    : '',
-    homeAddress:    raw.homeAddress ? await decryptField(key, raw.homeAddress) : '',
-    otherAddresses: Array.isArray(otherAddresses) ? otherAddresses : [],
-  };
+  const out = await decryptRecord(key, raw, PROFILE_TEXT_FIELDS);
+  for (const f of PROFILE_JSON_FIELDS) out[f] = await decryptJsonField(key, raw[f]);
+  return out;
 }
 
 function normalize(p) {

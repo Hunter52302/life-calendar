@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 
 // ── Database (imported for side-effect: connects + runs migrations) ──────────
 import './db/index.js';
@@ -18,16 +19,24 @@ import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
+import categoryKeywordsRoute from './routes/categoryKeywords.js';
+import llmSettingsRoute     from './routes/llmSettings.js';
 import adminRoute           from './routes/admin.js';
+import icalFetchRoute       from './routes/icalFetch.js';
+import feedRoute            from './routes/feed.js';
 import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile } from './db/queries.js';
+import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile, categoryKeywords, userLlmSettings } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// This server only ever returns JSON, never HTML — disable the CSP/COEP
+// headers meant for HTML responses so they don't add noise to API clients.
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
 // ---------------------------------------------------------------------------
 // CORS
@@ -64,7 +73,11 @@ app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
+app.use('/api/category-keywords', categoryKeywordsRoute);
+app.use('/api/llm-settings',    llmSettingsRoute);
 app.use('/api/admin',           adminRoute);
+app.use('/api/ical-fetch',      icalFetchRoute);
+app.use('/api/feed',            feedRoute);
 
 await initializeInfisical();
 
@@ -86,6 +99,8 @@ app.get('/api/sync', requireAuth, (req, res) => {
     integrations:      userIntegrations.getAll(req.userId),
     schedules:         notificationSchedules.getAll(req.userId),
     profile:           userProfile.get(req.userId),
+    categoryKeywords:  categoryKeywords.getAll(req.userId),
+    llmSettings:       userLlmSettings.get(req.userId),
   });
 });
 
@@ -97,7 +112,7 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`PLS Calendar API  →  http://localhost:${PORT}`);
-  console.log(`Google Maps key   →  ${process.env.GOOGLE_MAPS_API_KEY ? '✓ loaded' : '✗ MISSING'}`);
+  console.log(`Drive times       →  OSRM (open-source)${process.env.GOOGLE_MAPS_API_KEY ? ' + Google fallback' : ''}`);
   console.log(`VAPID push        →  ${process.env.VAPID_PUBLIC_KEY ? '✓ configured' : '✗ not set (push notifications disabled)'}`);
   startScheduler();
 });

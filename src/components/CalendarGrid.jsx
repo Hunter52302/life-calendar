@@ -1,17 +1,100 @@
+import { useEffect, useRef, useState } from 'react';
 import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
 import { slotToTime, addDays, formatShortDate } from '../lib/utils';
 import EventBlock from './EventBlock';
 
 const TIME_COL_WIDTH = 48;
 const TOP_PAD = 12;
+const DRAG_THRESH = 5;
 
 export default function CalendarGrid({
   events, weekStart, precision, view = 'week', activeDay = 0,
   onSlotClick, onEventClick, onAllDayClick, onDayHeaderClick, militaryTime = false,
+  onUpdateEvent,
 }) {
   const slotCount = precision === 1 ? 24 : 48;
   const totalHeight = slotCount * SLOT_HEIGHT;
   const dayIndices = view === 'week' ? [0, 1, 2, 3, 4, 5, 6] : [activeDay];
+
+  const dayColRefs = useRef({});
+  const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
+  const justDraggedIdRef = useRef(null);
+  const [drag, setDrag] = useState(null); // render snapshot: { id, dayOfWeek, slotStart }
+
+  function handleDragStart(event, pointerId, clientX, clientY) {
+    dragRef.current = {
+      event, pointerId, startX: clientX, startY: clientY, hasDragged: false,
+      dayOfWeek: event.day_of_week, slotStart: event.slot_start,
+    };
+  }
+
+  function handleEventClick(event) {
+    if (justDraggedIdRef.current === event.id) {
+      justDraggedIdRef.current = null;
+      return;
+    }
+    onEventClick?.(event);
+  }
+
+  // Window-level listeners (not bound to the dragged block itself) so a cross-day drag —
+  // which re-parents the EventBlock into a different day column and remounts it — never
+  // loses the rest of the gesture.
+  useEffect(() => {
+    function resolveDayAndSlot(clientX, clientY, fallbackDay) {
+      let targetDay = fallbackDay;
+      for (const key of Object.keys(dayColRefs.current)) {
+        const el = dayColRefs.current[key];
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (clientX >= rect.left && clientX < rect.right) {
+          targetDay = Number(key);
+          break;
+        }
+      }
+      const colEl = dayColRefs.current[targetDay];
+      let slot = 0;
+      if (colEl) {
+        const rect = colEl.getBoundingClientRect();
+        slot = Math.max(0, Math.min(slotCount - 1, Math.floor((clientY - rect.top) / SLOT_HEIGHT)));
+      }
+      return { dayOfWeek: targetDay, slot };
+    }
+    function handlePointerMove(e) {
+      const d = dragRef.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      if (!d.hasDragged && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) <= DRAG_THRESH) return;
+      d.hasDragged = true;
+      const { dayOfWeek, slot } = resolveDayAndSlot(e.clientX, e.clientY, d.dayOfWeek);
+      // Convert from the grid's display precision back to the event's own slot units, and
+      // clamp to that day's last valid slot — display/event precision can differ (e.g. a
+      // 1hr-precision event dragged on a 30min grid), and an unclamped round() can land on
+      // slotCount itself, which actually belongs to the next day.
+      const eventSlotCount = d.event.precision <= 0.5 ? 48 : 24;
+      const slotStart = Math.min(eventSlotCount - 1, Math.round((slot * precision) / d.event.precision));
+      if (dayOfWeek === d.dayOfWeek && slotStart === d.slotStart) return;
+      d.dayOfWeek = dayOfWeek;
+      d.slotStart = slotStart;
+      setDrag({ id: d.event.id, dayOfWeek, slotStart });
+    }
+    function handlePointerEnd(e) {
+      const d = dragRef.current;
+      if (!d || e.pointerId !== d.pointerId) return;
+      if (d.hasDragged && (d.dayOfWeek !== d.event.day_of_week || d.slotStart !== d.event.slot_start)) {
+        justDraggedIdRef.current = d.event.id;
+        onUpdateEvent?.(d.event.id, { day_of_week: d.dayOfWeek, slot_start: d.slotStart });
+      }
+      dragRef.current = null;
+      setDrag(null);
+    }
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }, [precision, slotCount, onUpdateEvent]);
 
   // Separate all-day events from timed events
   const allDayByDay = {};
@@ -21,6 +104,8 @@ export default function CalendarGrid({
       const d = e.day_of_week;
       if (!allDayByDay[d]) allDayByDay[d] = [];
       allDayByDay[d].push(e);
+    } else if (drag && e.id === drag.id) {
+      rawTimedEvents.push({ ...e, day_of_week: drag.dayOfWeek, slot_start: drag.slotStart, _isDragPreview: true });
     } else {
       rawTimedEvents.push(e);
     }
@@ -196,6 +281,7 @@ export default function CalendarGrid({
             return (
               <div
                 key={dayIndex}
+                ref={el => { dayColRefs.current[dayIndex] = el; }}
                 className={`flex-1 relative border-l border-gray-100 dark:border-gray-700 min-w-0 ${onSlotClick ? 'cursor-pointer' : 'cursor-default'}`}
                 style={{ height: totalHeight, marginTop: TOP_PAD }}
                 onClick={e => onSlotClick && handleColumnClick(e, dayIndex)}
@@ -216,7 +302,8 @@ export default function CalendarGrid({
                     key={event.id}
                     event={event}
                     gridPrecision={precision}
-                    onClick={onEventClick}
+                    onClick={handleEventClick}
+                    onDragStart={onUpdateEvent ? handleDragStart : undefined}
                   />
                 ))}
               </div>

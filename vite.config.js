@@ -57,6 +57,12 @@ export default defineConfig({
             purpose: 'any',
           },
         ],
+        share_target: {
+          action: '/',
+          method: 'GET',
+          enctype: 'application/x-www-form-urlencoded',
+          params: { title: 'share_title', text: 'share_text', url: 'share_url' },
+        },
       },
 
       workbox: {
@@ -99,6 +105,7 @@ export default defineConfig({
 
   optimizeDeps: {
     exclude: ['jspdf', 'jspdf-autotable', '@tauri-apps/api', '@tauri-apps/plugin-opener', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
+    include: ['chrono-node'],
   },
 
   // Tauri packages are provided by the Tauri runtime — never bundle them

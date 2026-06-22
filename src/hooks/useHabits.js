@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { generateId } from '../lib/utils.js';
 import { api } from '../lib/api.js';
+import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
+import { useCrypto } from '../context/CryptoContext.jsx';
 
 const HABITS_KEY      = 'lc-habits';
 const COMPLETIONS_KEY = 'lc-habit-completions';
@@ -52,19 +54,33 @@ function getMilestone(streak) {
 }
 
 export function useHabits(authState) {
+  const { masterKey, isZkEnabled } = useCrypto();
   const [habits,      setHabits]      = useState(() => load(HABITS_KEY, []));
   const [completions, setCompletions] = useState(() => load(COMPLETIONS_KEY, []));
 
   useEffect(() => { localStorage.setItem(HABITS_KEY,      JSON.stringify(habits));      }, [habits]);
   useEffect(() => { localStorage.setItem(COMPLETIONS_KEY, JSON.stringify(completions)); }, [completions]);
 
+  // Local state holds plaintext; the server only sees ciphertext when ZK is on.
+  const zkActive = isZkEnabled && masterKey;
+
+  async function encryptHabitForApi(habit) {
+    return zkActive ? encryptRecord(masterKey, habit, ['label']) : habit;
+  }
+
   useEffect(() => {
     if (authState !== 'ready') return;
-    api.sync().then(data => {
-      if (data.habits)           setHabits(data.habits);
+    if (isZkEnabled && !masterKey) return; // wait for the key before syncing
+    api.sync().then(async data => {
+      if (data.habits) {
+        const decrypted = zkActive
+          ? await Promise.all(data.habits.map(h => decryptRecord(masterKey, h, ['label'])))
+          : data.habits;
+        setHabits(decrypted);
+      }
       if (data.habitCompletions) setCompletions(data.habitCompletions);
     }).catch(() => {});
-  }, [authState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isOnline = authState === 'ready';
   const todayStr = toDateStr(new Date());
@@ -88,12 +104,12 @@ export function useHabits(authState) {
   function addHabit(data) {
     const habit = { ...data, id: generateId(), active: true, target_days: data.target_days ?? [0,1,2,3,4,5,6] };
     setHabits(prev => [...prev, habit]);
-    if (isOnline) api.habits.create(habit).catch(console.warn);
+    if (isOnline) encryptHabitForApi(habit).then(p => api.habits.create(p)).catch(console.warn);
   }
 
   function updateHabit(id, updates) {
     setHabits(prev => prev.map(h => h.id === id ? { ...h, ...updates } : h));
-    if (isOnline) api.habits.update(id, updates).catch(console.warn);
+    if (isOnline) encryptHabitForApi(updates).then(p => api.habits.update(id, p)).catch(console.warn);
   }
 
   function deleteHabit(id) {

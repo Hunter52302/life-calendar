@@ -4,68 +4,89 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import { ShareIntentProvider, useShareIntentContext } from 'expo-share-intent';
 
 import { AppContext } from './src/context/AppContext.js';
 import { useAuth } from './src/hooks/useAuth.js';
 import { useEvents } from './src/hooks/useEvents.js';
+import { useHabits } from './src/hooks/useHabits.js';
+import { useProfile } from './src/hooks/useProfile.js';
+import { useBudgets } from './src/hooks/useBudgets.js';
+import { useCategoryKeywords } from './src/hooks/useCategoryKeywords.js';
+import { useLlmSettings } from './src/hooks/useLlmSettings.js';
+import { usePersistentState } from './src/hooks/usePersistentState.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { getTheme } from './src/lib/theme.js';
 import { useState } from 'react';
 
-import AuthScreen    from './src/screens/AuthScreen.jsx';
-import PlanScreen    from './src/screens/PlanScreen.jsx';
-import LiveScreen    from './src/screens/LiveScreen.jsx';
-import RealityScreen from './src/screens/RealityScreen.jsx';
-import TodoScreen    from './src/screens/TodoScreen.jsx';
+import AuthScreen     from './src/screens/AuthScreen.jsx';
+import PlanScreen     from './src/screens/PlanScreen.jsx';
+import LiveScreen     from './src/screens/LiveScreen.jsx';
+import HabitsScreen   from './src/screens/HabitsScreen.jsx';
+import RealityScreen  from './src/screens/RealityScreen.jsx';
+import TodoScreen     from './src/screens/TodoScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
+import ParseModal     from './src/components/ParseModal.jsx';
 
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS = {
   Plan:            'calendar-outline',
   Live:            'time-outline',
+  Habits:          'checkmark-circle-outline',
   'See Your Life': 'bar-chart-outline',
-  'PLS Do It':     'checkmark-circle-outline',
+  'PLS Do It':     'checkbox-outline',
   Settings:        'settings-outline',
 };
 
 export default function App() {
-  const auth       = useAuth();
-  const eventsData = useEvents(auth.authState);
+  return (
+    <ShareIntentProvider>
+      <Main />
+    </ShareIntentProvider>
+  );
+}
+
+function Main() {
+  const auth        = useAuth();
+  const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-m-assume-completed', true);
+  const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled, assumeCompleted);
+  const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const profileData = useProfile(auth.authState, auth.masterKey, auth.isZkEnabled);
+  const budgetsData = useBudgets(auth.authState);
+  const categoryKeywordsData = useCategoryKeywords(auth.authState);
+  const { llmSettings, setLlmSettings } = useLlmSettings(auth.authState, auth.masterKey, auth.isZkEnabled);
   const [weekStart, setWeekStart] = useState(getWeekStart());
 
   // ── Settings: Display ─────────────────────────────────────────────────────
-  const [militaryTime,        setMilitaryTime]        = useState(false);
-  const [darkMode,            setDarkMode]            = useState(false);
-  const [weekNumbers,         setWeekNumbers]         = useState(false);
-  const [weekStartsMonday,    setWeekStartsMonday]    = useState(false);
-  const [showLiveTab,         setShowLiveTab]         = useState(true);
-  const [showRealityTab,      setShowRealityTab]      = useState(true);
-  const [defaultView,         setDefaultView]         = useState('Plan');
-  const [pushEnabled,         setPushEnabled]         = useState(false);
+  const [militaryTime,        setMilitaryTime]        = usePersistentState('lc-m-military-time', false);
+  const [darkMode,            setDarkMode]            = usePersistentState('lc-m-dark-mode', false);
+  const [weekNumbers,         setWeekNumbers]         = usePersistentState('lc-m-week-numbers', false);
+  const [weekStartsMonday,    setWeekStartsMonday]    = usePersistentState('lc-m-week-starts-monday', false);
+  const [showLiveTab,         setShowLiveTab]         = usePersistentState('lc-m-show-live-tab', true);
+  const [showRealityTab,      setShowRealityTab]      = usePersistentState('lc-m-show-reality-tab', true);
+  const [defaultView,         setDefaultView]         = usePersistentState('lc-m-default-view', 'Plan');
+  const [pushEnabled,         setPushEnabled]         = usePersistentState('lc-m-push-enabled', false);
 
   // ── Settings: Minimalist / UI chrome ──────────────────────────────────────
-  const [minimalistMode,      setMinimalistMode]      = useState(false);
-  const [showQuickAdd,        setShowQuickAdd]        = useState(true);
-  const [showPrecisionToggle, setShowPrecisionToggle] = useState(true);
-  const [showCategoriesMenu,  setShowCategoriesMenu]  = useState(true);
-  const [showFab,             setShowFab]             = useState(true);
-  const [fabDraggable,        setFabDraggable]        = useState(false);
+  const [minimalistMode,      setMinimalistMode]      = usePersistentState('lc-m-minimalist-mode', false);
+  const [showQuickAdd,        setShowQuickAdd]        = usePersistentState('lc-m-show-quick-add', true);
+  const [showPrecisionToggle, setShowPrecisionToggle] = usePersistentState('lc-m-show-precision-toggle', true);
+  const [showCategoriesMenu,  setShowCategoriesMenu]  = usePersistentState('lc-m-show-categories-menu', true);
+  const [showFab,             setShowFab]             = usePersistentState('lc-m-show-fab', true);
+  const [fabDraggable,        setFabDraggable]        = usePersistentState('lc-m-fab-draggable', false);
 
   // ── Settings: Font ────────────────────────────────────────────────────────
-  const [fontPreference,      setFontPreference]      = useState('system');
+  const [fontPreference,      setFontPreference]      = usePersistentState('lc-m-font-preference', 'system');
 
   // ── Settings: Time Zones ──────────────────────────────────────────────────
-  const [timezones, setTimezones] = useState(['America/New_York']);
+  const [timezones, setTimezones] = usePersistentState('lc-m-timezones', ['America/New_York']);
 
-  // ── Settings: Budgets ─────────────────────────────────────────────────────
-  const [budgets, setBudgets] = useState({}); // { [categoryId]: hours }
-
-  function setBudget(id, hours)  { setBudgets(p => ({ ...p, [id]: hours })); }
-  function deleteBudget(id)      { setBudgets(p => { const n = { ...p }; delete n[id]; return n; }); }
+  // ── Settings: Budgets ──────────────────────────────────────────────────────
+  const { budgets, setBudget, deleteBudget } = budgetsData;
 
   // ── Settings: Integrations (Discord/Slack webhooks) ───────────────────────
-  const [integrations, setIntegrations] = useState([]);
+  const [integrations, setIntegrations] = usePersistentState('lc-m-integrations', []);
 
   function addIntegration(data) {
     setIntegrations(p => [...p, { ...data, id: Date.now().toString(36), enabled: true }]);
@@ -78,15 +99,33 @@ export default function App() {
   }
 
   // ── Settings: Profile ─────────────────────────────────────────────────────
-  const [profile, setProfile] = useState({
-    username:        '',
-    displayName:     '',
-    email:           '',
-    birthday:        '',
-    homeAddress:     '',
-    otherAddresses:  [],   // [{ id, label, address }]
-    phones:          [],   // [{ id, label, number }]
-  });
+  const { profile, setProfile } = profileData;
+
+  // Shared text arriving from the OS share sheet (SMS/email/etc., via
+  // expo-share-intent) is funneled into the same ParseModal the in-app
+  // "From Text" button opens, rendered once at the root so it's reachable
+  // regardless of which tab is active when the share arrives. Visibility is
+  // derived rather than synced via an effect, so a pending share intent and
+  // the manual "From Text" trigger share one source of truth with no
+  // render-after-mount delay.
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
+  const [manualParseOpen, setManualParseOpen] = useState(false);
+  const [manualParseText, setManualParseText] = useState('');
+
+  const sharedText = hasShareIntent ? shareIntent?.text : null;
+  const parseModalVisible = manualParseOpen || !!sharedText;
+  const parseModalText = sharedText || manualParseText;
+
+  function openParseModal(text = '') {
+    setManualParseText(text);
+    setManualParseOpen(true);
+  }
+
+  function closeParseModal() {
+    setManualParseOpen(false);
+    setManualParseText('');
+    if (hasShareIntent) resetShareIntent();
+  }
 
   // Loading
   if (auth.authState === 'checking') {
@@ -98,14 +137,17 @@ export default function App() {
     );
   }
 
-  // Auth required
-  if (auth.authState === 'setup' || auth.authState === 'login' || auth.authState === 'offline') {
+  // Auth required (or ZK vault locked)
+  if (['setup', 'login', 'locked', 'offline'].includes(auth.authState)) {
     return (
       <SafeAreaProvider>
         <AuthScreen
           authState={auth.authState}
           onSetup={auth.setup}
           onLogin={auth.login}
+          onRegister={auth.register}
+          onUnlock={auth.unlock}
+          onLogout={auth.logout}
           onContinueOffline={auth.continueOffline}
           onRetry={auth.retry}
         />
@@ -126,10 +168,15 @@ export default function App() {
 
   const ctx = {
     auth,
-    events:              eventsData,
+    events:           eventsData,
+    habits:           habitsData,
+    categoryKeywords: categoryKeywordsData,
+    llmSettings,      setLlmSettings,
     weekStart,
-    prevWeek:            () => setWeekStart(ws => addDays(ws, -7)),
-    nextWeek:            () => setWeekStart(ws => addDays(ws, 7)),
+    prevWeek:         () => setWeekStart(ws => addDays(ws, -7)),
+    nextWeek:         () => setWeekStart(ws => addDays(ws, 7)),
+    openParseModal,
+    assumeCompleted,  setAssumeCompleted,
     // display settings
     militaryTime,        setMilitaryTime,
     darkMode,            setDarkMode,
@@ -188,13 +235,19 @@ export default function App() {
               tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
             })}
           >
-            <Tab.Screen name="Plan"         component={PlanScreen} />
+            <Tab.Screen name="Plan"          component={PlanScreen} />
             {effShowLiveTab    && <Tab.Screen name="Live"          component={LiveScreen} />}
+            <Tab.Screen name="Habits"        component={HabitsScreen} />
             {effShowRealityTab && <Tab.Screen name="See Your Life" component={RealityScreen} />}
-            <Tab.Screen name="PLS Do It"   component={TodoScreen} />
-            <Tab.Screen name="Settings"    component={SettingsScreen} />
+            <Tab.Screen name="PLS Do It"     component={TodoScreen} />
+            <Tab.Screen name="Settings"      component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
+        <ParseModal
+          visible={parseModalVisible}
+          initialText={parseModalText}
+          onClose={closeParseModal}
+        />
         <StatusBar style={darkMode ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </AppContext.Provider>

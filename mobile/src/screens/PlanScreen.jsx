@@ -63,6 +63,7 @@ export default function PlanScreen() {
     effShowFab,
     effShowPrecisionToggle,
     effShowCategoriesMenu,
+    openParseModal,
   } = useContext(AppContext);
 
   const [viewMode,        setViewMode]        = useState('week');
@@ -115,19 +116,24 @@ export default function PlanScreen() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <View style={[s.header, { borderBottomColor: T.border }]}>
 
-        {/* Row 1: title + precision toggle */}
+        {/* Row 1: title + precision toggle + paste-to-parse */}
         <View style={s.titleRow}>
           <Text style={[s.title, { color: T.text }]}>Plan</Text>
-          {effShowPrecisionToggle && (
-            <Pressable
-              onPress={() => setPrecision(p => p === 0.5 ? 1.0 : 0.5)}
-              style={[s.precBtn, { backgroundColor: T.segmentBg, borderColor: T.border }]}
-            >
-              <Text style={[s.precTxt, { color: T.textSub }]}>
-                {precision === 0.5 ? '30m' : '1h'}
-              </Text>
+          <View style={s.titleRowActions}>
+            <Pressable onPress={() => openParseModal()} hitSlop={8} style={s.pasteBtn}>
+              <Text style={s.pasteIcon}>📋</Text>
             </Pressable>
-          )}
+            {effShowPrecisionToggle && (
+              <Pressable
+                onPress={() => setPrecision(p => p === 0.5 ? 1.0 : 0.5)}
+                style={[s.precBtn, { backgroundColor: T.segmentBg, borderColor: T.border }]}
+              >
+                <Text style={[s.precTxt, { color: T.textSub }]}>
+                  {precision === 0.5 ? '30m' : '1h'}
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {/* Row 2: D / W / M / Y segmented control */}
@@ -160,6 +166,9 @@ export default function PlanScreen() {
           </Pressable>
           <Pressable onPress={() => navigate(1)} hitSlop={12} style={s.navBtn}>
             <Text style={[s.navArrow, { color: T.accent }]}>›</Text>
+          </Pressable>
+          <Pressable onPress={() => openParseModal()} hitSlop={8} style={styles.navBtn}>
+            <Text style={styles.clipboardIcon}>📋</Text>
           </Pressable>
         </View>
       </View>
@@ -276,8 +285,11 @@ const s = StyleSheet.create({
   safe:        { flex: 1 },
   header:      { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth },
   // Row 1
-  titleRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  title:       { fontSize: 22, fontWeight: '700' },
+  titleRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  title:           { fontSize: 22, fontWeight: '700' },
+  titleRowActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pasteBtn:        { padding: 4 },
+  pasteIcon:       { fontSize: 18 },
   precBtn:     { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   precTxt:     { fontSize: 13, fontWeight: '600' },
   // Row 2 — view mode segment

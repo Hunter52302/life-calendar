@@ -1,20 +1,31 @@
 /**
  * Admin routes — all under /api/admin/
  *
- * POST   /api/admin/auth                      requireAuth  → issues 1h admin JWT
- * GET    /api/admin/secrets                   requireAdmin → list all secret metadata
- * POST   /api/admin/secrets                   requireAdmin → register + create in Infisical
- * PUT    /api/admin/secrets/:keyName          requireAdmin → rotate value (saves previous)
- * DELETE /api/admin/secrets/:keyName          requireAdmin → unregister (optionally from Infisical)
- * POST   /api/admin/secrets/:keyName/restore  requireAdmin → restore previous value
- * GET    /api/admin/infisical/status          requireAdmin → connection status
+ * Zero-trust account panel (role-based, gated by requireAdmin):
+ *   GET    /api/admin/users                     list accounts (email + status only)
+ *   GET    /api/admin/audit-log                 recent admin actions
+ *   GET    /api/admin/signup-clusters            IPs that registered more than one account
+ *   POST   /api/admin/users/:id/reset-password   set a user's password
+ *   PUT    /api/admin/users/:id/block            block/unblock a user
+ *   DELETE /api/admin/users/:id                  delete an account and all its data
+ *
+ * Secrets panel — gated by requireElevatedAdmin on top of the router-level
+ * requireAdmin (a leaked regular session token alone is not enough to touch secrets):
+ *   POST   /api/admin/auth                       issues a 1h elevated admin JWT (re-enter password)
+ *   GET    /api/admin/secrets                     list all secret metadata
+ *   POST   /api/admin/secrets                     register + create in Infisical
+ *   PUT    /api/admin/secrets/:keyName            rotate value (saves previous)
+ *   DELETE /api/admin/secrets/:keyName            unregister (optionally from Infisical)
+ *   POST   /api/admin/secrets/:keyName/restore    restore previous value
+ *   GET    /api/admin/infisical/status            connection status
  */
 
-import { Router }   from 'express';
-import bcrypt       from 'bcryptjs';
-import jwt          from 'jsonwebtoken';
-import { users, secrets }    from '../db/queries.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { requireAuth, requireAdmin, requireElevatedAdmin } from '../middleware/auth.js';
+import { adminLimiter } from '../middleware/rateLimit.js';
+import { users, adminAuditLog, secrets } from '../db/queries.js';
 import {
   getSecret,
   getInfisicalStatus,
@@ -27,10 +38,76 @@ import {
 import { encrypt, decrypt } from '../lib/crypto.js';
 
 const router = Router();
-const JWT_SECRET  = process.env.JWT_SECRET;
-const ADMIN_TTL   = '1h';
+const JWT_SECRET = process.env.JWT_SECRET;
+const ADMIN_TTL = '1h';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+router.use(adminLimiter, requireAuth, requireAdmin);
+
+// ── Account panel ─────────────────────────────────────────────────────────────
+
+/** GET /api/admin/users — list accounts (email + status only). */
+router.get('/users', (req, res) => {
+  res.json(users.listAll());
+});
+
+/** GET /api/admin/audit-log — recent admin actions (who did what, to whom, when). */
+router.get('/audit-log', (req, res) => {
+  res.json(adminAuditLog.listRecent());
+});
+
+/** GET /api/admin/signup-clusters — IPs that registered more than one account (bot-farm signal). */
+router.get('/signup-clusters', (req, res) => {
+  res.json(users.getSignupIpClusters());
+});
+
+/**
+ * POST /api/admin/users/:id/reset-password
+ * Body: { newPassword: string }
+ * Note: for ZK-enabled accounts the user's data stays encrypted under
+ * their old password — they'll be prompted for it to unlock after login.
+ */
+router.post('/users/:id/reset-password', async (req, res) => {
+  const target = users.getById(req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  const { newPassword } = req.body ?? {};
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  }
+  const hash = await bcrypt.hash(newPassword, 12);
+  users.setPassword(target.id, hash);
+  adminAuditLog.record(req.userId, 'reset_password', target.id);
+  res.json({ ok: true, zk_enabled: target.zk_enabled === 1 });
+});
+
+/**
+ * PUT /api/admin/users/:id/block
+ * Body: { blocked: boolean }
+ */
+router.put('/users/:id/block', (req, res) => {
+  if (req.params.id === req.userId) {
+    return res.status(400).json({ error: 'You cannot block your own account.' });
+  }
+  const target = users.getById(req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  const blocked = !!req.body?.blocked;
+  users.setBlocked(target.id, blocked);
+  adminAuditLog.record(req.userId, blocked ? 'block' : 'unblock', target.id);
+  res.json({ ok: true });
+});
+
+/** DELETE /api/admin/users/:id — removes the account and all its data (FK cascade). */
+router.delete('/users/:id', (req, res) => {
+  if (req.params.id === req.userId) {
+    return res.status(400).json({ error: 'You cannot delete your own account.' });
+  }
+  const target = users.getById(req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found.' });
+  adminAuditLog.record(req.userId, 'delete', target.id);
+  users.deleteUser(target.id);
+  res.json({ ok: true });
+});
+
+// ── Secrets panel helpers ─────────────────────────────────────────────────────
 
 /** Compute days until expiry from a unix timestamp. */
 function daysUntilExpiry(expiresAt) {
@@ -59,14 +136,14 @@ function isValidKeyName(name) {
 }
 
 // ── POST /api/admin/auth ──────────────────────────────────────────────────────
-// Re-authenticate the current user and get a short-lived admin token.
-// Requires the regular user JWT (requireAuth) + their password for re-auth.
+// Re-authenticate the current (already-admin) user and get a short-lived
+// elevated admin token, required to touch secrets.
 
-router.post('/auth', requireAuth, async (req, res) => {
+router.post('/auth', async (req, res) => {
   const { password } = req.body ?? {};
   if (!password) return res.status(400).json({ error: 'password is required' });
 
-  const user = users.getFirst();
+  const user = users.getById(req.userId);
   if (!user) return res.status(404).json({ error: 'No user found' });
 
   const match = await bcrypt.compare(password, user.password_hash);
@@ -83,13 +160,13 @@ router.post('/auth', requireAuth, async (req, res) => {
 
 // ── GET /api/admin/infisical/status ───────────────────────────────────────────
 
-router.get('/infisical/status', requireAdmin, (_req, res) => {
+router.get('/infisical/status', requireElevatedAdmin, (_req, res) => {
   res.json(getInfisicalStatus());
 });
 
 // ── GET /api/admin/secrets ────────────────────────────────────────────────────
 
-router.get('/secrets', requireAdmin, async (_req, res) => {
+router.get('/secrets', requireElevatedAdmin, async (_req, res) => {
   const rows = secrets.getAll();
 
   // Merge with Infisical to flag any keys that exist there but not in our DB
@@ -116,7 +193,7 @@ router.get('/secrets', requireAdmin, async (_req, res) => {
 
 // ── POST /api/admin/secrets ───────────────────────────────────────────────────
 
-router.post('/secrets', requireAdmin, async (req, res) => {
+router.post('/secrets', requireElevatedAdmin, async (req, res) => {
   const { keyName, serviceName, description, value, expiresAt } = req.body ?? {};
 
   // Validate
@@ -161,7 +238,7 @@ router.post('/secrets', requireAdmin, async (req, res) => {
 // ── PUT /api/admin/secrets/:keyName ───────────────────────────────────────────
 // Rotate a secret's value or update its metadata (description, expiry).
 
-router.put('/secrets/:keyName', requireAdmin, async (req, res) => {
+router.put('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
   const { value, serviceName, description, expiresAt } = req.body ?? {};
 
@@ -219,7 +296,7 @@ router.put('/secrets/:keyName', requireAdmin, async (req, res) => {
 // ── POST /api/admin/secrets/:keyName/restore ──────────────────────────────────
 // Swap: previous value becomes current; current becomes previous.
 
-router.post('/secrets/:keyName/restore', requireAdmin, async (req, res) => {
+router.post('/secrets/:keyName/restore', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
   const existing = secrets.getByKey(keyName);
 
@@ -260,7 +337,7 @@ router.post('/secrets/:keyName/restore', requireAdmin, async (req, res) => {
 
 // ── DELETE /api/admin/secrets/:keyName ────────────────────────────────────────
 
-router.delete('/secrets/:keyName', requireAdmin, async (req, res) => {
+router.delete('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
   const { deleteFromInfisical = false } = req.body ?? {};
 

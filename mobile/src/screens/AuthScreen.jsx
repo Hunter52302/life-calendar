@@ -1,33 +1,51 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function AuthScreen({ authState, onSetup, onLogin, onContinueOffline, onRetry }) {
+/**
+ * AuthScreen — sign in / create account / unlock encrypted data.
+ *
+ * authState: 'setup' (first launch → register), 'login', 'locked'
+ * (valid session but the ZK master key needs the password), 'offline'.
+ */
+export default function AuthScreen({ authState, onSetup, onLogin, onRegister, onUnlock, onContinueOffline, onRetry, onLogout }) {
+  const [mode, setMode]         = useState(null); // null | 'login' | 'register'
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [confirm,  setConfirm]  = useState('');
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
 
-  const isSetup   = authState === 'setup';
-  const isOffline = authState === 'offline';
+  const isOffline  = authState === 'offline';
+  const isLocked   = authState === 'locked';
+  const effectiveMode = authState === 'setup' ? 'register' : (mode ?? 'login');
+  const isRegister = effectiveMode === 'register' && !isLocked;
 
   async function handleSubmit() {
     setError('');
-    if (isSetup && password !== confirm) {
-      setError('Passwords do not match.');
+    if (isLocked) {
+      if (!password) return;
+      setLoading(true);
+      try { await onUnlock(password); }
+      catch (err) { setError(err.message || 'Incorrect password.'); }
+      finally { setLoading(false); }
       return;
     }
-    if (!password) {
-      setError('Please enter a password.');
+    if (isRegister) {
+      if (!email.trim()) { setError('Email is required.'); return; }
+      if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+      if (password !== confirm) { setError('Passwords do not match.'); return; }
+    } else if (!password) {
+      setError('Please enter your password.');
       return;
     }
     setLoading(true);
     try {
-      if (isSetup) await onSetup(password);
-      else         await onLogin(password);
+      if (isRegister) await onRegister(email.trim(), password);
+      else            await onLogin(email.trim(), password);
     } catch (err) {
       setError(err.message || 'Authentication failed.');
     } finally {
@@ -66,36 +84,52 @@ export default function AuthScreen({ authState, onSetup, onLogin, onContinueOffl
       >
         <View style={styles.center}>
           <View style={styles.logoWrap}>
-            <Text style={styles.logoText}>PLS</Text>
+            <Text style={styles.logoText}>{isLocked ? '🔒' : 'PLS'}</Text>
           </View>
           <Text style={styles.heading}>
-            {isSetup ? 'Create your password' : 'Welcome back'}
+            {isLocked ? 'Unlock your data' : isRegister ? 'Create your account' : 'Welcome back'}
           </Text>
           <Text style={styles.sub}>
-            {isSetup
-              ? 'Set a password to protect your calendar data.'
-              : 'Enter your password to sync your calendar.'}
+            {isLocked
+              ? 'Enter your password to decrypt your calendar.'
+              : isRegister
+                ? 'Your password also encrypts your data — zero-knowledge by default.'
+                : 'Sign in to sync your calendar.'}
           </Text>
+
+          {!isLocked && (
+            <TextInput
+              style={styles.input}
+              placeholder={isRegister ? 'Email' : 'Email (blank if set up before accounts)'}
+              placeholderTextColor="#9CA3AF"
+              value={email}
+              onChangeText={t => { setEmail(t); setError(''); }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
+          )}
 
           <TextInput
             style={styles.input}
             placeholder="Password"
             placeholderTextColor="#9CA3AF"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={t => { setPassword(t); setError(''); }}
             secureTextEntry
-            autoFocus
-            returnKeyType={isSetup ? 'next' : 'done'}
-            onSubmitEditing={isSetup ? undefined : handleSubmit}
+            autoFocus={isLocked}
+            returnKeyType={isRegister ? 'next' : 'done'}
+            onSubmitEditing={isRegister ? undefined : handleSubmit}
           />
 
-          {isSetup && (
+          {isRegister && (
             <TextInput
               style={styles.input}
               placeholder="Confirm password"
               placeholderTextColor="#9CA3AF"
               value={confirm}
-              onChangeText={setConfirm}
+              onChangeText={t => { setConfirm(t); setError(''); }}
               secureTextEntry
               returnKeyType="done"
               onSubmitEditing={handleSubmit}
@@ -107,9 +141,38 @@ export default function AuthScreen({ authState, onSetup, onLogin, onContinueOffl
           <Pressable onPress={handleSubmit} style={styles.btnPrimary} disabled={loading}>
             {loading
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.btnPrimaryText}>{isSetup ? 'Create account' : 'Sign in'}</Text>
+              : <Text style={styles.btnPrimaryText}>
+                  {isLocked ? 'Unlock' : isRegister ? 'Create account' : 'Sign in'}
+                </Text>
             }
           </Pressable>
+          {loading && (isLocked || isRegister) && (
+            <Text style={styles.hint}>Deriving encryption key — this takes a few seconds…</Text>
+          )}
+
+          {authState === 'login' && (
+            <Pressable onPress={() => { setMode(isRegister ? 'login' : 'register'); setError(''); setConfirm(''); }} style={styles.btnSecondary}>
+              <Text style={styles.btnSecondaryText}>
+                {isRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}
+              </Text>
+            </Pressable>
+          )}
+          {isLocked && (
+            <Pressable onPress={onLogout} style={styles.btnSecondary}>
+              <Text style={styles.btnSecondaryText}>Sign in as someone else</Text>
+            </Pressable>
+          )}
+
+          {isRegister && (
+            <Text style={styles.hint}>
+              If you forget your password, your encrypted data cannot be recovered.
+            </Text>
+          )}
+          {isLocked && (
+            <Text style={styles.hint}>
+              If an admin reset your password, enter your previous password here.
+            </Text>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -132,4 +195,5 @@ const styles = StyleSheet.create({
   btnPrimaryText:  { color: '#fff', fontSize: 16, fontWeight: '700' },
   btnSecondary:    { width: '100%', borderRadius: 12, padding: 14, alignItems: 'center' },
   btnSecondaryText:{ color: '#7C3AED', fontSize: 15, fontWeight: '600' },
+  hint:            { fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 4, lineHeight: 17 },
 });

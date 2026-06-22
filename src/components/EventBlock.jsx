@@ -1,13 +1,26 @@
 import { SLOT_HEIGHT } from '../lib/constants';
 import { hoursToLabel } from '../lib/utils';
 
-export default function EventBlock({ event, gridPrecision, onClick }) {
+export default function EventBlock({ event, gridPrecision, onClick, onDragStart }) {
   const slotCount = gridPrecision <= 0.5 ? 48 : 24;
   const displayStart = Math.round((event.slot_start * event.precision) / gridPrecision);
   const displayDuration = Math.max(1, Math.round((event.slot_duration * event.precision) / gridPrecision));
   const isGhost = !!event._isGhost;
+  const isAutoCompleted = !isGhost && event.source === 'auto-completed';
   const isContinuation = !!event._isContinuation;
   const overflowContinues = !!event._overflowContinues;
+  const isDragPreview = !!event._isDragPreview;
+  const draggable = !isGhost && !isContinuation && !!onDragStart;
+
+  // Drag tracking lives in CalendarGrid (via window-level pointer listeners) rather than
+  // on this element, because a cross-day drag re-parents this block into a different day
+  // column's children, which unmounts/remounts it and would silently drop pointer capture.
+  function handlePointerDown(e) {
+    if (!draggable || (e.button !== undefined && e.button !== 0)) return;
+    e.stopPropagation();
+    onDragStart(event, e.pointerId, e.clientX, e.clientY);
+  }
+
   // Use the stored total hours if present (for split overnight events), else compute normally
   const totalHours = event._totalHours ?? (event.slot_duration * event.precision);
 
@@ -46,11 +59,14 @@ export default function EventBlock({ event, gridPrecision, onClick }) {
         backgroundColor: event.color,
         borderRadius,
         overflow: 'hidden',
-        cursor: 'pointer',
-        zIndex: 10,
-        opacity: isGhost ? 0.35 : 1,
-        border: isGhost ? `2px dashed ${event.color}` : 'none',
+        cursor: draggable ? 'grab' : 'pointer',
+        touchAction: draggable ? 'none' : undefined,
+        zIndex: isDragPreview ? 30 : 10,
+        opacity: isGhost ? 0.35 : isDragPreview ? 0.65 : isAutoCompleted ? 0.8 : 1,
+        boxShadow: isDragPreview ? '0 4px 14px rgba(0,0,0,0.35)' : 'none',
+        border: isGhost ? `2px dashed ${event.color}` : isAutoCompleted ? '2px dashed rgba(255,255,255,0.7)' : 'none',
       }}
+      onPointerDown={handlePointerDown}
       onClick={e => { e.stopPropagation(); onClick(event); }}
     >
       <div className="p-1 h-full flex flex-col justify-start">

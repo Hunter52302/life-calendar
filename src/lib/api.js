@@ -50,9 +50,37 @@ export const api = {
   auth: {
     status:      ()                    => request('GET',  '/auth/status'),
     setup:       (password)            => request('POST', '/auth/setup',     { password }),
-    login:       (password)            => request('POST', '/auth/login',     { password }),
+    register:    (email, password, kdf_salt, zk_verify, turnstile_token) =>
+                   request('POST', '/auth/register', { email, password, kdf_salt, zk_verify, turnstile_token }),
+    login:       (email, password)     => request('POST', '/auth/login',     { email, password }),
+    setEmail:    (email)               => request('PUT',  '/auth/email',     { email }),
     enableZk:    (kdf_salt, zk_verify) => request('PUT',  '/auth/zk-enable', { kdf_salt, zk_verify }),
     setTimezone: (timezone)            => request('PUT',  '/auth/timezone',  { timezone }),
+  },
+
+  admin: {
+    listUsers:      ()                => request('GET',    '/admin/users'),
+    resetPassword:  (id, newPassword) => request('POST',   `/admin/users/${id}/reset-password`, { newPassword }),
+    setBlocked:     (id, blocked)     => request('PUT',    `/admin/users/${id}/block`, { blocked }),
+    deleteUser:     (id)              => request('DELETE', `/admin/users/${id}`),
+    auditLog:       ()                => request('GET',    '/admin/audit-log'),
+    signupClusters: ()                => request('GET',    '/admin/signup-clusters'),
+
+    auth:            (password)        => request('POST',   '/admin/auth',             { password }),
+    infisicalStatus: ()                => adminRequest('GET',    '/admin/infisical/status'),
+    listSecrets:     ()                => adminRequest('GET',    '/admin/secrets'),
+    createSecret:    (data)            => adminRequest('POST',   '/admin/secrets',          data),
+    updateSecret:    (key, data)       => adminRequest('PUT',    `/admin/secrets/${key}`,    data),
+    rotateSecret:    (key, data)       => adminRequest('POST',   `/admin/secrets/${key}/rotate`, data),
+    restoreSecret:   (key)             => adminRequest('POST',   `/admin/secrets/${key}/restore`),
+    deleteSecret:    (key)             => adminRequest('DELETE', `/admin/secrets/${key}`),
+    storeAdminToken: (token)           => sessionStorage.setItem(ADMIN_TOKEN_KEY, token),
+    clearAdminToken: ()                => sessionStorage.removeItem(ADMIN_TOKEN_KEY),
+    hasAdminToken:   ()                => !!sessionStorage.getItem(ADMIN_TOKEN_KEY),
+  },
+
+  driveTime: {
+    calc: (origin, destination) => request('POST', '/drive-time', { origin, destination }),
   },
 
   /** Full data snapshot — called once on startup */
@@ -64,6 +92,18 @@ export const api = {
     delete:           (id)                => request('DELETE', `/events/${id}`),
     batch:            (eventsArr)         => request('POST',   '/events/batch',             { events: eventsArr }),
     replaceBySource:  (source, eventsArr) => request('POST',   '/events/replace-by-source', { source, events: eventsArr }),
+    replaceBySourceCalendar: (sourceCalendarId, eventsArr) =>
+      request('POST', '/events/replace-by-source-calendar', { sourceCalendarId, events: eventsArr }),
+  },
+
+  ical: {
+    fetch: (url) => request('POST', '/ical-fetch', { url }),
+  },
+
+  feed: {
+    status:  () => request('GET',    '/feed/status'),
+    enable:  () => request('POST',   '/feed/enable'),
+    disable: () => request('DELETE', '/feed'),
   },
 
   categories: {
@@ -115,18 +155,13 @@ export const api = {
     set: (data) => request('PUT', '/profile', data),
   },
 
-  admin: {
-    auth:            (password)        => request('POST',   '/admin/auth',             { password }),
-    infisicalStatus: ()                => adminRequest('GET',    '/admin/infisical/status'),
-    listSecrets:     ()                => adminRequest('GET',    '/admin/secrets'),
-    createSecret:    (data)            => adminRequest('POST',   '/admin/secrets',          data),
-    updateSecret:    (key, data)       => adminRequest('PUT',    `/admin/secrets/${key}`,    data),
-    rotateSecret:    (key, data)       => adminRequest('POST',   `/admin/secrets/${key}/rotate`, data),
-    restoreSecret:   (key)             => adminRequest('POST',   `/admin/secrets/${key}/restore`),
-    deleteSecret:    (key)             => adminRequest('DELETE', `/admin/secrets/${key}`),
-    storeAdminToken: (token)           => sessionStorage.setItem(ADMIN_TOKEN_KEY, token),
-    clearAdminToken: ()                => sessionStorage.removeItem(ADMIN_TOKEN_KEY),
-    hasAdminToken:   ()                => !!sessionStorage.getItem(ADMIN_TOKEN_KEY),
+  categoryKeywords: {
+    get: () => request('GET', '/category-keywords'),
+  },
+
+  llmSettings: {
+    get: ()     => request('GET', '/llm-settings'),
+    set: (data) => request('PUT', '/llm-settings', data),
   },
 
 };

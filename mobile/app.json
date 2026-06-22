@@ -6,6 +6,26 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "scheme": "pls-calendar",
+    "plugins": [
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true
+          },
+          "androidIntentFilters": ["text/*"]
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PLS Calendar to use the microphone for voice event input.",
+          "speechRecognitionPermission": "Allow PLS Calendar to use speech recognition for voice event input.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hunter52302.plscalendar",

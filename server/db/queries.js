@@ -4,7 +4,11 @@
  * To migrate to Postgres later: replace this file's internals;
  * the function signatures stay identical so routes never change.
  */
+import { randomUUID } from 'crypto';
 import { db } from './index.js';
+
+const LOGIN_LOCK_THRESHOLD = 5;
+const LOGIN_LOCK_MINUTES = 15;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -16,7 +20,12 @@ function deserializeEvent(row) {
 
 function deserializeLinkedCal(row) {
   if (!row) return null;
-  return { ...row, excludeFromReality: row.exclude_from_reality === 1 };
+  return {
+    ...row,
+    excludeFromReality: row.exclude_from_reality === 1,
+    syncEnabled:        row.sync_enabled === 1,
+    lastSyncedAt:       row.last_synced_at ?? null,
+  };
 }
 
 // ── Users ─────────────────────────────────────────────────────────────────────
@@ -25,9 +34,73 @@ export const users = {
   count: () => db.prepare('SELECT COUNT(*) AS n FROM users').get().n,
   getFirst: () => db.prepare('SELECT * FROM users LIMIT 1').get(),
   getById: (id) => db.prepare('SELECT * FROM users WHERE id = ?').get(id),
-  create: (id, passwordHash) => {
-    db.prepare('INSERT INTO users (id, password_hash) VALUES (?, ?)').run(id, passwordHash);
+  getByEmail: (email) => db.prepare('SELECT * FROM users WHERE email = ?').get(email),
+
+  /** Legacy single-user deployments: the one account created before emails existed. */
+  getLegacyUsers: () => db.prepare('SELECT * FROM users WHERE email IS NULL').all(),
+
+  create: (id, passwordHash, opts = {}) => {
+    const { email = null, role = 'user', kdfSalt = null, zkVerify = null, signupIp = null } = opts;
+    db.prepare(`
+      INSERT INTO users (id, password_hash, email, role, kdf_salt, zk_verify, zk_enabled, signup_ip)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, passwordHash, email, role, kdfSalt, zkVerify, kdfSalt && zkVerify ? 1 : 0, signupIp);
   },
+
+  /** Admin view — deliberately excludes password_hash and ZK secrets. */
+  listAll: () =>
+    db.prepare(`
+      SELECT id, email, role, is_blocked, zk_enabled, created_at
+      FROM users ORDER BY created_at ASC
+    `).all().map(r => ({ ...r, is_blocked: r.is_blocked === 1, zk_enabled: r.zk_enabled === 1 })),
+
+  /** Scheduler-only view — every non-blocked user's id/timezone, nothing sensitive. */
+  getAllForScheduler: () =>
+    db.prepare('SELECT id, user_timezone FROM users WHERE is_blocked = 0').all(),
+
+  setPassword: (id, passwordHash) =>
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id),
+
+  setBlocked: (id, blocked) =>
+    db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, id),
+
+  setEmail: (id, email) =>
+    db.prepare('UPDATE users SET email = ? WHERE id = ?').run(email, id),
+
+  deleteUser: (id) =>
+    db.prepare('DELETE FROM users WHERE id = ?').run(id),
+
+  /** Bumps the failed-attempt counter and locks the account once it crosses the threshold. */
+  recordFailedLogin: (id) => {
+    const row = db.prepare('SELECT failed_login_attempts FROM users WHERE id = ?').get(id);
+    const attempts = (row?.failed_login_attempts ?? 0) + 1;
+    const lockedUntil = attempts >= LOGIN_LOCK_THRESHOLD
+      ? Math.floor(Date.now() / 1000) + LOGIN_LOCK_MINUTES * 60
+      : null;
+    db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?')
+      .run(attempts, lockedUntil, id);
+    return { attempts, lockedUntil };
+  },
+
+  resetLoginAttempts: (id) =>
+    db.prepare('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?').run(id),
+
+  /** Bot-farm signal for the admin panel: IPs that registered more than one account. */
+  getSignupIpClusters: () =>
+    db.prepare(`
+      SELECT signup_ip, COUNT(*) AS count, GROUP_CONCAT(email, ', ') AS emails
+      FROM users
+      WHERE signup_ip IS NOT NULL
+      GROUP BY signup_ip
+      HAVING COUNT(*) > 1
+      ORDER BY count DESC
+    `).all(),
+
+  setFeedToken: (id, token) =>
+    db.prepare('UPDATE users SET ics_feed_token = ? WHERE id = ?').run(token, id),
+
+  getByFeedToken: (token) =>
+    db.prepare('SELECT * FROM users WHERE ics_feed_token = ?').get(token),
 };
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -85,7 +158,7 @@ export const events = {
       UPDATE events SET ${setClause}, updated_at = unixepoch()
       WHERE id = @id AND user_id = @user_id
     `).run(params);
-    return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(id));
+    return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ? AND user_id = ?').get(id, userId));
   },
 
   delete: (userId, id) => {
@@ -121,6 +194,38 @@ export const events = {
           day_of_week: e.day_of_week ?? 0, slot_start: e.slot_start ?? 0,
           slot_duration: e.slot_duration ?? 4, precision: e.precision ?? 1,
           is_all_day: e.is_all_day ? 1 : 0, source,
+        });
+      }
+    });
+    run();
+  },
+
+  /** Atomically replace all events from a subscribed calendar (re-sync). */
+  replaceBySourceCalendar: (userId, sourceCalendarId, newEvents) => {
+    const deleteStmt = db.prepare('DELETE FROM events WHERE user_id = ? AND source_calendar_id = ?');
+    const insertStmt = db.prepare(`
+      INSERT INTO events
+        (id, user_id, label, category, color, calendar, week_start,
+         day_of_week, slot_start, slot_duration, precision, is_all_day,
+         source, source_calendar_id, notes)
+      VALUES
+        (@id, @user_id, @label, @category, @color, @calendar, @week_start,
+         @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day,
+         @source, @source_calendar_id, @notes)
+    `);
+    const run = db.transaction(() => {
+      deleteStmt.run(userId, sourceCalendarId);
+      for (const e of newEvents) {
+        insertStmt.run({
+          id: e.id, user_id: userId, label: e.label ?? '',
+          category: e.category ?? null, color: e.color ?? null,
+          calendar: e.calendar, week_start: e.week_start,
+          day_of_week: e.day_of_week ?? 0, slot_start: e.slot_start ?? 0,
+          slot_duration: e.slot_duration ?? 4, precision: e.precision ?? 1,
+          is_all_day: e.is_all_day ? 1 : 0,
+          source: e.source ?? 'ical-subscription',
+          source_calendar_id: sourceCalendarId,
+          notes: e.notes ?? null,
         });
       }
     });
@@ -227,17 +332,18 @@ export const linkedCalendars = {
 
   create: (userId, cal) => {
     db.prepare(`
-      INSERT INTO linked_calendars (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO linked_calendars (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality, url, sync_enabled, last_synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(cal.id, userId, cal.name, cal.filename ?? null, cal.calendar,
-           cal.importedAt ?? null, cal.color ?? null, cal.excludeFromReality ? 1 : 0);
+           cal.importedAt ?? null, cal.color ?? null, cal.excludeFromReality ? 1 : 0,
+           cal.url ?? null, cal.syncEnabled ? 1 : 0, cal.lastSyncedAt ?? null);
     return deserializeLinkedCal(
       db.prepare('SELECT * FROM linked_calendars WHERE id = ?').get(cal.id)
     );
   },
 
   update: (userId, id, updates) => {
-    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality'];
+    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality','url','sync_enabled','last_synced_at'];
     // Map camelCase to snake_case for DB
     const mapped = {};
     if (updates.name !== undefined)                mapped.name = updates.name;
@@ -246,6 +352,9 @@ export const linkedCalendars = {
     if (updates.importedAt !== undefined)           mapped.imported_at = updates.importedAt;
     if (updates.color !== undefined)               mapped.color = updates.color;
     if (updates.excludeFromReality !== undefined)   mapped.exclude_from_reality = updates.excludeFromReality ? 1 : 0;
+    if (updates.url !== undefined)                  mapped.url = updates.url;
+    if (updates.syncEnabled !== undefined)          mapped.sync_enabled = updates.syncEnabled ? 1 : 0;
+    if (updates.lastSyncedAt !== undefined)         mapped.last_synced_at = updates.lastSyncedAt;
 
     const fields = Object.keys(mapped).filter(k => allowed.includes(k));
     if (!fields.length) return;
@@ -253,7 +362,7 @@ export const linkedCalendars = {
     db.prepare(`UPDATE linked_calendars SET ${setClause} WHERE id = @id AND user_id = @user_id`)
       .run({ ...mapped, id, user_id: userId });
     return deserializeLinkedCal(
-      db.prepare('SELECT * FROM linked_calendars WHERE id = ?').get(id)
+      db.prepare('SELECT * FROM linked_calendars WHERE id = ? AND user_id = ?').get(id, userId)
     );
   },
 
@@ -336,7 +445,7 @@ export const habits = {
     }
     const setClause = fields.map(f => `${f} = @${f}`).join(', ');
     db.prepare(`UPDATE habits SET ${setClause} WHERE id = @id AND user_id = @user_id`).run(params);
-    const row = db.prepare('SELECT * FROM habits WHERE id = ?').get(id);
+    const row = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?').get(id, userId);
     return row ? { ...row, active: row.active === 1, target_days: JSON.parse(row.target_days) } : null;
   },
 
@@ -580,4 +689,94 @@ export const userZk = {
   setTimezone: (userId, tz) => {
     db.prepare('UPDATE users SET user_timezone = ? WHERE id = ?').run(tz, userId);
   },
+};
+
+// ── Category Keywords ─────────────────────────────────────────────────────────
+
+const DEFAULT_CATEGORY_KEYWORDS = {
+  sleep:        ['sleep', 'bed', 'nap'],
+  work:         ['meeting', 'shift', 'work', 'standup', 'call'],
+  school:       ['class', 'lecture', 'homework', 'study', 'exam'],
+  'free-time':  ['free', 'hangout', 'relax', 'gym', 'workout'],
+};
+
+export const categoryKeywords = {
+  /** Returns { [categoryId]: string[] }. Seeds sensible defaults the first time a user has none. */
+  getAll: (userId) => {
+    let rows = db.prepare('SELECT category_id, keyword FROM category_keywords WHERE user_id = ?').all(userId);
+    if (!rows.length) {
+      const insert = db.prepare(
+        'INSERT INTO category_keywords (id, user_id, category_id, keyword) VALUES (?, ?, ?, ?)'
+      );
+      const run = db.transaction(() => {
+        for (const [categoryId, keywords] of Object.entries(DEFAULT_CATEGORY_KEYWORDS)) {
+          for (const keyword of keywords) insert.run(randomUUID(), userId, categoryId, keyword);
+        }
+      });
+      run();
+      rows = db.prepare('SELECT category_id, keyword FROM category_keywords WHERE user_id = ?').all(userId);
+    }
+    const out = {};
+    for (const r of rows) (out[r.category_id] ??= []).push(r.keyword);
+    return out;
+  },
+};
+
+// ── User LLM Settings ─────────────────────────────────────────────────────────
+
+export const userLlmSettings = {
+  get: (userId) => {
+    const row = db.prepare(
+      'SELECT provider, api_key, endpoint, model FROM user_llm_settings WHERE user_id = ?'
+    ).get(userId);
+    if (!row) return { provider: 'none', apiKey: null, endpoint: null, model: null };
+    return {
+      provider: row.provider ?? 'none',
+      apiKey:   row.api_key  ?? null,
+      endpoint: row.endpoint ?? null,
+      model:    row.model    ?? null,
+    };
+  },
+
+  set: (userId, data) => {
+    db.prepare(`
+      INSERT INTO user_llm_settings (user_id, provider, api_key, endpoint, model, updated_at)
+      VALUES (@user_id, @provider, @api_key, @endpoint, @model, unixepoch())
+      ON CONFLICT(user_id) DO UPDATE SET
+        provider   = excluded.provider,
+        api_key    = excluded.api_key,
+        endpoint   = excluded.endpoint,
+        model      = excluded.model,
+        updated_at = unixepoch()
+    `).run({
+      user_id:  userId,
+      provider: data.provider ?? 'none',
+      api_key:  data.apiKey   ?? null,
+      endpoint: data.endpoint ?? null,
+      model:    data.model    ?? null,
+    });
+  },
+};
+
+// ── Admin Audit Log ───────────────────────────────────────────────────────────
+
+export const adminAuditLog = {
+  record: (adminUserId, action, targetUserId = null) => {
+    db.prepare(`
+      INSERT INTO admin_audit_log (id, admin_user_id, action, target_user_id)
+      VALUES (?, ?, ?, ?)
+    `).run(randomUUID(), adminUserId, action, targetUserId);
+  },
+
+  listRecent: (limit = 200) =>
+    db.prepare(`
+      SELECT a.id, a.action, a.created_at,
+             admin.email  AS admin_email,
+             target.email AS target_email
+      FROM admin_audit_log a
+      JOIN users admin ON admin.id = a.admin_user_id
+      LEFT JOIN users target ON target.id = a.target_user_id
+      ORDER BY a.created_at DESC
+      LIMIT ?
+    `).all(limit),
 };

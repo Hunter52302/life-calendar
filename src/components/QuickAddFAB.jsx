@@ -11,7 +11,10 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { getWeekStart, todayStr } from '../lib/utils';
+import { todayStr } from '../lib/utils';
+import { api } from '../lib/api.js';
+import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
+import ParseEventsModal from './ParseEventsModal.jsx';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FAB_SIZE    = 56;
@@ -27,19 +30,6 @@ function addOneHour(t) {
   const [h, m] = t.split(':').map(Number);
   return `${String((h + 1) % 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
-function timeToSlot(t) {           // "HH:MM" → half-hour slot index
-  const [h, m] = t.split(':').map(Number);
-  return h * 2 + (m >= 30 ? 1 : 0);
-}
-function slotToTimeStr(s) {        // half-hour slot → "HH:MM"
-  const mins = s * 30;
-  return `${String(Math.floor(mins / 60) % 24).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
-}
-function dateToWeekData(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  return { week_start: getWeekStart(d), day_of_week: d.getDay() };
-}
-
 /** Format "HH:MM" as 12h or 24h string */
 function fmtTime(hhmm, military) {
   if (!hhmm) return '';
@@ -48,13 +38,6 @@ function fmtTime(hhmm, military) {
   const ap  = h < 12 ? 'AM' : 'PM';
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${String(m).padStart(2, '0')} ${ap}`;
-}
-
-/** Add one calendar day to a YYYY-MM-DD string */
-function addDayStr(dateStr) {
-  const d = new Date(dateStr + 'T12:00:00'); // noon avoids DST edge cases
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
 }
 
 /** Human-readable duration string between two date+time pairs */
@@ -69,45 +52,6 @@ function calcDurLabel(sd, st, ed, et) {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
-}
-
-/**
- * Split a date+time range into per-day slot segments.
- * Each segment: { date: "YYYY-MM-DD", slotStart, slotDuration }
- */
-function buildSegments(startDate, startTime, endDate, endTime) {
-  const startDt = new Date(`${startDate}T${startTime}:00`);
-  const endDt   = new Date(`${endDate}T${endTime}:00`);
-
-  if (endDt <= startDt) {
-    // Degenerate: force 1 slot
-    return [{ date: startDate, slotStart: timeToSlot(startTime), slotDuration: 1 }];
-  }
-
-  if (startDate === endDate) {
-    const s = timeToSlot(startTime);
-    const e = timeToSlot(endTime);
-    return [{ date: startDate, slotStart: s, slotDuration: Math.max(1, e - s) }];
-  }
-
-  const segments = [];
-
-  // First day: start → midnight
-  const s = timeToSlot(startTime);
-  if (48 - s > 0) segments.push({ date: startDate, slotStart: s, slotDuration: 48 - s });
-
-  // Middle full days
-  let cur = addDayStr(startDate);
-  while (cur < endDate) {
-    segments.push({ date: cur, slotStart: 0, slotDuration: 48 });
-    cur = addDayStr(cur);
-  }
-
-  // Last day: midnight → end time
-  const e = timeToSlot(endTime);
-  if (e > 0) segments.push({ date: endDate, slotStart: 0, slotDuration: e });
-
-  return segments;
 }
 
 // ── Shared UI primitives ──────────────────────────────────────────────────────
@@ -338,8 +282,29 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
   const [endDate,   setEndDate]   = useState(todayStr());
   const [startTime, setStartTime] = useState(start);
   const [endTime,   setEndTime]   = useState(addOneHour(start));
+  const [estimate,  setEstimate]  = useState(null);  // null | 'loading' | 'error' | { durationMinutes, distanceMiles, durationText }
   const toRef = useRef(null);
   useEffect(() => { toRef.current?.focus(); }, []);
+
+  // Auto-calculate the drive time (open-source OSRM routing) once both
+  // addresses are filled, debounced so we don't fire on every keystroke.
+  useEffect(() => {
+    if (!from.trim() || !to.trim()) { setEstimate(null); return; }
+    setEstimate('loading');
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.driveTime.calc(from.trim(), to.trim());
+        setEstimate(result);
+        // Set the end time from the route duration (rounded up to 30-min slots)
+        const slots = Math.max(1, Math.ceil(result.durationMinutes / 30));
+        const endSlot = timeToSlot(startTime) + slots;
+        if (endSlot <= 47) setEndTime(slotToTimeStr(endSlot));
+      } catch {
+        setEstimate('error');
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [from, to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartDateChange(val) {
     setStartDate(val);
@@ -385,6 +350,19 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
             placeholder="Destination" className={inputCls} />
         </Field>
       </div>
+      {estimate && (
+        <p className="text-xs px-1 -mt-1">
+          {estimate === 'loading' ? (
+            <span className="text-gray-400 dark:text-gray-500">Calculating route…</span>
+          ) : estimate === 'error' ? (
+            <span className="text-amber-500">Couldn't calculate the route — check the addresses.</span>
+          ) : (
+            <span className="text-gray-500 dark:text-gray-400">
+              ≈ {estimate.durationText} · {estimate.distanceText} — end time set automatically
+            </span>
+          )}
+        </p>
+      )}
       <DateRow
         startDate={startDate} endDate={endDate}
         onStartChange={handleStartDateChange}
@@ -421,6 +399,22 @@ function CarIcon() {
   );
 }
 
+function ClipboardIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm6-3a6 6 0 0 1-12 0M12 17v4" />
+    </svg>
+  );
+}
+
 // ── Action chip ───────────────────────────────────────────────────────────────
 function ActionChip({ icon, label, sublabel, color, onClick }) {
   return (
@@ -447,14 +441,18 @@ function clampToViewport(p) {
 
 // ── Main FAB ──────────────────────────────────────────────────────────────────
 export default function QuickAddFAB({
-  allCategories = [],
-  homeAddress   = '',
-  militaryTime  = false,
-  draggable     = false,
-  posResetKey   = 0,
+  allCategories    = [],
+  homeAddress      = '',
+  militaryTime     = false,
+  draggable        = false,
+  posResetKey      = 0,
+  initialParseText = null,
+  keywordMap       = {},
+  llmSettings      = null,
   onAddEvent,
   onAddActual,
   onSwitchTab,
+  onClearParseText,
 }) {
   const [pos,  setPos]  = useState(() => {
     try {
@@ -467,7 +465,8 @@ export default function QuickAddFAB({
     return null;
   });
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'drive'
+  const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'drive' | 'parse'
+  const [parseAutoVoice, setParseAutoVoice] = useState(false);
 
   const isDragging   = useRef(false);
   const hasDragged   = useRef(false);
@@ -480,6 +479,10 @@ export default function QuickAddFAB({
     setPos(null); posRef.current = null;
     localStorage.removeItem(LS_POS_KEY);
   }, [posResetKey]); // eslint-disable-line
+
+  useEffect(() => {
+    if (initialParseText) { setMode('parse'); setOpen(false); }
+  }, [initialParseText]); // eslint-disable-line
 
   useEffect(() => {
     function getClient(e) {
@@ -554,6 +557,8 @@ export default function QuickAddFAB({
   }
 
   function openMode(m) { setMode(m); setOpen(false); }
+  function openVoiceMode() { setParseAutoVoice(true); openMode('parse'); }
+  function openTextMode()  { setParseAutoVoice(false); openMode('parse'); }
 
   function handleAddPlanEvent(event)  { onAddEvent(event);  onSwitchTab('plan');   }
   function handleAddLiveEvent(event)  { onAddActual(event); onSwitchTab('actual'); }
@@ -575,9 +580,11 @@ export default function QuickAddFAB({
         {/* Chips — above FAB */}
         {open && chipsAbove && (
           <div className="absolute bottom-full right-0 mb-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<CarIcon />} label="Drive Time" sublabel="→ Live" color="#F97316" onClick={() => openMode('drive')} />
-            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Live" color="#10B981" onClick={() => openMode('event-live')} />
-            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Plan" color="#3B82F6" onClick={() => openMode('event-plan')} />
+            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
+            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
+            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
           </div>
         )}
 
@@ -601,9 +608,11 @@ export default function QuickAddFAB({
         {/* Chips — below FAB (near top of screen) */}
         {open && !chipsAbove && (
           <div className="absolute top-full right-0 mt-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Plan" color="#3B82F6" onClick={() => openMode('event-plan')} />
-            <ActionChip icon={<CalIcon />} label="Add Event"  sublabel="→ Live" color="#10B981" onClick={() => openMode('event-live')} />
-            <ActionChip icon={<CarIcon />} label="Drive Time" sublabel="→ Live" color="#F97316" onClick={() => openMode('drive')} />
+            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
+            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
           </div>
         )}
 
@@ -624,6 +633,21 @@ export default function QuickAddFAB({
       {mode === 'drive' && (
         <DriveForm homeAddress={homeAddress} militaryTime={militaryTime}
           onSave={handleAddDrive} onClose={() => setMode(null)} />
+      )}
+      {mode === 'parse' && (
+        <ParseEventsModal
+          allCategories={allCategories}
+          initialText={initialParseText ?? ''}
+          militaryTime={militaryTime}
+          keywordMap={keywordMap}
+          llmSettings={llmSettings}
+          autoStartVoice={parseAutoVoice}
+          onAddEvents={evts => {
+            evts.filter(e => e.calendar === 'plan').forEach(handleAddPlanEvent);
+            evts.filter(e => e.calendar === 'actual').forEach(handleAddLiveEvent);
+          }}
+          onClose={() => { setMode(null); setParseAutoVoice(false); onClearParseText?.(); }}
+        />
       )}
     </>
   );

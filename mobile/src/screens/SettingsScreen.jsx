@@ -77,6 +77,13 @@ const FONT_OPTIONS = [
   { key: 'nunito',      label: 'Nunito',                family: undefined,     group: 'Sans-serif' },
 ];
 
+const LLM_PROVIDERS = [
+  { id: 'none',      label: 'None' },
+  { id: 'anthropic', label: 'Anthropic' },
+  { id: 'openai',    label: 'OpenAI' },
+  { id: 'custom',    label: 'Custom' },
+];
+
 const TUTORIAL_STEPS = [
   {
     icon: 'calendar',
@@ -239,7 +246,7 @@ function SegmentRow({ label, options, value, onChange, last, T }) {
   );
 }
 
-function ProfileField({ label, value, onSave, placeholder, T, last }) {
+function ProfileField({ label, value, onSave, placeholder, T, last, secureTextEntry = false }) {
   const [draft, setDraft] = useState(value);
   const changed = draft.trim() !== (value || '');
   return (
@@ -255,6 +262,7 @@ function ProfileField({ label, value, onSave, placeholder, T, last }) {
             placeholderTextColor={T.placeholder}
             autoCorrect={false}
             autoCapitalize="none"
+            secureTextEntry={secureTextEntry}
           />
           <Pressable
             style={[s.saveBtn, { backgroundColor: changed ? '#3B82F6' : T.inputBg, opacity: changed ? 1 : 0.4 }]}
@@ -597,6 +605,9 @@ export default function SettingsScreen() {
     budgets,             setBudget,    deleteBudget,
     integrations,        addIntegration, updateIntegration, deleteIntegration,
     profile,             setProfile,
+    habits,
+    llmSettings,         setLlmSettings,
+    assumeCompleted,     setAssumeCompleted,
   } = useContext(AppContext);
 
   const navigation = useNavigation();
@@ -625,7 +636,7 @@ export default function SettingsScreen() {
   function submitHabit() {
     if (!habitLabel.trim()) return;
     const freq = HABIT_FREQS.find(f => f.key === habitFreqKey);
-    events.addHabit({ label: habitLabel.trim(), color: habitColor, target_days: freq.days });
+    habits.addHabit({ label: habitLabel.trim(), color: habitColor, target_days: freq.days });
     setHabitLabel(''); setHabitColor('#7C3AED'); setHabitFreqKey('daily'); setAddingHabit(false);
   }
 
@@ -834,7 +845,7 @@ export default function SettingsScreen() {
         )}
 
         {/* ── Calendar ── */}
-        {matches('calendar', 'week starts', 'sunday', 'monday', 'default tab', 'plan', 'live') && (
+        {matches('calendar', 'week starts', 'sunday', 'monday', 'default tab', 'plan', 'live', 'assume', 'auto-log', 'auto log') && (
           <Section title="Calendar" icon="calendar-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
             <SegmentRow
               label="Week Starts On"
@@ -852,6 +863,15 @@ export default function SettingsScreen() {
               ]}
               value={defaultView}
               onChange={setDefaultView}
+              T={T}
+            />
+            <SettingRow
+              label="Assume Planned Events Happened"
+              sub={assumeCompleted
+                ? "Unedited planned events auto-log as done once their time passes"
+                : "Off — every planned event needs manual confirmation in Live"}
+              value={assumeCompleted}
+              onValueChange={setAssumeCompleted}
               last
               T={T}
             />
@@ -1152,20 +1172,20 @@ export default function SettingsScreen() {
               </View>
 
               {/* Habit list */}
-              {events.habits.length === 0 ? (
+              {habits.habits.length === 0 ? (
                 <Text style={[s.emptyText, { color: T.textFaint }]}>No habits yet.</Text>
               ) : (
-                events.habits.map((habit, i) => (
+                habits.habits.map((habit, i) => (
                   <View key={habit.id}>
                     <View style={s.habitRow}>
                       <View style={[s.catSwatch, { backgroundColor: habit.color || '#8B5CF6', marginRight: 10 }]} />
                       <Text style={[s.catName, { flex: 1, color: T.text }]} numberOfLines={1}>{habit.label}</Text>
                       <Text style={[s.habitFreq, { color: T.textFaint }]}>{getHabitFreqLabel(habit)}</Text>
-                      <Pressable hitSlop={8} onPress={() => events.deleteHabit(habit.id)}>
+                      <Pressable hitSlop={8} onPress={() => habits.deleteHabit(habit.id)}>
                         <Ionicons name="trash-outline" size={16} color={T.danger} />
                       </Pressable>
                     </View>
-                    {i < events.habits.length - 1 && <Divider T={T} />}
+                    {i < habits.habits.length - 1 && <Divider T={T} />}
                   </View>
                 ))
               )}
@@ -1335,6 +1355,63 @@ export default function SettingsScreen() {
                 <Ionicons name="add" size={16} color={T.accent} />
                 <Text style={[s.addTzText, { color: T.accent }]}>Add calendar URL</Text>
               </Pressable>
+            </View>
+          </Section>
+        )}
+
+        {/* ── AI-Assisted Parsing ── */}
+        {matches('ai', 'llm', 'voice', 'parsing', 'anthropic', 'openai', 'api key', 'mic', 'speech', 'paste') && (
+          <Section title="AI-Assisted Parsing" icon="sparkles-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
+            <View style={s.integSection}>
+              <Text style={[s.rowSub, { color: T.textFaint, marginBottom: 10 }]}>
+                By default, "Add Events from Text" uses a free, local, offline parser. Optionally connect your own LLM for smarter multi-event extraction and category guessing. Your text and API key are sent directly from this app to the provider you choose below — never through any third-party server.
+              </Text>
+              <View style={[s.segmentBar, { backgroundColor: T.segmentBg }]}>
+                {LLM_PROVIDERS.map(p => (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => setLlmSettings(prev => ({ ...prev, provider: p.id }))}
+                    style={[s.segmentBtn, llmSettings.provider === p.id && [s.segmentBtnActive, { backgroundColor: T.segmentActive }]]}
+                  >
+                    <Text style={[s.segmentTxt, { color: llmSettings.provider === p.id ? T.segmentTxtAct : T.segmentTxt, fontWeight: llmSettings.provider === p.id ? '700' : '500' }]}>
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {llmSettings.provider !== 'none' && (
+                <>
+                  <Divider T={T} />
+                  <ProfileField
+                    label="API KEY"
+                    value={llmSettings.apiKey}
+                    onSave={v => setLlmSettings(prev => ({ ...prev, apiKey: v }))}
+                    placeholder="sk-..."
+                    secureTextEntry
+                    T={T}
+                  />
+                  {llmSettings.provider === 'custom' && (
+                    <ProfileField
+                      label="ENDPOINT URL"
+                      value={llmSettings.endpoint}
+                      onSave={v => setLlmSettings(prev => ({ ...prev, endpoint: v }))}
+                      placeholder="http://localhost:11434/api/chat"
+                      T={T}
+                    />
+                  )}
+                  <ProfileField
+                    label="MODEL"
+                    value={llmSettings.model}
+                    onSave={v => setLlmSettings(prev => ({ ...prev, model: v }))}
+                    placeholder={llmSettings.provider === 'anthropic' ? 'claude-3-5-haiku-latest' : llmSettings.provider === 'openai' ? 'gpt-4o-mini' : 'llama3.1'}
+                    last
+                    T={T}
+                  />
+                  <Text style={[s.rowSub, { color: T.textFaint, marginTop: 4 }]}>
+                    If the request ever fails (bad key, offline, etc.) parsing silently falls back to the local parser — it never blocks adding events.
+                  </Text>
+                </>
+              )}
             </View>
           </Section>
         )}
