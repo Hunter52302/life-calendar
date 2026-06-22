@@ -16,6 +16,14 @@
           },
           "androidIntentFilters": ["text/*"]
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PLS Calendar to use the microphone for voice event input.",
+          "speechRecognitionPermission": "Allow PLS Calendar to use speech recognition for voice event input.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
       ]
     ],
     "ios": {

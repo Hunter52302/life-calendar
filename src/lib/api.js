@@ -118,4 +118,13 @@ export const api = {
     set: (data) => request('PUT', '/profile', data),
   },
 
+  categoryKeywords: {
+    get: () => request('GET', '/category-keywords'),
+  },
+
+  llmSettings: {
+    get: ()     => request('GET', '/llm-settings'),
+    set: (data) => request('PUT', '/llm-settings', data),
+  },
+
 };

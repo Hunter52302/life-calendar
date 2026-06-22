@@ -178,6 +178,25 @@ export function runMigrations(db) {
       created_at     INTEGER NOT NULL DEFAULT (unixepoch()),
       FOREIGN KEY (admin_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS category_keywords (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      keyword     TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS user_llm_settings (
+      user_id    TEXT PRIMARY KEY,
+      provider   TEXT NOT NULL DEFAULT 'none',
+      api_key    TEXT,
+      endpoint   TEXT,
+      model      TEXT,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors

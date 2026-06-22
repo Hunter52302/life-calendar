@@ -4,9 +4,10 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { AppContext } from '../context/AppContext.js';
-import { parseEvents } from '../lib/parseEvents.js';
+import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments } from '../lib/calendarUtils.js';
 import { getWeekStart } from '../lib/utils.js';
+import { useVoiceInput } from '../hooks/useVoiceInput.js';
 
 function fmtDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
@@ -58,6 +59,11 @@ function DraftCard({ draft, allCategories, onChange, onToggle }) {
           />
           <View style={card.metaRow}>
             <ConfidenceBadge confidence={draft.confidence} />
+            {!draft.catId && (
+              <View style={[badge.wrap, { backgroundColor: '#FEF3C7', marginLeft: 4 }]}>
+                <Text style={[badge.txt, { color: '#92400E' }]}>uncategorized</Text>
+              </View>
+            )}
             {isMultiDay && (
               <Text style={card.multiDay}> · 2 segments</Text>
             )}
@@ -125,10 +131,14 @@ const card = StyleSheet.create({
 });
 
 export default function ParseModal({ visible, initialText = '', onClose }) {
-  const { events } = useContext(AppContext);
+  const { events, categoryKeywords, llmSettings } = useContext(AppContext);
   const [rawText, setRawText] = useState(initialText);
   const [drafts, setDrafts] = useState(null);
+  const [detecting, setDetecting] = useState(false);
   const allCategories = events.allCategories;
+  const keywordMap = categoryKeywords?.keywordMap ?? {};
+  const voice = useVoiceInput();
+  const voiceBaseRef = useRef('');
 
   useEffect(() => {
     if (visible) {
@@ -140,10 +150,24 @@ export default function ParseModal({ visible, initialText = '', onClose }) {
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function runDetect(text) {
-    const results = parseEvents(text ?? rawText);
-    const defaultCat = allCategories[0]?.id ?? 'personal';
-    setDrafts(results.map((r, i) => ({ ...r, id: i, catId: defaultCat, calendar: 'plan', enabled: true })));
+  // Live-append speech transcript into the text input while listening
+  useEffect(() => {
+    if (!voice.listening) return;
+    const base = voiceBaseRef.current;
+    setRawText(base + (base && voice.transcript ? ' ' : '') + voice.transcript);
+  }, [voice.transcript, voice.listening]);
+
+  function toggleMic() {
+    if (voice.listening) { voice.stop(); return; }
+    voiceBaseRef.current = rawText;
+    voice.start();
+  }
+
+  async function runDetect(text) {
+    setDetecting(true);
+    const results = await parseEventText(text ?? rawText, llmSettings, keywordMap);
+    setDetecting(false);
+    setDrafts(results.map((r, i) => ({ ...r, id: i, calendar: 'plan', enabled: true })));
   }
 
   function toggleDraft(id) {
@@ -206,27 +230,40 @@ export default function ParseModal({ visible, initialText = '', onClose }) {
                 <Text style={styles.hint}>
                   Paste any text containing dates and times. Works with shift schedules, emails, and messages.
                 </Text>
-                <TextInput
-                  style={styles.textarea}
-                  multiline
-                  numberOfLines={7}
-                  value={rawText}
-                  onChangeText={setRawText}
-                  placeholder={'Thursday June 18: 3B 2300 – 0700\nFriday June 19: 2A 1400 – 2200\n\nor: "team meeting on May 19th from 8am to 9pm"'}
-                  placeholderTextColor="#9CA3AF"
-                  textAlignVertical="top"
-                  autoFocus
-                />
+                <View>
+                  <TextInput
+                    style={[styles.textarea, voice.supported && { paddingRight: 48 }]}
+                    multiline
+                    numberOfLines={7}
+                    value={rawText}
+                    onChangeText={setRawText}
+                    placeholder={'Thursday June 18: 3B 2300 – 0700\nFriday June 19: 2A 1400 – 2200\n\nor: "team meeting on May 19th from 8am to 9pm"'}
+                    placeholderTextColor="#9CA3AF"
+                    textAlignVertical="top"
+                    autoFocus
+                  />
+                  {voice.supported && (
+                    <Pressable
+                      onPress={toggleMic}
+                      style={[styles.micBtn, voice.listening && styles.micBtnOn]}
+                    >
+                      <Text style={styles.micTxt}>🎤</Text>
+                    </Pressable>
+                  )}
+                </View>
+                {voice.listening && (
+                  <Text style={styles.hint}>Listening… speak now.</Text>
+                )}
                 <View style={styles.btnRow}>
                   <Pressable onPress={onClose} style={styles.cancelBtn}>
                     <Text style={styles.cancelTxt}>Cancel</Text>
                   </Pressable>
                   <Pressable
                     onPress={() => runDetect()}
-                    disabled={!rawText.trim()}
-                    style={[styles.detectBtn, !rawText.trim() && styles.btnDisabled]}
+                    disabled={!rawText.trim() || detecting}
+                    style={[styles.detectBtn, (!rawText.trim() || detecting) && styles.btnDisabled]}
                   >
-                    <Text style={styles.detectTxt}>Detect events →</Text>
+                    <Text style={styles.detectTxt}>{detecting ? 'Detecting…' : 'Detect events →'}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -304,6 +341,9 @@ const styles = StyleSheet.create({
   section:      { gap: 12 },
   hint:         { fontSize: 13, color: '#6B7280', lineHeight: 19 },
   textarea:     { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10, padding: 12, fontSize: 13, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', minHeight: 140, color: '#111827' },
+  micBtn:       { position: 'absolute', bottom: 8, right: 8, width: 32, height: 32, borderRadius: 16, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center' },
+  micBtnOn:     { backgroundColor: '#EF4444' },
+  micTxt:       { fontSize: 14 },
   btnRow:       { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 4 },
   cancelBtn:    { paddingHorizontal: 16, paddingVertical: 10 },
   cancelTxt:    { fontSize: 13, color: '#6B7280' },

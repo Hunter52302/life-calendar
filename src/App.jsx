@@ -74,6 +74,8 @@ import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
+import { useCategoryKeywords } from './hooks/useCategoryKeywords';
+import { useLlmSettings } from './hooks/useLlmSettings';
 import InstallPrompt from './components/InstallPrompt';
 import ListFieldEditor from './components/ListFieldEditor';
 import { usePersistentState } from './hooks/usePersistentState';
@@ -167,6 +169,7 @@ export default function App() {
   const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
+  const [aiParsingOpen, setAiParsingOpen] = useState(false);
   const [zkOpen, setZkOpen] = useState(false);
   const [zkEnabling, setZkEnabling] = useState(false);
   const [zkPassword, setZkPassword] = useState('');
@@ -582,6 +585,8 @@ export default function App() {
   } = useEvents(authState, assumeCompleted);
 
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
+  const { keywordMap } = useCategoryKeywords(authState);
+  const { llmSettings, setLlmSettings } = useLlmSettings(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
   const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
   const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
@@ -779,6 +784,7 @@ export default function App() {
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
+    aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
     admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
   };
@@ -1231,6 +1237,81 @@ export default function App() {
                                 ? "On: you only need to open Live to fix things that didn't go to plan — everything else logs itself."
                                 : "Off: nothing logs automatically. You must confirm or edit every planned event yourself in Live, or it stays unlogged and won't count toward Reality stats."}
                             </p>
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── AI-Assisted Text/Voice Parsing (collapsible) ── */}
+                      {sv(SECTION_KWS.aiParsing) && (
+                      <div className="rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setAiParsingOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI-Assisted Text/Voice Parsing</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(aiParsingOpen, SECTION_KWS.aiParsing) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(aiParsingOpen, SECTION_KWS.aiParsing) && (
+                          <div className="px-2 pb-3 space-y-3">
+                            <p className="text-xs text-gray-400 dark:text-gray-500 leading-snug">
+                              By default, "Add Events from Text" uses a free, local, offline parser. Optionally connect your own LLM for smarter multi-event extraction and category guessing. Your text and API key are sent directly from your browser to the provider you choose below — never through any third-party server.
+                            </p>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Provider</p>
+                              <select
+                                value={llmSettings.provider}
+                                onChange={e => setLlmSettings(prev => ({ ...prev, provider: e.target.value }))}
+                                className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none"
+                              >
+                                <option value="none">None (use local parser only)</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="custom">Custom endpoint (e.g. Ollama)</option>
+                              </select>
+                            </div>
+                            {llmSettings.provider !== 'none' && (
+                              <>
+                                <div>
+                                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">
+                                    {llmSettings.provider === 'custom' ? 'API key (optional)' : 'API key'}
+                                  </p>
+                                  <input
+                                    type="password"
+                                    value={llmSettings.apiKey}
+                                    onChange={e => setLlmSettings(prev => ({ ...prev, apiKey: e.target.value }))}
+                                    placeholder="sk-..."
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                  />
+                                </div>
+                                {llmSettings.provider === 'custom' && (
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Endpoint URL</p>
+                                    <input
+                                      type="text"
+                                      value={llmSettings.endpoint}
+                                      onChange={e => setLlmSettings(prev => ({ ...prev, endpoint: e.target.value }))}
+                                      placeholder="http://localhost:11434/api/chat"
+                                      className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                    />
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">Model (optional)</p>
+                                  <input
+                                    type="text"
+                                    value={llmSettings.model}
+                                    onChange={e => setLlmSettings(prev => ({ ...prev, model: e.target.value }))}
+                                    placeholder={llmSettings.provider === 'anthropic' ? 'claude-3-5-haiku-latest' : llmSettings.provider === 'openai' ? 'gpt-4o-mini' : 'llama3.1'}
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-purple-400"
+                                  />
+                                </div>
+                                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-snug">
+                                  If the request ever fails (bad key, offline, etc.) parsing silently falls back to the local parser — it never blocks adding events.
+                                </p>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2686,6 +2767,8 @@ export default function App() {
             onAddActual={event => addEvent({ ...event, calendar: 'actual' })}
             onSwitchTab={setActiveTab}
             initialParseText={shareText}
+            keywordMap={keywordMap}
+            llmSettings={llmSettings}
             onClearParseText={() => setShareText('')}
           />
         )}

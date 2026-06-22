@@ -12,6 +12,8 @@ import { useEvents } from './src/hooks/useEvents.js';
 import { useHabits } from './src/hooks/useHabits.js';
 import { useProfile } from './src/hooks/useProfile.js';
 import { useBudgets } from './src/hooks/useBudgets.js';
+import { useCategoryKeywords } from './src/hooks/useCategoryKeywords.js';
+import { useLlmSettings } from './src/hooks/useLlmSettings.js';
 import { usePersistentState } from './src/hooks/usePersistentState.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { useState } from 'react';
@@ -49,6 +51,8 @@ function Main() {
   const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
   const profileData = useProfile(auth.authState, auth.masterKey, auth.isZkEnabled);
   const budgetsData = useBudgets(auth.authState);
+  const categoryKeywordsData = useCategoryKeywords(auth.authState);
+  const { llmSettings, setLlmSettings } = useLlmSettings(auth.authState, auth.masterKey, auth.isZkEnabled);
   const [weekStart, setWeekStart] = useState(getWeekStart());
 
   // Shared text arriving from the OS share sheet (SMS/email/etc., via
@@ -112,6 +116,9 @@ function Main() {
     habits:   habitsData,
     profile:  profileData,
     budgets:  budgetsData,
+    categoryKeywords: categoryKeywordsData,
+    llmSettings,
+    setLlmSettings,
     weekStart,
     prevWeek: () => setWeekStart(ws => addDays(ws, -7)),
     nextWeek: () => setWeekStart(ws => addDays(ws, 7)),

@@ -439,6 +439,8 @@ export default function QuickAddFAB({
   draggable        = false,
   posResetKey      = 0,
   initialParseText = null,
+  keywordMap       = {},
+  llmSettings      = null,
   onAddEvent,
   onAddActual,
   onSwitchTab,
@@ -624,6 +626,8 @@ export default function QuickAddFAB({
           allCategories={allCategories}
           initialText={initialParseText ?? ''}
           militaryTime={militaryTime}
+          keywordMap={keywordMap}
+          llmSettings={llmSettings}
           onAddEvents={evts => {
             evts.filter(e => e.calendar === 'plan').forEach(handleAddPlanEvent);
             evts.filter(e => e.calendar === 'actual').forEach(handleAddLiveEvent);

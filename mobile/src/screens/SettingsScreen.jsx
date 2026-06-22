@@ -12,7 +12,7 @@ function SectionHeader({ title }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
 }
 
-function Row({ label, value, onSave, placeholder, keyboardType = 'default', autoCapitalize = 'sentences' }) {
+function Row({ label, value, onSave, placeholder, keyboardType = 'default', autoCapitalize = 'sentences', secureTextEntry = false }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
 
@@ -32,6 +32,7 @@ function Row({ label, value, onSave, placeholder, keyboardType = 'default', auto
           autoFocus
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          secureTextEntry={secureTextEntry}
           returnKeyType="done"
           onSubmitEditing={save}
         />
@@ -51,7 +52,7 @@ function Row({ label, value, onSave, placeholder, keyboardType = 'default', auto
     <Pressable style={styles.row} onPress={() => { setDraft(value); setEditing(true); }}>
       <Text style={styles.rowLabel}>{label}</Text>
       <Text style={value ? styles.rowValue : styles.rowPlaceholder} numberOfLines={1}>
-        {value || placeholder}
+        {value ? (secureTextEntry ? '••••••••' : value) : placeholder}
       </Text>
       <Text style={styles.editChevron}>›</Text>
     </Pressable>
@@ -105,8 +106,15 @@ export default function SettingsScreen() {
   const { auth, profile: profileData, budgets: budgetsData, assumeCompleted, setAssumeCompleted } = useContext(AppContext);
   const { profile, setProfile } = profileData;
   const { budgets, setBudget, deleteBudget } = budgetsData;
-  const { events } = useContext(AppContext);
+  const { events, llmSettings, setLlmSettings } = useContext(AppContext);
   const allCategories = events.allCategories;
+
+  const LLM_PROVIDERS = [
+    { id: 'none',      label: 'None' },
+    { id: 'anthropic', label: 'Anthropic' },
+    { id: 'openai',    label: 'OpenAI' },
+    { id: 'custom',    label: 'Custom' },
+  ];
 
   // Phone management
   const [addingPhone, setAddingPhone] = useState(false);
@@ -289,6 +297,62 @@ export default function SettingsScreen() {
           </Text>
         </View>
 
+        {/* ── AI Parsing ── */}
+        <SectionHeader title="AI-Assisted Text/Voice Parsing" />
+        <View style={styles.card}>
+          <Text style={styles.llmHint}>
+            By default, "Add Events from Text" uses a free, local, offline parser. Optionally connect your own LLM for smarter multi-event extraction and category guessing. Your text and API key are sent directly from this app to the provider you choose below — never through any third-party server.
+          </Text>
+          <View style={styles.divider} />
+          <View style={styles.llmProviderRow}>
+            {LLM_PROVIDERS.map(p => (
+              <Pressable
+                key={p.id}
+                onPress={() => setLlmSettings(prev => ({ ...prev, provider: p.id }))}
+                style={[styles.llmProviderBtn, llmSettings.provider === p.id && styles.llmProviderBtnOn]}
+              >
+                <Text style={[styles.llmProviderTxt, llmSettings.provider === p.id && styles.llmProviderTxtOn]}>
+                  {p.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {llmSettings.provider !== 'none' && (
+            <>
+              <View style={styles.divider} />
+              <Row
+                label="API Key"
+                value={llmSettings.apiKey}
+                onSave={v => setLlmSettings(prev => ({ ...prev, apiKey: v }))}
+                placeholder="sk-..."
+                autoCapitalize="none"
+                secureTextEntry
+              />
+              {llmSettings.provider === 'custom' && (
+                <Row
+                  label="Endpoint URL"
+                  value={llmSettings.endpoint}
+                  onSave={v => setLlmSettings(prev => ({ ...prev, endpoint: v }))}
+                  placeholder="http://localhost:11434/api/chat"
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              )}
+              <Row
+                label="Model"
+                value={llmSettings.model}
+                onSave={v => setLlmSettings(prev => ({ ...prev, model: v }))}
+                placeholder={llmSettings.provider === 'anthropic' ? 'claude-3-5-haiku-latest' : llmSettings.provider === 'openai' ? 'gpt-4o-mini' : 'llama3.1'}
+                autoCapitalize="none"
+              />
+              <View style={styles.divider} />
+              <Text style={styles.switchWarning}>
+                If the request ever fails (bad key, offline, etc.) parsing silently falls back to the local parser — it never blocks adding events.
+              </Text>
+            </>
+          )}
+        </View>
+
         {/* ── Account ── */}
         <SectionHeader title="Account" />
         <View style={styles.card}>
@@ -359,4 +423,11 @@ const styles = StyleSheet.create({
   switchLabel:     { fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 3 },
   switchHint:      { fontSize: 12, color: '#9CA3AF', lineHeight: 16 },
   switchWarning:   { fontSize: 12, color: '#B45309', lineHeight: 16, paddingHorizontal: 16, paddingVertical: 12 },
+
+  llmHint:         { fontSize: 12, color: '#9CA3AF', lineHeight: 16, paddingHorizontal: 16, paddingVertical: 12 },
+  llmProviderRow:  { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
+  llmProviderBtn:  { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center' },
+  llmProviderBtnOn:{ backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
+  llmProviderTxt:  { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  llmProviderTxtOn:{ color: '#fff' },
 });

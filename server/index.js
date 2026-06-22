@@ -19,6 +19,8 @@ import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
 import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
+import categoryKeywordsRoute from './routes/categoryKeywords.js';
+import llmSettingsRoute     from './routes/llmSettings.js';
 import adminRoute           from './routes/admin.js';
 import icalFetchRoute       from './routes/icalFetch.js';
 import feedRoute            from './routes/feed.js';
@@ -26,7 +28,7 @@ import { startScheduler }   from './services/notificationService.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile } from './db/queries.js';
+import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile, categoryKeywords, userLlmSettings } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,6 +72,8 @@ app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
 app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
+app.use('/api/category-keywords', categoryKeywordsRoute);
+app.use('/api/llm-settings',    llmSettingsRoute);
 app.use('/api/admin',           adminRoute);
 app.use('/api/ical-fetch',      icalFetchRoute);
 app.use('/api/feed',            feedRoute);
@@ -92,6 +96,8 @@ app.get('/api/sync', requireAuth, (req, res) => {
     integrations:      userIntegrations.getAll(req.userId),
     schedules:         notificationSchedules.getAll(req.userId),
     profile:           userProfile.get(req.userId),
+    categoryKeywords:  categoryKeywords.getAll(req.userId),
+    llmSettings:       userLlmSettings.get(req.userId),
   });
 });
 

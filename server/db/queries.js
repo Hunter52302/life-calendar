@@ -646,6 +646,73 @@ export const userZk = {
   },
 };
 
+// ── Category Keywords ─────────────────────────────────────────────────────────
+
+const DEFAULT_CATEGORY_KEYWORDS = {
+  sleep:        ['sleep', 'bed', 'nap'],
+  work:         ['meeting', 'shift', 'work', 'standup', 'call'],
+  school:       ['class', 'lecture', 'homework', 'study', 'exam'],
+  'free-time':  ['free', 'hangout', 'relax', 'gym', 'workout'],
+};
+
+export const categoryKeywords = {
+  /** Returns { [categoryId]: string[] }. Seeds sensible defaults the first time a user has none. */
+  getAll: (userId) => {
+    let rows = db.prepare('SELECT category_id, keyword FROM category_keywords WHERE user_id = ?').all(userId);
+    if (!rows.length) {
+      const insert = db.prepare(
+        'INSERT INTO category_keywords (id, user_id, category_id, keyword) VALUES (?, ?, ?, ?)'
+      );
+      const run = db.transaction(() => {
+        for (const [categoryId, keywords] of Object.entries(DEFAULT_CATEGORY_KEYWORDS)) {
+          for (const keyword of keywords) insert.run(randomUUID(), userId, categoryId, keyword);
+        }
+      });
+      run();
+      rows = db.prepare('SELECT category_id, keyword FROM category_keywords WHERE user_id = ?').all(userId);
+    }
+    const out = {};
+    for (const r of rows) (out[r.category_id] ??= []).push(r.keyword);
+    return out;
+  },
+};
+
+// ── User LLM Settings ─────────────────────────────────────────────────────────
+
+export const userLlmSettings = {
+  get: (userId) => {
+    const row = db.prepare(
+      'SELECT provider, api_key, endpoint, model FROM user_llm_settings WHERE user_id = ?'
+    ).get(userId);
+    if (!row) return { provider: 'none', apiKey: null, endpoint: null, model: null };
+    return {
+      provider: row.provider ?? 'none',
+      apiKey:   row.api_key  ?? null,
+      endpoint: row.endpoint ?? null,
+      model:    row.model    ?? null,
+    };
+  },
+
+  set: (userId, data) => {
+    db.prepare(`
+      INSERT INTO user_llm_settings (user_id, provider, api_key, endpoint, model, updated_at)
+      VALUES (@user_id, @provider, @api_key, @endpoint, @model, unixepoch())
+      ON CONFLICT(user_id) DO UPDATE SET
+        provider   = excluded.provider,
+        api_key    = excluded.api_key,
+        endpoint   = excluded.endpoint,
+        model      = excluded.model,
+        updated_at = unixepoch()
+    `).run({
+      user_id:  userId,
+      provider: data.provider ?? 'none',
+      api_key:  data.apiKey   ?? null,
+      endpoint: data.endpoint ?? null,
+      model:    data.model    ?? null,
+    });
+  },
+};
+
 // ── Admin Audit Log ───────────────────────────────────────────────────────────
 
 export const adminAuditLog = {

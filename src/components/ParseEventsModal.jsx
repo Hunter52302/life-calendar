@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { parseEvents } from '../lib/parseEvents.js';
+import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments, dateToWeekData } from '../lib/calendarUtils.js';
+import { useVoiceInput } from '../hooks/useVoiceInput.js';
 
 // ── Tiny UI primitives (self-contained to avoid coupling to QuickAddFAB) ──────
 const inputCls =
@@ -101,6 +102,11 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{draft.label || '(no label)'}</span>
             <ConfidenceBadge confidence={draft.confidence} />
+            {!draft.catId && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                uncategorized
+              </span>
+            )}
             {isMultiDay && (
               <span className="text-[10px] text-amber-500 font-medium">2 segments</span>
             )}
@@ -112,7 +118,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
             <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: allCategories.find(c => c.id === draft.catId)?.color ?? '#6B7280' }} />
-            {allCategories.find(c => c.id === draft.catId)?.label ?? draft.catId}
+            {allCategories.find(c => c.id === draft.catId)?.label ?? (draft.catId || 'Uncategorized')}
             {' · '}
             {draft.calendar === 'plan' ? 'Plan' : 'Live'}
           </p>
@@ -187,10 +193,13 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
-export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, onAddEvents, onClose }) {
+export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, onAddEvents, onClose }) {
   const [rawText, setRawText] = useState(initialText);
   const [drafts,  setDrafts]  = useState(null); // null = input step
+  const [detecting, setDetecting] = useState(false);
   const textareaRef = useRef(null);
+  const voice = useVoiceInput();
+  const voiceBaseRef = useRef('');
 
   // Auto-detect when initialText is pre-filled (e.g. from PWA share target)
   useEffect(() => {
@@ -201,14 +210,28 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
     }
   }, []); // eslint-disable-line
 
-  function runDetect(text) {
-    const results = parseEvents(text ?? rawText);
+  // Live-append speech transcript into the textarea while listening
+  useEffect(() => {
+    if (!voice.listening) return;
+    const base = voiceBaseRef.current;
+    setRawText(base + (base && voice.transcript ? ' ' : '') + voice.transcript);
+  }, [voice.transcript, voice.listening]);
+
+  function toggleMic() {
+    if (voice.listening) { voice.stop(); return; }
+    voiceBaseRef.current = rawText;
+    voice.start();
+  }
+
+  async function runDetect(text) {
+    setDetecting(true);
+    const results = await parseEventText(text ?? rawText, llmSettings, keywordMap);
+    setDetecting(false);
     if (results.length === 0) {
       setDrafts([]);
       return;
     }
-    const defaultCat = allCategories[0]?.id ?? 'personal';
-    setDrafts(results.map((r, i) => ({ ...r, id: i, catId: defaultCat, calendar: 'plan', enabled: true })));
+    setDrafts(results.map((r, i) => ({ ...r, id: i, calendar: 'plan', enabled: true })));
   }
 
   function toggleDraft(id) {
@@ -277,15 +300,40 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 💡 On Android, once this app is installed to your home screen you can also highlight text in any app and use its Share button — it'll open straight to this screen. iOS does not support sharing into installed web apps, so paste here instead.
               </p>
-              <textarea
-                ref={textareaRef}
-                rows={7}
-                value={rawText}
-                onChange={e => setRawText(e.target.value)}
-                placeholder={'Thursday June 18: 3B 2300 – 0700\nFriday June 19: 2A 1400 – 2200\n\nor: "team meeting on May 19th from 8 am to 9 pm"'}
-                className={inputCls + ' resize-none font-mono text-xs'}
-                onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runDetect(); }}
-              />
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  rows={7}
+                  value={rawText}
+                  onChange={e => setRawText(e.target.value)}
+                  placeholder={'Thursday June 18: 3B 2300 – 0700\nFriday June 19: 2A 1400 – 2200\n\nor: "team meeting on May 19th from 8 am to 9 pm"'}
+                  className={inputCls + ' resize-none font-mono text-xs pr-12'}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runDetect(); }}
+                />
+                {voice.supported && (
+                  <button
+                    type="button"
+                    onClick={toggleMic}
+                    title={voice.listening ? 'Stop listening' : 'Speak instead of typing'}
+                    aria-label={voice.listening ? 'Stop listening' : 'Speak instead of typing'}
+                    className={`absolute bottom-2 right-2 w-8 h-8 rounded-full flex items-center justify-center text-white transition-colors ${
+                      voice.listening ? 'bg-red-500 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'
+                    }`}
+                  >
+                    🎤
+                  </button>
+                )}
+              </div>
+              {voice.listening && (
+                <p className="text-[11px] text-purple-500 dark:text-purple-400">
+                  Listening… speak now. Voice input only works while this tab stays open and focused.
+                </p>
+              )}
+              {!voice.supported && (
+                <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                  Voice input isn't supported in this browser — paste or type instead.
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={onClose}
                   className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -294,11 +342,11 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
                 <button
                   type="button"
                   onClick={() => runDetect()}
-                  disabled={!rawText.trim()}
+                  disabled={!rawText.trim() || detecting}
                   className="px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
                   style={{ backgroundColor: '#8B5CF6' }}
                 >
-                  Detect events →
+                  {detecting ? 'Detecting…' : 'Detect events →'}
                 </button>
               </div>
             </div>
