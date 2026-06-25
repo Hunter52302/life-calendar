@@ -60,7 +60,7 @@ import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
 import { useIntegrations } from './hooks/useIntegrations';
 import { useCrypto } from './context/CryptoContext';
-import { deriveKey, generateSalt, generateVerifyBlob, verifyKey, encryptField, decryptField, isBase64 } from './lib/crypto';
+import { createEnvelope, deriveAuthVerifier, unlockWithPassword, unlockWithRecovery, deriveRecoveryVerifier, rewrapForPassword } from './lib/zkEnvelope';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -69,11 +69,11 @@ import DiffView from './views/DiffView';
 import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
-import ZkPromptModal from './components/ZkPromptModal';
-import ZkBanner from './components/ZkBanner';
 import TodoTutorialModal from './components/TodoTutorialModal';
 import AdminSecrets from './components/AdminSecrets';
 import DownloadModal from './components/DownloadModal';
+import ConnectCalendarModal from './components/ConnectCalendarModal';
+import { providerEventToAppEvent, providerLabel } from './lib/calendarProviders';
 import QuickAddFAB from './components/QuickAddFAB';
 import AuthGate from './components/AuthGate';
 import { useAuth } from './hooks/useAuth';
@@ -155,7 +155,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, isAdmin, accountEmail, setup, register, login, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
+  const { authState, zkInfo, isAdmin, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
   const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
   const [todoView,          setTodoView]          = useState(() => localStorage.getItem('lc-todo-view') || 'list');
   const [autoHideCompleted, setAutoHideCompleted] = useState(() => localStorage.getItem('lc-auto-hide-completed') === 'true');
@@ -192,10 +192,7 @@ export default function App() {
   const [aiParsingOpen, setAiParsingOpen] = useState(false);
   const [zkOpen, setZkOpen] = useState(false);
   const [zkEnabling, setZkEnabling] = useState(false);
-  const [zkPassword, setZkPassword] = useState('');
-  const [zkProgress, setZkProgress] = useState(null); // null | 'deriving' | 'encrypting' | 'done' | 'error'
-  const [zkPromptDismissed, setZkPromptDismissed] = usePersistentState('lc-zk-prompt-dismissed', false);
-  const [zkBannerDismissed, setZkBannerDismissed] = useState(false);
+  const [recoveryCodeToShow, setRecoveryCodeToShow] = useState(null);
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [newIntType, setNewIntType] = useState('discord_webhook');
   const [newIntLabel, setNewIntLabel] = useState('');
@@ -216,10 +213,12 @@ export default function App() {
   const [subBusy, setSubBusy] = useState(false);
   const [subError, setSubError] = useState('');
   const [syncingCalId, setSyncingCalId] = useState(null);
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [pendingConnectionId, setPendingConnectionId] = useState(null);
   const [feedInfo, setFeedInfo] = useState(null);   // null (not loaded) | { enabled, path? }
   const [feedCopied, setFeedCopied] = useState(false);
   // ── User profile ─────────────────────────────────────────────────────────
-  const { profile, setProfile, syncProfile } = useProfile(authState);
+  const { profile, setProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
   const [birthdayDraft,    setBirthdayDraft]    = useState(profile.birthday    || '');
   const [homeAddrDraft,    setHomeAddrDraft]    = useState(profile.homeAddress || '');
@@ -401,41 +400,56 @@ export default function App() {
     if (!visibleTabs.find(t => t.id === activeTab)) setActiveTab('plan');
   }, [eff.showLiveTab, eff.showRealityTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auth handlers (ZK key derivation happens client-side) ────────────────
-  async function handleRegister(email, password) {
-    // ZK on by default: derive the master key locally before the account
-    // exists; the server only ever sees the salt + verification blob.
-    const salt = generateSalt();
-    const key  = await deriveKey(password, salt);
-    const blob = await generateVerifyBlob(key);
-    await register(email, password, salt, blob);
-    setMasterKey(key);
-    setIsZkEnabled(true);
+  // ── Auth handlers (envelope ZK — the server never sees the password) ──────
+  async function handleRegister(email, password, keepUnlocked) {
+    // Build the whole envelope client-side; the server only gets the verifier
+    // + wrapped-DEK blobs. We hold the DEK immediately, but gate entry on the
+    // user saving their one-time recovery code first.
+    const env = await createEnvelope(password);
+    await register(email, env.authVerifier, {
+      authSalt: env.authSalt, kdfSalt: env.kdfSalt,
+      recoverySalt: env.recoverySalt, recoveryAuthSalt: env.recoveryAuthSalt,
+      recoveryVerifier: env.recoveryVerifier,
+      wrappedDekPassword: env.wrappedDekPassword, wrappedDekRecovery: env.wrappedDekRecovery,
+    });
+    await setDek(env.dek, keepUnlocked);
+    setRecoveryCodeToShow(env.recoveryCode);
+  }
+
+  async function handleLogin(email, password, keepUnlocked) {
+    const { auth_salt } = await prelogin(email);
+    const authVerifier = await deriveAuthVerifier(password, auth_salt);
+    const res = await login(email, authVerifier); // throws on wrong password (401)
+    const key = await unlockWithPassword(
+      { kdfSalt: res.kdf_salt, wrappedDekPassword: res.wrapped_dek_password }, password,
+    );
+    await setDek(key, keepUnlocked);
     markUnlocked();
   }
 
-  async function handleLogin(email, password) {
-    const res = await login(email, password);
-    if (res.zk_enabled) {
-      const key = await deriveKey(password, res.kdf_salt);
-      if (await verifyKey(key, res.zk_verify)) {
-        setMasterKey(key);
-        setIsZkEnabled(true);
-        markUnlocked();
-      }
-      // verify failed (e.g. admin reset the password) — stay 'locked';
-      // AuthGate prompts for the previous/encryption password.
-    }
+  async function handleUnlock(password, keepUnlocked) {
+    if (!zkInfo) return;
+    // unlockWithPassword throws (AES-GCM auth failure) if the password is wrong.
+    const key = await unlockWithPassword(zkInfo, password).catch(() => {
+      throw new Error('Incorrect password — your data stays encrypted until the right one is entered.');
+    });
+    await setDek(key, keepUnlocked);
+    markUnlocked();
   }
 
-  async function handleUnlock(password) {
-    if (!zkInfo) return;
-    const key = await deriveKey(password, zkInfo.kdf_salt);
-    if (!(await verifyKey(key, zkInfo.zk_verify))) {
-      throw new Error('Incorrect password — your data stays encrypted until the right one is entered.');
-    }
-    setMasterKey(key);
-    setIsZkEnabled(true);
+  async function handleResetPassword(email, recoveryCode, newPassword, keepUnlocked) {
+    const env = await recoveryEnvelope(email);
+    // Wrong recovery code → unwrap throws → surfaced as an error in AuthGate.
+    const key = await unlockWithRecovery(
+      { recoverySalt: env.recovery_salt, wrappedDekRecovery: env.wrapped_dek_recovery }, recoveryCode,
+    ).catch(() => { throw new Error('That recovery code is not valid for this account.'); });
+    const recoveryVerifier = await deriveRecoveryVerifier(recoveryCode, env.recovery_auth_salt);
+    const re = await rewrapForPassword(key, newPassword);
+    await resetPassword(email, recoveryVerifier, {
+      authVerifier: re.authVerifier, authSalt: re.authSalt,
+      kdfSalt: re.kdfSalt, wrappedDekPassword: re.wrappedDekPassword,
+    });
+    await setDek(key, keepUnlocked);
     markUnlocked();
   }
 
@@ -483,75 +497,6 @@ export default function App() {
       setAccountEmailMsg('Login email saved.');
       setAccountEmailDraft('');
     } catch (err) { setAccountEmailMsg(err.message); }
-  }
-
-  async function handleEnableZk() {
-    if (!zkPassword.trim()) return;
-    setZkProgress('deriving');
-    try {
-      // Resume an interrupted migration with the same salt — generating a
-      // fresh one on retry would double-encrypt whatever already succeeded
-      // last time (ciphertext encrypted again, with the original plaintext
-      // unrecoverable). Fields already encrypted are skipped via isBase64.
-      const resumeSalt = localStorage.getItem('lc-zk-migration-salt');
-      const salt = resumeSalt || generateSalt();
-      if (!resumeSalt) localStorage.setItem('lc-zk-migration-salt', salt);
-
-      const key  = await deriveKey(zkPassword, salt);
-      const blob = await generateVerifyBlob(key);
-      setZkProgress('encrypting');
-      // Encrypt existing events and habits — straight to the API so local
-      // state (and the UI) keeps showing plaintext.
-      const allEvents  = getEvents('plan').concat(getEvents('actual'));
-      for (const ev of allEvents) {
-        const updates = {};
-        if (ev.label && !isBase64(ev.label)) updates.label = await encryptField(key, ev.label);
-        if (ev.notes && !isBase64(ev.notes)) updates.notes = await encryptField(key, ev.notes);
-        if (Object.keys(updates).length) await api.events.update(ev.id, updates);
-      }
-      for (const h of habits) {
-        if (h.label && !isBase64(h.label)) {
-          await api.habits.update(h.id, { label: await encryptField(key, h.label) });
-        }
-      }
-      for (const [catId, ovr] of Object.entries(categoryOverrides)) {
-        if (ovr.label && !isBase64(ovr.label)) {
-          await api.categories.update(catId, { label: await encryptField(key, ovr.label) });
-        }
-      }
-      for (const cal of linkedCalendars) {
-        if (cal.name && !isBase64(cal.name)) {
-          await api.linkedCalendars.update(cal.id, { name: await encryptField(key, cal.name) });
-        }
-      }
-      // Encrypt profile fields (username stays plaintext)
-      const encField = async (val) => (val && !isBase64(val)) ? await encryptField(key, val) : (val || null);
-      const encProfile = {
-        username:       profile.username || null,
-        displayName:    await encField(profile.displayName),
-        email:          await encField(profile.email),
-        phones:         profile.phones?.length      ? await encField(JSON.stringify(profile.phones))          : profile.phones,
-        birthday:       await encField(profile.birthday),
-        homeAddress:    await encField(profile.homeAddress),
-        otherAddresses: profile.otherAddresses?.length ? await encField(JSON.stringify(profile.otherAddresses)) : profile.otherAddresses,
-      };
-      await api.profile.set(encProfile);
-      // Only flip the server over to this key once every record above has
-      // been safely re-encrypted — otherwise a half-migrated mix of
-      // plaintext and ciphertext would be left behind under zk_enabled=false.
-      await api.auth.enableZk(salt, blob);
-      localStorage.removeItem('lc-zk-migration-salt');
-      setMasterKey(key);
-      setIsZkEnabled(true);
-      await syncProfile(key);
-      setZkProgress('done');
-      setZkPassword('');
-      setImportNotice('✅ Your data is now end-to-end encrypted.');
-      setTimeout(() => setImportNotice(null), 5000);
-    } catch (err) {
-      console.error('ZK enable failed:', err);
-      setZkProgress('error');
-    }
   }
 
   async function handleTestIntegration(id) {
@@ -641,22 +586,14 @@ export default function App() {
   const { llmSettings, setLlmSettings } = useLlmSettings(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
   const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
-  const { masterKey, isZkEnabled, setMasterKey, setIsZkEnabled } = useCrypto();
+  const { masterKey, isZkEnabled, dek, setDek, lock, sessionRestored } = useCrypto();
 
-  // Nudge accounts that predate ZK-by-default to turn it on — shown once
-  // per dismissal (not re-shown after "Maybe later"), independent of the
-  // persistent banner below.
-  const showZkPrompt = (authState === 'ready' || authState === 'offline-ok') && !isZkEnabled && !zkPromptDismissed;
-
-  function dismissZkPrompt() {
-    setZkPromptDismissed(true);
-  }
-
-  function acceptZkPrompt() {
-    setZkPromptDismissed(true);
-    setShowSettings(true);
-    setZkOpen(true);
-  }
+  // After a reload the token is valid but the DEK is only in memory. If the
+  // user opted to "stay unlocked on this device", CryptoContext restores it
+  // from sessionStorage — auto-skip the unlock screen in that case.
+  useEffect(() => {
+    if (authState === 'unlock' && sessionRestored && dek) markUnlocked();
+  }, [authState, sessionRestored, dek]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allCategories = [...DEFAULT_CATEGORIES, ...customCategories]
     .filter(cat => !deletedDefaultIds.includes(cat.id))
@@ -732,8 +669,19 @@ export default function App() {
   }
 
   async function syncSubscribedCalendar(cal) {
-    const { ics } = await api.ical.fetch(cal.url);
-    const appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
+    let appEvents;
+    if (cal.source && cal.source !== 'ics') {
+      // OAuth-connected calendar: the server fetches via the stored tokens and
+      // returns normalized events; we convert + (when ZK is on) encrypt locally.
+      const raw = await api.calendarConnections.listEvents(cal.connectionId, cal.externalCalendarId);
+      appEvents = raw
+        .map(ev => providerEventToAppEvent(ev, cal.calendar, precision))
+        .filter(Boolean)
+        .map(ev => ({ ...ev, color: cal.color, source: cal.source }));
+    } else {
+      const { ics } = await api.ical.fetch(cal.url);
+      appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
+    }
     replaceEventsBySourceCalendar(cal.id, appEvents);
     updateLinkedCalendar(cal.id, { lastSyncedAt: Math.floor(Date.now() / 1000) });
   }
@@ -749,7 +697,9 @@ export default function App() {
   const syncSubsRef = useRef(() => {});
   syncSubsRef.current = async () => {
     for (const cal of linkedCalendars) {
-      if (!cal.url || !cal.syncEnabled) continue;
+      if (!cal.syncEnabled) continue;
+      const isOAuth = cal.source && cal.source !== 'ics';
+      if (!isOAuth && !cal.url) continue; // ICS subscriptions need a url; OAuth ones don't
       try { await syncSubscribedCalendar(cal); }
       catch (err) { console.warn(`Sync failed for "${cal.name}":`, err); }
     }
@@ -760,6 +710,27 @@ export default function App() {
     const iv = setInterval(() => syncSubsRef.current(), 30 * 60 * 1000);
     return () => { clearTimeout(t); clearInterval(iv); };
   }, [authState]);
+
+  // OAuth connect landing: provider redirected back as
+  // ?connected=<provider>&connectionId=<id> (success) or ?connectError=<msg>.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get('connected');
+    const connectionId = params.get('connectionId');
+    const connectError = params.get('connectError');
+    if (connected && connectionId) {
+      setPendingConnectionId(connectionId);
+      setConnectModalOpen(true);
+    } else if (connectError) {
+      setImportNotice(`Calendar connection failed: ${connectError}`);
+      setTimeout(() => setImportNotice(null), 6000);
+    }
+    if (connected || connectionId || connectError) {
+      const url = new URL(window.location.href);
+      ['connected', 'connectionId', 'connectError'].forEach(k => url.searchParams.delete(k));
+      window.history.replaceState({}, '', url);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load outbound feed status once the Connected Calendars section opens
   useEffect(() => {
@@ -845,16 +816,20 @@ export default function App() {
   function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
   const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
 
-  // Show auth screen when not yet authenticated (or ZK-locked)
-  if (['checking', 'setup', 'login', 'locked', 'offline'].includes(authState)) {
+  // Show auth screen when not yet authenticated, ZK-locked, or while the user
+  // still needs to save their one-time recovery code after registering.
+  if (recoveryCodeToShow || ['checking', 'setup', 'login', 'unlock', 'offline'].includes(authState)) {
     return (
       <AuthGate
         authState={authState}
         onLogin={handleLogin}
         onRegister={handleRegister}
         onUnlock={handleUnlock}
-        onLogout={logout}
+        onResetPassword={handleResetPassword}
+        onLogout={() => { lock(); logout(); }}
         onContinueOffline={continueOffline}
+        recoveryCode={recoveryCodeToShow}
+        onRecoverySaved={() => { setRecoveryCodeToShow(null); markUnlocked(); }}
         theme={theme}
       />
     );
@@ -882,20 +857,22 @@ export default function App() {
       {showDownload && (
         <DownloadModal onClose={() => setShowDownload(false)} />
       )}
+      {connectModalOpen && (
+        <ConnectCalendarModal
+          calendarTarget={activeTab === 'actual' ? 'actual' : 'plan'}
+          precision={precision}
+          initialConnectionId={pendingConnectionId}
+          addLinkedCalendar={addLinkedCalendar}
+          replaceEventsBySourceCalendar={replaceEventsBySourceCalendar}
+          showNotice={(msg) => { setImportNotice(msg); setTimeout(() => setImportNotice(null), 5000); }}
+          onClose={() => { setConnectModalOpen(false); setPendingConnectionId(null); }}
+        />
+      )}
       {showTodoTutorial && (
         <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
       )}
       {showTutorial && (
         <TutorialModal onClose={() => setShowTutorial(false)} />
-      )}
-      {showZkPrompt && (
-        <ZkPromptModal onEnable={acceptZkPrompt} onDismiss={dismissZkPrompt} />
-      )}
-      {!isZkEnabled && !showZkPrompt && !zkBannerDismissed && (
-        <ZkBanner
-          onOpenSettings={() => { setShowSettings(true); setZkOpen(true); }}
-          onDismiss={() => setZkBannerDismissed(true)}
-        />
       )}
       <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
@@ -2202,56 +2179,27 @@ export default function App() {
                           className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Zero-Knowledge Encryption</span>
-                            {isZkEnabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ON</span>}
+                            <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ON</span>
                           </div>
                           <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(zkOpen, SECTION_KWS.zk) ? '▲' : '▼'}</span>
                         </button>
                         {so(zkOpen, SECTION_KWS.zk) && (
                           <div className="px-2 pb-3 space-y-3">
-                            {isZkEnabled ? (
-                              <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
-                                <span className="text-lg">🔒</span>
-                                <div>
-                                  <p className="text-sm font-semibold text-green-800 dark:text-green-300">Encryption is active</p>
-                                  <p className="text-[11px] text-green-700 dark:text-green-400 mt-0.5 leading-snug">Your event names and habit labels are encrypted. The server cannot read your content.</p>
-                                </div>
+                            <div className="flex items-start gap-2 bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                              <span className="text-lg">🔒</span>
+                              <div>
+                                <p className="text-sm font-semibold text-green-800 dark:text-green-300">Encryption is always on</p>
+                                <p className="text-[11px] text-green-700 dark:text-green-400 mt-0.5 leading-snug">This app is zero-knowledge by design. Your event names, notes, habit labels and profile are encrypted with a key derived from your password — the server can never read your content, and there's nothing to turn off.</p>
                               </div>
-                            ) : (
-                              <>
-                                <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 space-y-1">
-                                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Before you enable</p>
-                                  <ul className="text-[11px] text-amber-700 dark:text-amber-400 space-y-0.5 leading-snug list-disc pl-3">
-                                    <li>Your password becomes your encryption key — if you forget it, your data is permanently unreadable</li>
-                                    <li>All existing events and habits will be encrypted (one-time migration)</li>
-                                    <li>Discord/Slack reminders will show generic text unless you set Integration Hints</li>
-                                    <li>This cannot be undone without a full data export and re-import</li>
-                                  </ul>
-                                </div>
-                                {zkProgress === 'done' ? (
-                                  <p className="text-sm text-green-600 dark:text-green-400 font-medium">✓ Encryption enabled successfully</p>
-                                ) : zkProgress === 'error' ? (
-                                  <p className="text-sm text-red-500">Something went wrong. Please try again.</p>
-                                ) : (
-                                  <>
-                                    <input
-                                      type="password"
-                                      value={zkPassword}
-                                      onChange={e => setZkPassword(e.target.value)}
-                                      placeholder="Confirm your password to enable encryption"
-                                      className="w-full text-sm bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
-                                    />
-                                    <button type="button"
-                                      disabled={!zkPassword.trim() || zkProgress === 'deriving' || zkProgress === 'encrypting'}
-                                      onClick={handleEnableZk}
-                                      className="w-full text-sm px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white font-semibold transition-colors">
-                                      {zkProgress === 'deriving'   ? 'Deriving key…' :
-                                       zkProgress === 'encrypting' ? 'Encrypting data…' :
-                                       'Enable Zero-Knowledge Encryption'}
-                                    </button>
-                                  </>
-                                )}
-                              </>
-                            )}
+                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 space-y-1">
+                              <p className="text-xs font-semibold text-gray-600 dark:text-gray-300">Good to know</p>
+                              <ul className="text-[11px] text-gray-500 dark:text-gray-400 space-y-0.5 leading-snug list-disc pl-3">
+                                <li>Your password is your encryption key — if you forget it, recover with your one-time recovery code (Sign out → "Forgot password")</li>
+                                <li>Lose both your password and recovery code and your data is permanently unreadable</li>
+                                <li>Discord/Slack reminders show generic text unless you set Integration Hints</li>
+                              </ul>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2426,6 +2374,21 @@ export default function App() {
                                 {subError && <p className="px-2 text-[11px] text-red-500">{subError}</p>}
                               </div>
 
+                              {/* ── Connect a Google / Outlook calendar via OAuth ── */}
+                              <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
+                                <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Connect an account</p>
+                                <p className="px-2 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                  Sign in with Google or Microsoft to import a calendar directly — no secret URL needed. It auto-refreshes like a subscription.
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => { setPendingConnectionId(null); setConnectModalOpen(true); }}
+                                  className="mx-2 text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors"
+                                >
+                                  ⇄ Connect Google / Outlook
+                                </button>
+                              </div>
+
                               {/* ── Publish your calendar as an ICS feed ── */}
                               <div className="pt-2 mt-1 border-t border-gray-100 dark:border-gray-700 space-y-1.5">
                                 <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-2">Publish your calendar</p>
@@ -2490,11 +2453,16 @@ export default function App() {
                                                   {cal.calendar === 'plan' ? 'Plan' : 'Live'}
                                                 </span>
                                                 <span className="text-sm text-gray-800 dark:text-gray-200 truncate font-medium">{cal.name}</span>
+                                                {cal.source && cal.source !== 'ics' && (
+                                                  <span className="inline-flex text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 flex-shrink-0">
+                                                    {providerLabel(cal.source)}
+                                                  </span>
+                                                )}
                                               </div>
                                               <div className="flex items-center justify-between mt-0.5">
                                                 <p className="text-xs text-gray-400 dark:text-gray-500">
                                                   {count} event{count !== 1 ? 's' : ''} · {cal.importedAt}
-                                                  {cal.url && (
+                                                  {(cal.url || (cal.source && cal.source !== 'ics')) && (
                                                     <>
                                                       {' · '}
                                                       <button

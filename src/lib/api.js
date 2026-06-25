@@ -48,14 +48,16 @@ async function request(method, path, body) {
 
 export const api = {
   auth: {
-    status:      ()                    => request('GET',  '/auth/status'),
-    setup:       (password)            => request('POST', '/auth/setup',     { password }),
-    register:    (email, password, kdf_salt, zk_verify, turnstile_token) =>
-                   request('POST', '/auth/register', { email, password, kdf_salt, zk_verify, turnstile_token }),
-    login:       (email, password)     => request('POST', '/auth/login',     { email, password }),
-    setEmail:    (email)               => request('PUT',  '/auth/email',     { email }),
-    enableZk:    (kdf_salt, zk_verify) => request('PUT',  '/auth/zk-enable', { kdf_salt, zk_verify }),
-    setTimezone: (timezone)            => request('PUT',  '/auth/timezone',  { timezone }),
+    status:           ()                          => request('GET',  '/auth/status'),
+    prelogin:         (email)                     => request('POST', '/auth/prelogin', { email }),
+    register:         (email, authVerifier, envelope, turnstile_token) =>
+                        request('POST', '/auth/register', { email, authVerifier, envelope, turnstile_token }),
+    login:            (email, authVerifier)       => request('POST', '/auth/login', { email, authVerifier }),
+    recoveryEnvelope: (email)                     => request('POST', '/auth/recovery-envelope', { email }),
+    resetPassword:    (email, recoveryVerifier, envelope) =>
+                        request('POST', '/auth/reset-password', { email, recoveryVerifier, envelope }),
+    setEmail:         (email)                     => request('PUT',  '/auth/email',    { email }),
+    setTimezone:      (timezone)                  => request('PUT',  '/auth/timezone', { timezone }),
   },
 
   admin: {
@@ -98,6 +100,19 @@ export const api = {
 
   ical: {
     fetch: (url) => request('POST', '/ical-fetch', { url }),
+  },
+
+  oauth: {
+    /** Returns { url } to redirect the browser to for provider consent. */
+    connectUrl: (provider) => request('GET', `/oauth/${provider}/connect`),
+  },
+
+  calendarConnections: {
+    list:          ()   => request('GET',    '/calendar-connections'),
+    delete:        (id) => request('DELETE', `/calendar-connections/${id}`),
+    listCalendars: (id) => request('GET',    `/calendar-connections/${id}/calendars`),
+    listEvents:    (id, externalCalendarId) =>
+      request('GET', `/calendar-connections/${id}/events?externalCalendarId=${encodeURIComponent(externalCalendarId)}`),
   },
 
   feed: {

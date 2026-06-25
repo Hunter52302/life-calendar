@@ -62,21 +62,16 @@ router.get('/signup-clusters', (req, res) => {
 
 /**
  * POST /api/admin/users/:id/reset-password
- * Body: { newPassword: string }
- * Note: for ZK-enabled accounts the user's data stays encrypted under
- * their old password — they'll be prompted for it to unlock after login.
+ * Disabled under zero-knowledge: the server can't re-wrap a user's data key
+ * without their password or recovery code, so an admin literally cannot reset a
+ * password without permanently locking the user out of their encrypted data.
+ * Users recover themselves with their one-time recovery code (/auth/reset-password).
  */
-router.post('/users/:id/reset-password', async (req, res) => {
-  const target = users.getById(req.params.id);
-  if (!target) return res.status(404).json({ error: 'User not found.' });
-  const { newPassword } = req.body ?? {};
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
-  }
-  const hash = await bcrypt.hash(newPassword, 12);
-  users.setPassword(target.id, hash);
-  adminAuditLog.record(req.userId, 'reset_password', target.id);
-  res.json({ ok: true, zk_enabled: target.zk_enabled === 1 });
+router.post('/users/:id/reset-password', (req, res) => {
+  return res.status(409).json({
+    error: 'Password reset is not possible under zero-knowledge encryption. ' +
+           'The user must reset their own password using their recovery code.',
+  });
 });
 
 /**

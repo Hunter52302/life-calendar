@@ -3,82 +3,67 @@ import { api } from '../lib/api.js';
 import { storage } from '../lib/storage.js';
 
 /**
- * Manages authentication state.
+ * Authentication state for the envelope zero-knowledge model.
  *
  * States:
- *   checking  — verifying token with server on startup
- *   setup     — server reachable, no account created yet (first launch)
- *   login     — account(s) exist, token missing/expired
- *   locked    — token valid but the account uses ZK encryption and the
- *               master key hasn't been derived yet (Bitwarden-style lock)
- *   ready     — authenticated and good to go
- *   offline   — server unreachable; app works from localStorage cache
+ *   checking    — verifying token with the server on startup
+ *   setup       — no account exists yet (first launch → register the admin)
+ *   login       — accounts exist, need email + password
+ *   unlock      — token valid but the DEK isn't in memory (after a reload)
+ *   ready       — authenticated AND unlocked
+ *   offline     — server unreachable; offer to work from local cache
+ *   offline-ok  — user chose to continue offline
  *
- * ZK note: the master key itself lives in CryptoContext — App.jsx derives
- * it from the password (using zkInfo from here) and calls markUnlocked().
+ * The DEK itself lives in CryptoContext. App.jsx performs the crypto (derive
+ * verifier, unwrap DEK) and calls markUnlocked() once the DEK is set; this hook
+ * only tracks auth state, the token, and the unlock envelope (`zkInfo`).
  */
 export function useAuth() {
   const [authState, setAuthState] = useState('checking');
-  const [zkInfo, setZkInfo]       = useState(null);   // { kdf_salt, zk_verify }
+  const [zkInfo, setZkInfo]       = useState(null);   // { kdfSalt, wrappedDekPassword }
   const [accountRole, setAccountRole]   = useState(null);
   const [accountEmail, setAccountEmail] = useState(null);
 
   useEffect(() => {
     api.auth.status()
-      .then(({ isSetup, tokenValid, zk_enabled, kdf_salt, zk_verify, role, email }) => {
+      .then(({ isSetup, tokenValid, role, email, kdf_salt, wrapped_dek_password }) => {
         if (tokenValid) {
           setAccountRole(role ?? null);
           setAccountEmail(email ?? null);
-          if (zk_enabled) {
-            setZkInfo({ kdf_salt, zk_verify });
-            setAuthState('locked');
-          } else {
-            setAuthState('ready');
-          }
+          setZkInfo({ kdfSalt: kdf_salt, wrappedDekPassword: wrapped_dek_password });
+          setAuthState('unlock');   // App will auto-unlock if a session DEK was restored
         } else if (!isSetup) {
           setAuthState('setup');
         } else {
           setAuthState('login');
         }
       })
-      .catch(() => {
-        // Server not running — app still works from localStorage cache
-        setAuthState('offline');
-      });
+      .catch(() => setAuthState('offline'));
   }, []);
 
   function applyAuthResponse(res) {
     storage.setToken(res.token);
     setAccountRole(res.role ?? null);
     setAccountEmail(res.email ?? null);
-    if (res.zk_enabled) {
-      setZkInfo({ kdf_salt: res.kdf_salt, zk_verify: res.zk_verify });
-      // Caller (App.jsx) derives the key and calls markUnlocked()
-      setAuthState('locked');
-    } else {
-      setAuthState('ready');
-    }
-    return res;
+    setZkInfo({ kdfSalt: res.kdf_salt, wrappedDekPassword: res.wrapped_dek_password });
+    return res; // App sets the DEK then calls markUnlocked()
   }
 
-  /** Legacy single-user first launch (kept for compatibility). */
-  async function setup(password) {
-    const { token } = await api.auth.setup(password);
-    storage.setToken(token);
-    setAccountRole('admin');
-    setAuthState('ready');
-  }
+  /** Salts for deriving the auth verifier + KEK. */
+  const prelogin = (email) => api.auth.prelogin(email);
 
-  /** Multi-user registration. ZK material is derived client-side by the caller. */
-  async function register(email, password, kdf_salt, zk_verify) {
-    return applyAuthResponse(await api.auth.register(email, password, kdf_salt, zk_verify));
-  }
+  const register = (email, authVerifier, envelope) =>
+    api.auth.register(email, authVerifier, envelope).then(applyAuthResponse);
 
-  async function login(email, password) {
-    return applyAuthResponse(await api.auth.login(email, password));
-  }
+  const login = (email, authVerifier) =>
+    api.auth.login(email, authVerifier).then(applyAuthResponse);
 
-  /** Called by App.jsx after the master key is derived + verified. */
+  const recoveryEnvelope = (email) => api.auth.recoveryEnvelope(email);
+
+  const resetPassword = (email, recoveryVerifier, envelope) =>
+    api.auth.resetPassword(email, recoveryVerifier, envelope).then(applyAuthResponse);
+
+  /** Called by App after the DEK is set in CryptoContext. */
   function markUnlocked() {
     setAuthState('ready');
   }
@@ -91,7 +76,6 @@ export function useAuth() {
     setAuthState('login');
   }
 
-  /** User chose to continue without the server running. */
   function continueOffline() {
     setAuthState('offline-ok');
   }
@@ -106,8 +90,8 @@ export function useAuth() {
     authState, zkInfo,
     isAdmin: accountRole === 'admin',
     accountEmail,
-    setup, register, login, logout, continueOffline,
-    markUnlocked,
+    prelogin, register, login, recoveryEnvelope, resetPassword,
+    markUnlocked, logout, continueOffline,
     setAccountEmail: setAccountEmailOnServer,
   };
 }

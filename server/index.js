@@ -24,6 +24,9 @@ import llmSettingsRoute     from './routes/llmSettings.js';
 import adminRoute           from './routes/admin.js';
 import icalFetchRoute       from './routes/icalFetch.js';
 import feedRoute            from './routes/feed.js';
+import oauthGoogleRoute     from './routes/oauthGoogle.js';
+import oauthMicrosoftRoute  from './routes/oauthMicrosoft.js';
+import calendarConnectionsRoute from './routes/calendarConnections.js';
 import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 
@@ -78,6 +81,9 @@ app.use('/api/llm-settings',    llmSettingsRoute);
 app.use('/api/admin',           adminRoute);
 app.use('/api/ical-fetch',      icalFetchRoute);
 app.use('/api/feed',            feedRoute);
+app.use('/api/oauth/google',    oauthGoogleRoute);
+app.use('/api/oauth/microsoft', oauthMicrosoftRoute);
+app.use('/api/calendar-connections', calendarConnectionsRoute);
 
 await initializeInfisical();
 
@@ -114,5 +120,7 @@ app.listen(PORT, () => {
   console.log(`PLS Calendar API  →  http://localhost:${PORT}`);
   console.log(`Drive times       →  OSRM (open-source)${process.env.GOOGLE_MAPS_API_KEY ? ' + Google fallback' : ''}`);
   console.log(`VAPID push        →  ${process.env.VAPID_PUBLIC_KEY ? '✓ configured' : '✗ not set (push notifications disabled)'}`);
+  console.log(`Google Calendar   →  ${process.env.GOOGLE_OAUTH_CLIENT_ID ? '✓ OAuth configured' : '✗ not configured'}`);
+  console.log(`Microsoft Calendar→  ${process.env.MS_OAUTH_CLIENT_ID ? '✓ OAuth configured' : '✗ not configured'}`);
   startScheduler();
 });

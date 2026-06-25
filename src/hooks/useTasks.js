@@ -35,8 +35,11 @@ export function useTasks(authState) {
   }, [tasks]);
 
   // ── Server sync on auth ─────────────────────────────────────────────────
+  // Tasks are local-only unless the server exposes a /tasks API. Guard every
+  // call so a missing api.tasks (current master) degrades to localStorage
+  // instead of crashing the app.
   useEffect(() => {
-    if (authState !== 'ready') return;
+    if (authState !== 'ready' || !api.tasks) return;
     setLoading(true);
     api.tasks.list()
       .then(serverTasks => {
@@ -51,7 +54,7 @@ export function useTasks(authState) {
           setTasks(prev => prev.map(x =>
             x.id === t.id ? { ...x, due_date: today } : x
           ));
-          api.tasks.update(t.id, { due_date: today }).catch(console.warn);
+          api.tasks?.update?.(t.id, { due_date: today })?.catch(console.warn);
         }
       })
       .catch(() => { /* offline — keep localStorage */ })
@@ -79,7 +82,7 @@ export function useTasks(authState) {
       updated_at:    Math.floor(Date.now() / 1000),
     };
     setTasks(prev => [...prev, task]);
-    api.tasks.create(task).catch(console.warn);
+    api.tasks?.create?.(task)?.catch(console.warn);
     return task;
   }
 
@@ -95,12 +98,12 @@ export function useTasks(authState) {
       }
       return { ...t, ...updated };
     }));
-    api.tasks.update(id, fields).catch(console.warn);
+    api.tasks?.update?.(id, fields)?.catch(console.warn);
   }
 
   function deleteTask(id) {
     setTasks(prev => prev.filter(t => t.id !== id));
-    api.tasks.remove(id).catch(console.warn);
+    api.tasks?.remove?.(id)?.catch(console.warn);
   }
 
   function completeTask(id) {
@@ -131,7 +134,7 @@ export function useTasks(authState) {
       const u = updates.find(x => x.id === t.id);
       return u ? { ...t, sort_order: u.sort_order } : t;
     }));
-    api.tasks.batchUpdate(updates).catch(console.warn);
+    api.tasks?.batchUpdate?.(updates)?.catch(console.warn);
   }
 
   return {
