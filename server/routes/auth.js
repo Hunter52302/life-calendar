@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { users, userZk } from '../db/queries.js';
@@ -9,10 +10,16 @@ const router = Router();
 const SECRET = process.env.JWT_SECRET;
 const TOKEN_TTL = '30d';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VERIFIER_RE = /^[0-9a-f]{64}$/; // 32-byte hex from zkEnvelope.deriveAuthVerifier
 
 /**
- * Optional bot-signup defense. Only enforced when TURNSTILE_SECRET is set,
- * so self-hosters without a Cloudflare Turnstile account aren't blocked.
+ * Envelope ZK (Model B): the server NEVER receives the password. The client
+ * derives an auth verifier (sent here, bcrypt-stored) and a key-encryption key
+ * (never sent). Login returns the wrapped DEK so the client can unlock locally.
+ */
+
+/**
+ * Optional bot-signup defense. Only enforced when TURNSTILE_SECRET is set.
  */
 async function verifyTurnstile(token) {
   if (!process.env.TURNSTILE_SECRET) return true;
@@ -34,22 +41,40 @@ function makeToken(userId) {
   return jwt.sign({ userId }, SECRET, { expiresIn: TOKEN_TTL });
 }
 
-/** ZK fields + identity the client needs right after auth. */
+/** Identity + unlock material the client needs right after authenticating. */
 function authPayload(user) {
   return {
-    token:      makeToken(user.id),
-    role:       user.role ?? 'user',
-    email:      user.email ?? null,
-    zk_enabled: user.zk_enabled === 1,
-    kdf_salt:   user.kdf_salt ?? null,
-    zk_verify:  user.zk_verify ?? null,
+    token:                makeToken(user.id),
+    role:                 user.role ?? 'user',
+    email:                user.email ?? null,
+    kdf_salt:             user.kdf_salt ?? null,
+    wrapped_dek_password: user.wrapped_dek_password ?? null,
   };
 }
 
 /**
+ * Deterministic, realistic-looking salt for an email that has no account, so
+ * /prelogin and /recovery-envelope can't be used to enumerate which emails are
+ * registered. Same email always yields the same fake salt (HMAC over the
+ * server secret), and it's indistinguishable from a real random salt.
+ */
+function fakeSalt(email, label) {
+  // Take the first 16 bytes of the HMAC and base64-encode them, so the output
+  // is byte-for-byte the same shape as generateSalt() (toB64 of 16 bytes →
+  // 24 chars ending in '=='). Slicing the base64 string instead would drop the
+  // '==' padding and make fake salts distinguishable from real ones — an
+  // account-enumeration oracle.
+  return crypto.createHmac('sha256', SECRET)
+    .update(`${label}:${email.toLowerCase()}`)
+    .digest()
+    .subarray(0, 16)
+    .toString('base64');
+}
+
+/**
  * GET /api/auth/status
- * Returns whether any account exists yet, and (if a valid token is sent)
- * whether that token is still good plus the account's ZK material.
+ * Whether any account exists, and (with a valid token) the account identity +
+ * unlock envelope so a reloaded client can re-derive its key.
  */
 router.get('/status', (req, res) => {
   const isSetup = users.count() > 0;
@@ -63,12 +88,11 @@ router.get('/status', (req, res) => {
       if (user && !user.is_blocked) {
         tokenValid = true;
         extra = {
-          role:          user.role ?? 'user',
-          email:         user.email ?? null,
-          zk_enabled:    user.zk_enabled === 1,
-          kdf_salt:      user.kdf_salt ?? null,
-          zk_verify:     user.zk_verify ?? null,
-          user_timezone: user.user_timezone ?? 'UTC',
+          role:                 user.role ?? 'user',
+          email:                user.email ?? null,
+          kdf_salt:             user.kdf_salt ?? null,
+          wrapped_dek_password: user.wrapped_dek_password ?? null,
+          user_timezone:        user.user_timezone ?? 'UTC',
         };
       }
     } catch { /* expired or invalid */ }
@@ -77,14 +101,33 @@ router.get('/status', (req, res) => {
 });
 
 /**
+ * POST /api/auth/prelogin
+ * Body: { email }
+ * Returns the salts the client needs to derive its auth verifier + KEK. Always
+ * 200 with realistic salts (fake for unknown emails) to prevent enumeration.
+ */
+router.post('/prelogin', authLimiter, (req, res) => {
+  const email = req.body?.email?.trim().toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+  const user = users.getByEmail(email);
+  if (user && user.auth_salt && user.kdf_salt) {
+    return res.json({ auth_salt: user.auth_salt, kdf_salt: user.kdf_salt });
+  }
+  res.json({ auth_salt: fakeSalt(email, 'auth'), kdf_salt: fakeSalt(email, 'kdf') });
+});
+
+/**
  * POST /api/auth/register
- * Creates a new account. The first account ever becomes the admin.
- * Zero-knowledge encryption is set up at registration: the client derives
- * the key locally and sends only the salt + verification blob.
- * Body: { email, password, kdf_salt?, zk_verify?, turnstile_token? }
+ * Body: { email, authVerifier, envelope, turnstile_token? }
+ *   envelope: { authSalt, kdfSalt, recoverySalt, recoveryAuthSalt,
+ *               recoveryVerifier, wrappedDekPassword, wrappedDekRecovery }
+ * The first account ever becomes the admin. The server stores bcrypt(verifier)
+ * and bcrypt(recoveryVerifier) — never the password or recovery code.
  */
 router.post('/register', authLimiter, async (req, res) => {
-  const { email, password, kdf_salt, zk_verify, turnstile_token } = req.body ?? {};
+  const { email, authVerifier, envelope, turnstile_token } = req.body ?? {};
   const normEmail = email?.trim().toLowerCase();
 
   if (!(await verifyTurnstile(turnstile_token))) {
@@ -93,84 +136,67 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!normEmail || !EMAIL_RE.test(normEmail)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
-  if (!password || password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (!VERIFIER_RE.test(authVerifier ?? '')) {
+    return res.status(400).json({ error: 'Invalid authentication material.' });
+  }
+  if (!envelope || !envelope.kdfSalt || !envelope.authSalt || !envelope.wrappedDekPassword ||
+      !envelope.wrappedDekRecovery || !envelope.recoverySalt || !envelope.recoveryAuthSalt ||
+      !VERIFIER_RE.test(envelope.recoveryVerifier ?? '')) {
+    return res.status(400).json({ error: 'Incomplete encryption envelope.' });
   }
   if (users.getByEmail(normEmail)) {
     return res.status(409).json({ error: 'An account with this email already exists.' });
   }
 
   const id = crypto.randomUUID();
-  const hash = await bcrypt.hash(password, 12);
   const role = users.count() === 0 ? 'admin' : 'user';
-  users.create(id, hash, {
+  const [verifierHash, recoveryVerifierHash] = await Promise.all([
+    bcrypt.hash(authVerifier, 12),
+    bcrypt.hash(envelope.recoveryVerifier, 12),
+  ]);
+  users.create(id, verifierHash, {
     email: normEmail,
     role,
-    kdfSalt: kdf_salt ?? null,
-    zkVerify: zk_verify ?? null,
     signupIp: req.ip ?? null,
+    env: {
+      authSalt:           envelope.authSalt,
+      kdfSalt:            envelope.kdfSalt,
+      recoverySalt:       envelope.recoverySalt,
+      recoveryAuthSalt:   envelope.recoveryAuthSalt,
+      recoveryVerifierHash,
+      wrappedDekPassword: envelope.wrappedDekPassword,
+      wrappedDekRecovery: envelope.wrappedDekRecovery,
+    },
   });
   res.json(authPayload(users.getById(id)));
 });
 
 /**
- * POST /api/auth/setup
- * Legacy first-time password creation (kept for the mobile app).
- * Only works when no user exists yet.
- * Body: { password: string }
- */
-router.post('/setup', async (req, res) => {
-  if (users.count() > 0) {
-    return res.status(409).json({ error: 'App is already set up. Use /login instead.' });
-  }
-  const { password } = req.body;
-  if (!password || password.length < 4) {
-    return res.status(400).json({ error: 'Password must be at least 4 characters.' });
-  }
-  const id = crypto.randomUUID();
-  const hash = await bcrypt.hash(password, 12);
-  users.create(id, hash, { role: 'admin' });
-  res.json({ token: makeToken(id) });
-});
-
-/**
  * POST /api/auth/login
- * Body: { email?: string, password: string }
- * Email is required once more than one account exists. When omitted, falls
- * back to the legacy single account created before emails existed (this
- * also keeps the mobile app's password-only login working).
+ * Body: { email, authVerifier }
  */
 router.post('/login', authLimiter, async (req, res) => {
-  const { email, password } = req.body ?? {};
-  if (!password) return res.status(400).json({ error: 'Password is required.' });
-
-  let user;
-  if (email?.trim()) {
-    user = users.getByEmail(email.trim().toLowerCase());
-  } else {
-    const legacy = users.getLegacyUsers();
-    if (legacy.length === 1 && users.count() === 1) {
-      user = legacy[0];
-    } else if (users.count() === 0) {
-      return res.status(404).json({ error: 'No account exists yet. Create one first.' });
-    } else {
-      return res.status(400).json({ error: 'Email is required.' });
-    }
+  const { email, authVerifier } = req.body ?? {};
+  const normEmail = email?.trim().toLowerCase();
+  if (!normEmail || !VERIFIER_RE.test(authVerifier ?? '')) {
+    return res.status(400).json({ error: 'Invalid email or password.' });
   }
 
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid email or password.' });
-  }
-  if (user.is_blocked) {
+  const user = users.getByEmail(normEmail);
+  // Compare against a dummy hash for unknown users so timing doesn't leak existence.
+  const hash = user?.password_hash ?? '$2a$12$0000000000000000000000000000000000000000000000000000a';
+
+  if (user?.is_blocked) {
     return res.status(403).json({ error: 'This account has been blocked. Contact the administrator.' });
   }
-  if (user.locked_until && user.locked_until > Math.floor(Date.now() / 1000)) {
+  if (user?.locked_until && user.locked_until > Math.floor(Date.now() / 1000)) {
     const minutes = Math.ceil((user.locked_until - Date.now() / 1000) / 60);
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${minutes} minute(s).` });
   }
-  const match = await bcrypt.compare(password, user.password_hash);
-  if (!match) {
-    users.recordFailedLogin(user.id);
+
+  const match = await bcrypt.compare(authVerifier, hash);
+  if (!user || !match) {
+    if (user) users.recordFailedLogin(user.id);
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
   users.resetLoginAttempts(user.id);
@@ -178,9 +204,70 @@ router.post('/login', authLimiter, async (req, res) => {
 });
 
 /**
- * PUT /api/auth/email
- * Lets a legacy account (or anyone) set/change their login email.
- * Body: { email: string }
+ * POST /api/auth/recovery-envelope
+ * Body: { email }
+ * Returns the recovery-side material so the client can unwrap the DEK with the
+ * user's recovery code and build a reset. Enumeration-safe (fake for unknown).
+ */
+router.post('/recovery-envelope', authLimiter, (req, res) => {
+  const email = req.body?.email?.trim().toLowerCase();
+  if (!email || !EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+  const user = users.getByEmail(email);
+  if (user?.recovery_salt && user?.wrapped_dek_recovery) {
+    return res.json({
+      recovery_salt:        user.recovery_salt,
+      recovery_auth_salt:   user.recovery_auth_salt,
+      wrapped_dek_recovery: user.wrapped_dek_recovery,
+    });
+  }
+  // Fake but realistic — wrapped blob shape can't be faithfully forged, so we
+  // return a plausible-looking encrypted blob the client will simply fail to
+  // unwrap (same observable outcome as a wrong recovery code).
+  res.json({
+    recovery_salt:        fakeSalt(email, 'rec'),
+    recovery_auth_salt:   fakeSalt(email, 'recauth'),
+    wrapped_dek_recovery: 'zk1:' + crypto.randomBytes(60).toString('base64'),
+  });
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Body: { email, recoveryVerifier, envelope: { authVerifier, authSalt, kdfSalt, wrappedDekPassword } }
+ * The client proves it holds the recovery code (recoveryVerifier) and supplies a
+ * DEK freshly re-wrapped under the new password. Server never sees either secret.
+ */
+router.post('/reset-password', authLimiter, async (req, res) => {
+  const { email, recoveryVerifier, envelope } = req.body ?? {};
+  const normEmail = email?.trim().toLowerCase();
+  if (!normEmail || !VERIFIER_RE.test(recoveryVerifier ?? '')) {
+    return res.status(400).json({ error: 'Invalid recovery code.' });
+  }
+  if (!envelope || !VERIFIER_RE.test(envelope.authVerifier ?? '') ||
+      !envelope.authSalt || !envelope.kdfSalt || !envelope.wrappedDekPassword) {
+    return res.status(400).json({ error: 'Incomplete reset envelope.' });
+  }
+
+  const user = users.getByEmail(normEmail);
+  const recHash = user?.recovery_verifier ?? '$2a$12$0000000000000000000000000000000000000000000000000000a';
+  const ok = await bcrypt.compare(recoveryVerifier, recHash);
+  if (!user || !ok) {
+    return res.status(401).json({ error: 'That recovery code is not valid for this account.' });
+  }
+
+  const verifierHash = await bcrypt.hash(envelope.authVerifier, 12);
+  users.setPasswordEnvelope(user.id, {
+    verifierHash,
+    authSalt:           envelope.authSalt,
+    kdfSalt:            envelope.kdfSalt,
+    wrappedDekPassword: envelope.wrappedDekPassword,
+  });
+  res.json(authPayload(users.getById(user.id)));
+});
+
+/**
+ * PUT /api/auth/email — set/change login email.
  */
 router.put('/email', requireAuth, (req, res) => {
   const normEmail = req.body?.email?.trim().toLowerCase();
@@ -196,23 +283,7 @@ router.put('/email', requireAuth, (req, res) => {
 });
 
 /**
- * PUT /api/auth/zk-enable
- * Enables zero-knowledge encryption for the authenticated user.
- * Body: { kdf_salt: hex string, zk_verify: base64 string }
- */
-router.put('/zk-enable', requireAuth, (req, res) => {
-  const { kdf_salt, zk_verify } = req.body;
-  if (!kdf_salt || !zk_verify) {
-    return res.status(400).json({ error: 'kdf_salt and zk_verify are required' });
-  }
-  userZk.enableZk(req.userId, kdf_salt, zk_verify);
-  res.json({ ok: true });
-});
-
-/**
- * PUT /api/auth/timezone
- * Updates the user's timezone for notification scheduling.
- * Body: { timezone: IANA string }
+ * PUT /api/auth/timezone — update timezone for notification scheduling.
  */
 router.put('/timezone', requireAuth, (req, res) => {
   const { timezone } = req.body;

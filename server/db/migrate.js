@@ -208,6 +208,20 @@ export function runMigrations(db) {
       created_at                INTEGER NOT NULL DEFAULT (unixepoch()),
       updated_at                INTEGER NOT NULL DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS calendar_connections (
+      id               TEXT PRIMARY KEY,
+      user_id          TEXT NOT NULL,
+      provider         TEXT NOT NULL,
+      account_email    TEXT,
+      access_token     TEXT NOT NULL,
+      refresh_token    TEXT NOT NULL,
+      token_expires_at INTEGER NOT NULL,
+      scope            TEXT,
+      created_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 
   // Additive column migrations — safe to run repeatedly; ignore "duplicate column" errors
@@ -223,9 +237,23 @@ export function runMigrations(db) {
     `ALTER TABLE users  ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE users  ADD COLUMN locked_until  INTEGER`,
     `ALTER TABLE users  ADD COLUMN signup_ip     TEXT`,
+    // Envelope zero-knowledge (Model B). password_hash stores bcrypt(authVerifier),
+    // never the password. The DEK is wrapped under both the password-derived key
+    // and the recovery-code-derived key; the server only ever holds these blobs.
+    `ALTER TABLE users  ADD COLUMN auth_salt            TEXT`,
+    `ALTER TABLE users  ADD COLUMN recovery_salt        TEXT`,
+    `ALTER TABLE users  ADD COLUMN recovery_auth_salt   TEXT`,
+    `ALTER TABLE users  ADD COLUMN recovery_verifier    TEXT`,
+    `ALTER TABLE users  ADD COLUMN wrapped_dek_password TEXT`,
+    `ALTER TABLE users  ADD COLUMN wrapped_dek_recovery TEXT`,
     `ALTER TABLE linked_calendars ADD COLUMN url            TEXT`,
     `ALTER TABLE linked_calendars ADD COLUMN sync_enabled   INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE linked_calendars ADD COLUMN last_synced_at INTEGER`,
+    // OAuth-backed calendars: 'ics' (default) | 'google' | 'microsoft', plus the
+    // connection it syncs through and the provider's own calendar id.
+    `ALTER TABLE linked_calendars ADD COLUMN source               TEXT NOT NULL DEFAULT 'ics'`,
+    `ALTER TABLE linked_calendars ADD COLUMN connection_id        TEXT`,
+    `ALTER TABLE linked_calendars ADD COLUMN external_calendar_id TEXT`,
     `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
     `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
   ];

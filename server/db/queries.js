@@ -25,6 +25,9 @@ function deserializeLinkedCal(row) {
     excludeFromReality: row.exclude_from_reality === 1,
     syncEnabled:        row.sync_enabled === 1,
     lastSyncedAt:       row.last_synced_at ?? null,
+    source:             row.source ?? 'ics',
+    connectionId:       row.connection_id ?? null,
+    externalCalendarId: row.external_calendar_id ?? null,
   };
 }
 
@@ -39,13 +42,44 @@ export const users = {
   /** Legacy single-user deployments: the one account created before emails existed. */
   getLegacyUsers: () => db.prepare('SELECT * FROM users WHERE email IS NULL').all(),
 
-  create: (id, passwordHash, opts = {}) => {
-    const { email = null, role = 'user', kdfSalt = null, zkVerify = null, signupIp = null } = opts;
+  /**
+   * Create an account under the envelope ZK model. `verifierHash` is
+   * bcrypt(authVerifier) — the server never sees the password. `env` carries the
+   * client-built envelope (salts + wrapped DEK blobs + bcrypt(recoveryVerifier)).
+   */
+  create: (id, verifierHash, opts = {}) => {
+    const { email = null, role = 'user', signupIp = null, env = {} } = opts;
     db.prepare(`
-      INSERT INTO users (id, password_hash, email, role, kdf_salt, zk_verify, zk_enabled, signup_ip)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, passwordHash, email, role, kdfSalt, zkVerify, kdfSalt && zkVerify ? 1 : 0, signupIp);
+      INSERT INTO users (
+        id, password_hash, email, role, signup_ip, zk_enabled,
+        auth_salt, kdf_salt, recovery_salt, recovery_auth_salt, recovery_verifier,
+        wrapped_dek_password, wrapped_dek_recovery
+      )
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, verifierHash, email, role, signupIp,
+      env.authSalt ?? null, env.kdfSalt ?? null, env.recoverySalt ?? null,
+      env.recoveryAuthSalt ?? null, env.recoveryVerifierHash ?? null,
+      env.wrappedDekPassword ?? null, env.wrappedDekRecovery ?? null,
+    );
   },
+
+  /** Salts the client needs to derive the auth verifier + unlock (prelogin). */
+  getLoginSalts: (id) =>
+    db.prepare('SELECT auth_salt, kdf_salt, wrapped_dek_password FROM users WHERE id = ?').get(id),
+
+  /** Recovery-side material for a password reset. */
+  getRecoveryEnvelope: (id) =>
+    db.prepare('SELECT recovery_salt, recovery_auth_salt, recovery_verifier, wrapped_dek_recovery FROM users WHERE id = ?').get(id),
+
+  /** Apply a recovery-based password reset: new verifier + re-wrapped DEK. */
+  setPasswordEnvelope: (id, { verifierHash, authSalt, kdfSalt, wrappedDekPassword }) =>
+    db.prepare(`
+      UPDATE users
+      SET password_hash = ?, auth_salt = ?, kdf_salt = ?, wrapped_dek_password = ?,
+          failed_login_attempts = 0, locked_until = NULL
+      WHERE id = ?
+    `).run(verifierHash, authSalt, kdfSalt, wrappedDekPassword, id),
 
   /** Admin view — deliberately excludes password_hash and ZK secrets. */
   listAll: () =>
@@ -57,9 +91,6 @@ export const users = {
   /** Scheduler-only view — every non-blocked user's id/timezone, nothing sensitive. */
   getAllForScheduler: () =>
     db.prepare('SELECT id, user_timezone FROM users WHERE is_blocked = 0').all(),
-
-  setPassword: (id, passwordHash) =>
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id),
 
   setBlocked: (id, blocked) =>
     db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, id),
@@ -332,18 +363,21 @@ export const linkedCalendars = {
 
   create: (userId, cal) => {
     db.prepare(`
-      INSERT INTO linked_calendars (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality, url, sync_enabled, last_synced_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO linked_calendars
+        (id, user_id, name, filename, calendar, imported_at, color, exclude_from_reality,
+         url, sync_enabled, last_synced_at, source, connection_id, external_calendar_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(cal.id, userId, cal.name, cal.filename ?? null, cal.calendar,
            cal.importedAt ?? null, cal.color ?? null, cal.excludeFromReality ? 1 : 0,
-           cal.url ?? null, cal.syncEnabled ? 1 : 0, cal.lastSyncedAt ?? null);
+           cal.url ?? null, cal.syncEnabled ? 1 : 0, cal.lastSyncedAt ?? null,
+           cal.source ?? 'ics', cal.connectionId ?? null, cal.externalCalendarId ?? null);
     return deserializeLinkedCal(
       db.prepare('SELECT * FROM linked_calendars WHERE id = ?').get(cal.id)
     );
   },
 
   update: (userId, id, updates) => {
-    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality','url','sync_enabled','last_synced_at'];
+    const allowed = ['name','filename','calendar','imported_at','color','exclude_from_reality','url','sync_enabled','last_synced_at','source','connection_id','external_calendar_id'];
     // Map camelCase to snake_case for DB
     const mapped = {};
     if (updates.name !== undefined)                mapped.name = updates.name;
@@ -355,6 +389,9 @@ export const linkedCalendars = {
     if (updates.url !== undefined)                  mapped.url = updates.url;
     if (updates.syncEnabled !== undefined)          mapped.sync_enabled = updates.syncEnabled ? 1 : 0;
     if (updates.lastSyncedAt !== undefined)         mapped.last_synced_at = updates.lastSyncedAt;
+    if (updates.source !== undefined)               mapped.source = updates.source;
+    if (updates.connectionId !== undefined)         mapped.connection_id = updates.connectionId;
+    if (updates.externalCalendarId !== undefined)   mapped.external_calendar_id = updates.externalCalendarId;
 
     const fields = Object.keys(mapped).filter(k => allowed.includes(k));
     if (!fields.length) return;
@@ -368,6 +405,57 @@ export const linkedCalendars = {
 
   delete: (userId, id) => {
     db.prepare('DELETE FROM linked_calendars WHERE id = ? AND user_id = ?').run(id, userId);
+  },
+};
+
+// ── Calendar Connections (OAuth) ──────────────────────────────────────────────
+// Tokens are stored pre-encrypted (see server/lib/tokenCrypto.js) — this module
+// never encrypts/decrypts, it just persists whatever string it's given. Never
+// return access_token/refresh_token to a client.
+
+export const calendarConnections = {
+  /** Metadata only — safe to return to the client. */
+  getAll: (userId) =>
+    db.prepare(
+      'SELECT id, provider, account_email, created_at FROM calendar_connections WHERE user_id = ?'
+    ).all(userId).map(r => ({
+      id: r.id, provider: r.provider, accountEmail: r.account_email, createdAt: r.created_at,
+    })),
+
+  /** Full row incl. encrypted tokens — server-internal use only. Scoped to the owner. */
+  getById: (userId, id) =>
+    db.prepare('SELECT * FROM calendar_connections WHERE id = ? AND user_id = ?').get(id, userId),
+
+  create: (userId, conn) => {
+    const id = conn.id ?? randomUUID();
+    db.prepare(`
+      INSERT INTO calendar_connections
+        (id, user_id, provider, account_email, access_token, refresh_token, token_expires_at, scope)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, userId, conn.provider, conn.accountEmail ?? null,
+           conn.accessToken, conn.refreshToken, conn.tokenExpiresAt, conn.scope ?? null);
+    return calendarConnections.getById(userId, id);
+  },
+
+  /** Persist refreshed tokens. id alone (no userId) — caller already holds an owned row. */
+  updateTokens: (id, { accessToken, tokenExpiresAt, refreshToken }) => {
+    if (refreshToken !== undefined) {
+      db.prepare(`
+        UPDATE calendar_connections
+        SET access_token = ?, token_expires_at = ?, refresh_token = ?, updated_at = unixepoch()
+        WHERE id = ?
+      `).run(accessToken, tokenExpiresAt, refreshToken, id);
+    } else {
+      db.prepare(`
+        UPDATE calendar_connections
+        SET access_token = ?, token_expires_at = ?, updated_at = unixepoch()
+        WHERE id = ?
+      `).run(accessToken, tokenExpiresAt, id);
+    }
+  },
+
+  delete: (userId, id) => {
+    db.prepare('DELETE FROM calendar_connections WHERE id = ? AND user_id = ?').run(id, userId);
   },
 };
 
@@ -678,13 +766,9 @@ export const userProfile = {
 // ── Users (ZK extension) ──────────────────────────────────────────────────────
 
 export const userZk = {
-  getStatus: (userId) =>
-    db.prepare('SELECT kdf_salt, zk_enabled, zk_verify, user_timezone FROM users WHERE id = ?').get(userId),
-
-  enableZk: (userId, kdfSalt, zkVerify) => {
-    db.prepare('UPDATE users SET kdf_salt = ?, zk_enabled = 1, zk_verify = ? WHERE id = ?')
-      .run(kdfSalt, zkVerify, userId);
-  },
+  /** Envelope material the client needs to re-derive its key after a reload. */
+  getUnlockEnvelope: (userId) =>
+    db.prepare('SELECT kdf_salt, wrapped_dek_password, user_timezone FROM users WHERE id = ?').get(userId),
 
   setTimezone: (userId, tz) => {
     db.prepare('UPDATE users SET user_timezone = ? WHERE id = ?').run(tz, userId);
