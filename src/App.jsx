@@ -164,7 +164,7 @@ export default function App() {
   const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
-  const [theme, setTheme] = usePersistentState('lc-theme', 'light');
+  const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
   const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
   const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
   const [showWeekNumbers, setShowWeekNumbers] = usePersistentState('lc-week-numbers', false);
@@ -1086,7 +1086,10 @@ export default function App() {
                             <div className="space-y-3">
                             {sv(['dark', 'mode', 'theme']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                <span className="text-sm text-gray-600 dark:text-gray-400">Dark mode</span>
+                                <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                                  <span className="text-base leading-none">{theme === 'dark' ? '🌙' : '☀️'}</span>
+                                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+                                </span>
                                 <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
                               </label>
                             )}
