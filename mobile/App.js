@@ -15,6 +15,7 @@ import { useBudgets } from './src/hooks/useBudgets.js';
 import { useCategoryKeywords } from './src/hooks/useCategoryKeywords.js';
 import { useLlmSettings } from './src/hooks/useLlmSettings.js';
 import { usePersistentState } from './src/hooks/usePersistentState.js';
+import { useAppUpdater } from './src/hooks/useAppUpdater.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { getTheme } from './src/lib/theme.js';
 import { useState } from 'react';
@@ -27,6 +28,7 @@ import RealityScreen  from './src/screens/RealityScreen.jsx';
 import TodoScreen     from './src/screens/TodoScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
 import ParseModal     from './src/components/ParseModal.jsx';
+import UpdateBanner   from './src/components/UpdateBanner.jsx';
 
 const Tab = createBottomTabNavigator();
 
@@ -49,6 +51,7 @@ export default function App() {
 
 function Main() {
   const auth        = useAuth();
+  const updater     = useAppUpdater();
   const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-m-assume-completed', true);
   const eventsData  = useEvents(auth.authState, auth.masterKey, auth.isZkEnabled, assumeCompleted);
   const habitsData  = useHabits(auth.authState, auth.masterKey, auth.isZkEnabled);
@@ -212,6 +215,8 @@ function Main() {
     profile,             setProfile,
     // theme colours (pre-computed so screens don't re-derive on every render)
     T,
+    // OTA updates
+    updater,
   };
 
   return (
@@ -248,6 +253,7 @@ function Main() {
           initialText={parseModalText}
           onClose={closeParseModal}
         />
+        <UpdateBanner updater={updater} T={T} />
         <StatusBar style={darkMode ? 'light' : 'dark'} />
       </SafeAreaProvider>
     </AppContext.Provider>

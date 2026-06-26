@@ -7,6 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "pls-calendar",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/102f8f2e-d692-4f96-b460-9cbc2a38064c"
+    },
     "plugins": [
       [
         "expo-share-intent",
