@@ -203,6 +203,7 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
   const [endDate,   setEndDate]   = useState(todayStr());
   const [startTime, setStartTime] = useState(start);
   const [endTime,   setEndTime]   = useState(addOneHour(start));
+  const [allDay,    setAllDay]    = useState(false);
   const [catId,     setCatId]     = useState(allCategories[0]?.id ?? 'personal');
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -212,11 +213,18 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
     if (endDate < val) setEndDate(val);
   }
   function handleStartTimeChange(val) {
+    setAllDay(false);
     setStartTime(val);
     // Only force end-time forward when on the same day
     if (endDate === startDate && timeToSlot(endTime) <= timeToSlot(val)) {
       setEndTime(slotToTimeStr(timeToSlot(val) + 2));
     }
+  }
+  function handleEndTimeChange(val) { setAllDay(false); setEndTime(val); }
+  // "All day" spans the full day: midnight → 11:59 PM.
+  function toggleAllDay(checked) {
+    setAllDay(checked);
+    if (checked) { setStartTime('00:00'); setEndTime('23:59'); }
   }
 
   function handleSave() {
@@ -229,7 +237,7 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
         label: label.trim(), category: catId, color: cat?.color ?? '#6B7280',
         week_start, day_of_week,
         slot_start: seg.slotStart, slot_duration: seg.slotDuration,
-        precision: 0.5, calendar, source: 'manual', is_all_day: false,
+        precision: 0.5, calendar, source: 'manual', is_all_day: allDay,
       });
     }
     onClose();
@@ -254,9 +262,14 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
         startDate={startDate} startTime={startTime}
         endDate={endDate}    endTime={endTime}
         onStartChange={handleStartTimeChange}
-        onEndChange={setEndTime}
+        onEndChange={handleEndTimeChange}
         militaryTime={militaryTime}
       />
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input type="checkbox" checked={allDay} onChange={e => toggleAllDay(e.target.checked)}
+          className="w-4 h-4 rounded accent-blue-500" />
+        <span className="text-sm text-gray-600 dark:text-gray-300">All day <span className="text-gray-400 dark:text-gray-500">(midnight → 11:59 PM)</span></span>
+      </label>
       <Field label="Category">
         <CategoryPills allCategories={allCategories} value={catId} onChange={setCatId} />
       </Field>
@@ -580,9 +593,9 @@ export default function QuickAddFAB({
         {/* Chips — above FAB */}
         {open && chipsAbove && (
           <div className="absolute bottom-full right-0 mb-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
             <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
             <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
             <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
           </div>
@@ -610,9 +623,9 @@ export default function QuickAddFAB({
           <div className="absolute top-full right-0 mt-3 flex flex-col items-end gap-2">
             <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
             <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
             <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
+            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
           </div>
         )}
 
