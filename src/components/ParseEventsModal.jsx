@@ -163,6 +163,13 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
                 onChange={e => onChange({ ...draft, endTime: e.target.value })} />
             </Field>
           </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" checked={!!draft.allDay} className="w-4 h-4 rounded accent-blue-500"
+              onChange={e => onChange(e.target.checked
+                ? { ...draft, allDay: true, startTime: '00:00', endTime: '23:59' }
+                : { ...draft, allDay: false })} />
+            <span className="text-sm text-gray-600 dark:text-gray-300">All day <span className="text-gray-400 dark:text-gray-500">(midnight → 11:59 PM)</span></span>
+          </label>
           <Field label="Category">
             <CategoryPills allCategories={allCategories} value={draft.catId}
               onChange={catId => onChange({ ...draft, catId })} />
@@ -265,7 +272,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
           precision:  0.5,
           calendar:   d.calendar,
           source:     'paste',
-          is_all_day: false,
+          is_all_day: !!d.allDay,
         };
       });
     });

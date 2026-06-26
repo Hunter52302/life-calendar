@@ -1379,7 +1379,7 @@ export default function App() {
                       </div>
                       )}
 
-                      {/* ── AI-Assisted Text/Voice Parsing (collapsible) ── */}
+                      {/* ── Text/Voice Parsing (collapsible) ── */}
                       {sv(SECTION_KWS.aiParsing) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
@@ -1387,7 +1387,7 @@ export default function App() {
                           onClick={() => setAiParsingOpen(v => !v)}
                           className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">AI-Assisted Text/Voice Parsing</span>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Text/Voice Parsing</span>
                           <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(aiParsingOpen, SECTION_KWS.aiParsing) ? '▲' : '▼'}</span>
                         </button>
                         {so(aiParsingOpen, SECTION_KWS.aiParsing) && (
