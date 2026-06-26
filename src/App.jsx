@@ -85,6 +85,8 @@ import { usePersistentState } from './hooks/usePersistentState';
 import { useTasks } from './hooks/useTasks';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
+import UpdateSettings from './components/UpdateSettings';
+import useDesktopUpdater from './hooks/useDesktopUpdater';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -181,8 +183,8 @@ export default function App() {
   const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
   const [downloadOpen,   setDownloadOpen]   = useState(false);
   const [showDownload,   setShowDownload]   = useState(false);
-  const [updateStatus,   setUpdateStatus]   = useState('idle'); // 'idle' | 'checking' | 'available' | 'latest' | 'error'
-  const [updateVersion,  setUpdateVersion]  = useState(null);
+  const desktopUpdater = useDesktopUpdater();
+  const [webAutoUpdate, setWebAutoUpdate] = usePersistentState('lc-web-auto-update', false);
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
@@ -2834,40 +2836,29 @@ export default function App() {
                                   </div>
 
                                   {/* Check for Updates */}
-                                  <div className="pt-1 border-t border-gray-100 dark:border-gray-800">
-                                    {typeof window.__TAURI__ !== 'undefined' ? (
-                                      <button
-                                        type="button"
-                                        disabled={updateStatus === 'checking'}
-                                        onClick={async () => {
-                                          setUpdateStatus('checking'); setUpdateVersion(null);
-                                          try {
-                                            const { check } = await import('@tauri-apps/plugin-updater');
-                                            const update = await check();
-                                            if (update?.available) { setUpdateStatus('available'); setUpdateVersion(update.version); }
-                                            else { setUpdateStatus('latest'); }
-                                          } catch { setUpdateStatus('error'); }
-                                        }}
-                                        className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-                                      >
-                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">
-                                          {updateStatus === 'checking' ? 'Checking…' : updateStatus === 'available' ? `v${updateVersion} available!` : updateStatus === 'latest' ? 'Up to date ✓' : updateStatus === 'error' ? 'Check failed — try again' : 'Check for Updates'}
-                                        </span>
-                                        {updateStatus === 'checking'
-                                          ? <svg className="w-3.5 h-3.5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-                                          : updateStatus === 'available'
-                                            ? <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-400">Install →</span>
-                                            : <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                        }
-                                      </button>
-                                    ) : (
+                                  {typeof window.__TAURI__ !== 'undefined' ? (
+                                    <UpdateSettings updater={desktopUpdater} />
+                                  ) : (
+                                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
                                       <a href="https://github.com/Hunter52302/life-calendar/releases/latest" target="_blank" rel="noopener noreferrer"
                                         className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                                         <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Check for Updates</span>
                                         <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                                       </a>
-                                    )}
-                                  </div>
+                                      <div className="flex items-center justify-between px-1">
+                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Install updates automatically</span>
+                                        <button
+                                          type="button"
+                                          role="switch"
+                                          aria-checked={webAutoUpdate}
+                                          onClick={() => setWebAutoUpdate(!webAutoUpdate)}
+                                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webAutoUpdate ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                        >
+                                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${webAutoUpdate ? 'translate-x-[18px]' : 'translate-x-1'}`} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
 
                                   <p className="text-[10px] text-gray-300 dark:text-gray-700 text-center">© {new Date().getFullYear()} PLS Calendar</p>
                                 </div>
@@ -3110,7 +3101,7 @@ export default function App() {
 
         {/* Install prompt — "Add to Home Screen" banner */}
         <InstallPrompt />
-        <UpdateBanner />
+        <UpdateBanner updater={desktopUpdater} />
 
         {/* Floating quick-add button — todo page */}
         {activePage === 'todo' && todoView === 'list' && (

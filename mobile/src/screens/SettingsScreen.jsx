@@ -6,8 +6,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, CommonActions } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import { AppContext } from '../context/AppContext.js';
 import { generateId } from '../lib/utils.js';
+
+const UPDATE_STATUS_LABEL = {
+  checking: 'Checking…',
+  available: 'Update available!',
+  rollback: 'Fix available — tap to install',
+  latest: 'Up to date ✓',
+  installing: 'Installing…',
+  error: 'Check failed — try again',
+};
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 const ADMIN_TOKEN_KEY = 'lc-admin-token'; // sessionStorage not available on RN — use module var
@@ -608,6 +618,7 @@ export default function SettingsScreen() {
     habits,
     llmSettings,         setLlmSettings,
     assumeCompleted,     setAssumeCompleted,
+    updater,
   } = useContext(AppContext);
 
   const navigation = useNavigation();
@@ -1633,6 +1644,41 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
             </Pressable>
+          </Section>
+        )}
+
+        {/* ── Updates ── */}
+        {matches('updates', 'update', 'version', 'about', 'auto update', 'ota') && (
+          <Section title="Updates" icon="cloud-download-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
+            <View style={s.tzSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={[s.rowSub, { color: T.textFaint }]}>Version</Text>
+                <Text style={[s.rowSub, { color: T.textMuted }]}>v{Constants.expoConfig?.version ?? '1.0.0'}</Text>
+              </View>
+            </View>
+            <Pressable
+              style={s.tutRow}
+              disabled={updater.status === 'checking' || updater.status === 'installing'}
+              onPress={() => (updater.status === 'available' || updater.status === 'rollback' ? updater.apply() : updater.checkNow())}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[s.rowTitle, { color: T.text }]}>
+                  {UPDATE_STATUS_LABEL[updater.status] ?? 'Check for Updates'}
+                </Text>
+              </View>
+              {updater.status === 'checking' || updater.status === 'installing'
+                ? <ActivityIndicator size="small" color={T.accent} />
+                : <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
+              }
+            </Pressable>
+            <SettingRow
+              label="Install updates automatically"
+              sub="Otherwise you'll be prompted to update manually"
+              value={updater.autoUpdate}
+              onValueChange={updater.setAutoUpdate}
+              last
+              T={T}
+            />
           </Section>
         )}
 

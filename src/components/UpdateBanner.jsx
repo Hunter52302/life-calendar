@@ -1,41 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 /**
- * UpdateBanner — listens for the "update-available" event emitted by the
- * Tauri backend and shows a dismissable banner prompting the user to restart.
- * Only renders inside a Tauri desktop window (no-ops in the browser/PWA).
+ * UpdateBanner — shows a dismissable banner when a desktop update is
+ * available (manual mode) or a brief "installing" notice (auto-update mode,
+ * right before the app relaunches itself). No-ops in the browser/PWA.
+ *
+ * Takes the shared `updater` (from useDesktopUpdater) as a prop rather than
+ * calling the hook itself, so it stays in sync with the About panel's
+ * updater controls instead of running its own independent listener/state.
  */
-export default function UpdateBanner() {
-  const [update, setUpdate] = useState(null); // { version, body }
+export default function UpdateBanner({ updater }) {
+  const { autoUpdate, status, pending, install } = updater;
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
-    // Only run inside Tauri
-    if (typeof window.__TAURI__ === 'undefined') return;
-
-    let unlisten;
-    import('@tauri-apps/api/event').then(({ listen }) => {
-      listen('update-available', event => {
-        setUpdate(event.payload);
-        setDismissed(false);
-      }).then(fn => { unlisten = fn; });
-    });
-
-    return () => { unlisten?.(); };
-  }, []);
-
-  async function handleInstall() {
-    if (typeof window.__TAURI__ === 'undefined') return;
-    try {
-      const { relaunch } = await import('@tauri-apps/plugin-process');
-      await relaunch();
-    } catch {
-      // Fallback — just close the banner
-      setDismissed(true);
-    }
+  if (status === 'installing') {
+    return (
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-5 py-3 bg-indigo-600 text-white shadow-xl">
+        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+        <span className="text-sm font-medium">Installing update — restarting…</span>
+      </div>
+    );
   }
 
-  if (!update || dismissed) return null;
+  if (!pending || status !== 'available' || autoUpdate || dismissed) return null;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between gap-4 px-5 py-3 bg-indigo-600 text-white shadow-xl">
@@ -44,16 +31,16 @@ export default function UpdateBanner() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
         </svg>
         <span className="text-sm font-medium truncate">
-          PLS Calendar <strong>v{update.version}</strong> is ready to install
+          PLS Calendar <strong>v{pending.version}</strong> is ready to install
         </span>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         <button
           type="button"
-          onClick={handleInstall}
+          onClick={() => install(pending)}
           className="text-sm font-semibold px-3 py-1.5 rounded-lg bg-white text-indigo-600 hover:bg-indigo-50 transition-colors"
         >
-          Restart &amp; Update
+          Update &amp; Restart
         </button>
         <button
           type="button"
