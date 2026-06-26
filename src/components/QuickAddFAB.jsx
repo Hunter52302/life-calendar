@@ -258,20 +258,23 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
         onStartChange={handleStartDateChange}
         onEndChange={setEndDate}
       />
-      <TimeRow
-        startDate={startDate} startTime={startTime}
-        endDate={endDate}    endTime={endTime}
-        onStartChange={handleStartTimeChange}
-        onEndChange={handleEndTimeChange}
-        militaryTime={militaryTime}
-      />
+      {!allDay && (
+        <TimeRow
+          startDate={startDate} startTime={startTime}
+          endDate={endDate}    endTime={endTime}
+          onStartChange={handleStartTimeChange}
+          onEndChange={handleEndTimeChange}
+          militaryTime={militaryTime}
+        />
+      )}
       <label className="flex items-center gap-2 cursor-pointer select-none">
         <input type="checkbox" checked={allDay} onChange={e => toggleAllDay(e.target.checked)}
           className="w-4 h-4 rounded accent-blue-500" />
-        <span className="text-sm text-gray-600 dark:text-gray-300">All day <span className="text-gray-400 dark:text-gray-500">(midnight → 11:59 PM)</span></span>
+        <span className="text-sm text-gray-600 dark:text-gray-300">All day</span>
       </label>
       <Field label="Category">
-        <CategoryPills allCategories={allCategories} value={catId} onChange={setCatId} />
+        <CategoryPills allCategories={allCategories} value={catId}
+          onChange={id => setCatId(c => c === id ? null : id)} />
       </Field>
       <SaveRow
         onClose={onClose} onSave={handleSave}
