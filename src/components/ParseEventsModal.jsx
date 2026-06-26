@@ -112,9 +112,15 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {fmtDate(draft.startDate)} · {fmtTime(draft.startTime, militaryTime)}
-            {' → '}
-            {isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}{fmtTime(draft.endTime, militaryTime)}
+            {draft.allDay ? (
+              <>{fmtDate(draft.startDate)}{isMultiDay ? ` → ${fmtDate(draft.endDate)}` : ''} · All day</>
+            ) : (
+              <>
+                {fmtDate(draft.startDate)} · {fmtTime(draft.startTime, militaryTime)}
+                {' → '}
+                {isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}{fmtTime(draft.endTime, militaryTime)}
+              </>
+            )}
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
             <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: allCategories.find(c => c.id === draft.catId)?.color ?? '#6B7280' }} />
@@ -148,20 +154,24 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
               <input type="date" value={draft.startDate} className={inputCls}
                 onChange={e => onChange({ ...draft, startDate: e.target.value })} />
             </Field>
-            <Field label="Start time" className="flex-1">
-              <input type="time" value={draft.startTime} className={inputCls}
-                onChange={e => onChange({ ...draft, startTime: e.target.value })} />
-            </Field>
+            {!draft.allDay && (
+              <Field label="Start time" className="flex-1">
+                <input type="time" value={draft.startTime} className={inputCls}
+                  onChange={e => onChange({ ...draft, startTime: e.target.value })} />
+              </Field>
+            )}
           </div>
           <div className="flex gap-2">
             <Field label="End date" className="flex-1">
               <input type="date" value={draft.endDate} className={inputCls}
                 onChange={e => onChange({ ...draft, endDate: e.target.value })} />
             </Field>
-            <Field label="End time" className="flex-1">
-              <input type="time" value={draft.endTime} className={inputCls}
-                onChange={e => onChange({ ...draft, endTime: e.target.value })} />
-            </Field>
+            {!draft.allDay && (
+              <Field label="End time" className="flex-1">
+                <input type="time" value={draft.endTime} className={inputCls}
+                  onChange={e => onChange({ ...draft, endTime: e.target.value })} />
+              </Field>
+            )}
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" checked={!!draft.allDay} className="w-4 h-4 rounded accent-blue-500"
@@ -172,7 +182,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
           </label>
           <Field label="Category">
             <CategoryPills allCategories={allCategories} value={draft.catId}
-              onChange={catId => onChange({ ...draft, catId })} />
+              onChange={catId => onChange({ ...draft, catId: draft.catId === catId ? null : catId })} />
           </Field>
           <Field label="Calendar">
             <div className="flex gap-2">

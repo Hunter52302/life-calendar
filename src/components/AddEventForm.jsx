@@ -235,7 +235,7 @@ export default function AddEventForm({
               <div className="grid grid-cols-2 gap-1.5">
                 {allCategories.map(cat => (
                   <div key={cat.id} className="relative group">
-                    <button type="button" onClick={() => setCategory(cat.id)}
+                    <button type="button" onClick={() => setCategory(c => c === cat.id ? null : cat.id)}
                       className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all text-left pr-7 ${
                         category === cat.id ? 'font-medium' : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'
                       }`}
