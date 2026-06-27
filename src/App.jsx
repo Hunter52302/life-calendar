@@ -1044,15 +1044,18 @@ export default function App() {
                 type="button"
                 onClick={() => setShowSettings(s => !s)}
                 className={`p-2 rounded-lg transition-colors text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 ${showSettings ? 'bg-gray-100 dark:bg-gray-700' : ''}`}
-                aria-label="Settings"
+                aria-label="Menu & settings"
               >
-                ⚙
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
               </button>
 
               {showSettings && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }} />
-                  <div className="absolute right-0 top-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-4 z-50 w-72 max-w-[calc(100vw-0.5rem)] max-h-[80vh] overflow-y-auto">
+                  <div className="fixed inset-0 z-40 bg-black/40 dark:bg-black/60" onClick={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }} />
+                  <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 pointer-events-none" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
+                  <div className="pointer-events-auto w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 max-h-[92vh] sm:max-h-[85vh] overflow-y-auto">
                     <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Settings</p>
 
                     {/* Settings search filter */}
@@ -3049,6 +3052,7 @@ export default function App() {
                         )}
                       </div>
 
+                  </div>
                   </div>
                 </>
               )}
