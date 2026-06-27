@@ -194,7 +194,7 @@ export default function AddEventForm({
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4 pb-safe-4 sm:pb-4"
+      className="fixed inset-0 bg-black/40 dark:bg-black/60 flex items-end sm:items-center justify-center z-50 p-4 pb-safe-4 sm:pb-4"
       onClick={onClose}
     >
       <div
