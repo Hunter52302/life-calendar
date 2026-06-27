@@ -33,6 +33,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@infisical/sdk": "^5.0.2",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
@@ -51,6 +52,7 @@
     "jspdf-autotable": "^5.0.8",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-router-dom": "^7.18.0",
     "web-push": "^3.6.7"
   },
   "optionalDependencies": {
