@@ -431,18 +431,64 @@ function MicIcon() {
   );
 }
 
-// ── Action chip ───────────────────────────────────────────────────────────────
-function ActionChip({ icon, label, sublabel, color, onClick }) {
+// ── Quick-add option row (centered popup menu) ─────────────────────────────────
+function OptionRow({ icon, label, sublabel, color, onClick }) {
   return (
     <button
       type="button" onClick={onClick}
-      className="flex items-center gap-2.5 pl-3 pr-4 py-2.5 rounded-full shadow-lg text-white text-sm font-medium transition-all duration-150 hover:scale-105 active:scale-95 focus:outline-none whitespace-nowrap"
-      style={{ backgroundColor: color }}
+      className="group w-full flex items-center gap-3.5 px-3 py-3 rounded-xl text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/60 active:bg-gray-100 dark:active:bg-gray-700 focus:outline-none"
     >
-      <span className="flex-shrink-0">{icon}</span>
-      <span>{label}</span>
-      <span className="text-white/70 text-xs font-normal">{sublabel}</span>
+      <span
+        className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white shadow-sm"
+        style={{ backgroundColor: color }}
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100 leading-tight">{label}</span>
+        <span className="block text-xs text-gray-400 dark:text-gray-500 leading-tight mt-0.5">{sublabel}</span>
+      </span>
+      <svg className="ml-auto w-4 h-4 text-gray-300 dark:text-gray-600 flex-shrink-0 transition-transform group-hover:translate-x-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+      </svg>
     </button>
+  );
+}
+
+// ── Centered quick-add menu (action sheet) ─────────────────────────────────────
+function QuickAddMenu({ onClose, onSelect }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[140] flex items-end sm:items-center justify-center bg-black/40 dark:bg-black/60 p-4 pb-safe-4 sm:pb-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Quick Add</h2>
+          <button
+            type="button" onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+            aria-label="Close"
+          >×</button>
+        </div>
+        <div className="p-2 sm:p-2.5">
+          <OptionRow icon={<CalIcon />}       color="#3B82F6" label="Add Event"   sublabel="to your Plan"        onClick={() => onSelect('event-plan')} />
+          <OptionRow icon={<CalIcon />}       color="#10B981" label="Add Event"   sublabel="to your Live log"    onClick={() => onSelect('event-live')} />
+          <OptionRow icon={<CarIcon />}       color="#F97316" label="Drive Time"  sublabel="auto-calculate route" onClick={() => onSelect('drive')} />
+          <OptionRow icon={<ClipboardIcon />} color="#8B5CF6" label="From Text"   sublabel="paste & parse events" onClick={() => onSelect('text')} />
+          <OptionRow icon={<MicIcon />}       color="#EF4444" label="Record Voice" sublabel="speak to add events" onClick={() => onSelect('voice')} />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -585,24 +631,17 @@ export default function QuickAddFAB({
     : {};
   const wrapperStyle2 = pos ? {} : { bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))', right: 'max(1.5rem, env(safe-area-inset-right, 0px))' };
   const wrapperCls = pos ? 'z-[120]' : 'fixed z-[120]';
-  const nearTop    = pos ? pos.y < 160 : false;
-  const chipsAbove = !nearTop;
   const cursorCls  = draggable ? (isDragging.current ? 'cursor-grabbing' : 'cursor-grab') : '';
+
+  function handleMenuSelect(choice) {
+    if (choice === 'voice') openVoiceMode();
+    else if (choice === 'text') openTextMode();
+    else openMode(choice);
+  }
 
   return (
     <>
       <div ref={containerRef} className={wrapperCls} style={{ ...wrapperStyle, ...wrapperStyle2 }}>
-
-        {/* Chips — above FAB */}
-        {open && chipsAbove && (
-          <div className="absolute bottom-full right-0 mb-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
-            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
-            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
-            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
-          </div>
-        )}
 
         {/* FAB button */}
         <button
@@ -621,21 +660,15 @@ export default function QuickAddFAB({
           </svg>
         </button>
 
-        {/* Chips — below FAB (near top of screen) */}
-        {open && !chipsAbove && (
-          <div className="absolute top-full right-0 mt-3 flex flex-col items-end gap-2">
-            <ActionChip icon={<MicIcon />}       label="Record Voice" sublabel="speak to add" color="#EF4444" onClick={openVoiceMode} />
-            <ActionChip icon={<ClipboardIcon />} label="From Text"  sublabel="paste & parse" color="#8B5CF6" onClick={openTextMode} />
-            <ActionChip icon={<CarIcon />}       label="Drive Time" sublabel="→ Live"        color="#F97316" onClick={() => openMode('drive')} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Live"        color="#10B981" onClick={() => openMode('event-live')} />
-            <ActionChip icon={<CalIcon />}       label="Add Event"  sublabel="→ Plan"        color="#3B82F6" onClick={() => openMode('event-plan')} />
-          </div>
-        )}
-
         {draggable && (
           <div className="absolute inset-0 rounded-full border-2 border-dashed border-white/40 pointer-events-none" />
         )}
       </div>
+
+      {/* Centered quick-add menu */}
+      {open && (
+        <QuickAddMenu onClose={() => setOpen(false)} onSelect={handleMenuSelect} />
+      )}
 
       {/* Forms */}
       {mode === 'event-plan' && (
