@@ -87,6 +87,7 @@ import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import UpdateSettings from './components/UpdateSettings';
 import useDesktopUpdater from './hooks/useDesktopUpdater';
+import useDesktopTray from './hooks/useDesktopTray';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -185,6 +186,8 @@ export default function App() {
   const [showDownload,   setShowDownload]   = useState(false);
   const desktopUpdater = useDesktopUpdater();
   const [webAutoUpdate, setWebAutoUpdate] = usePersistentState('lc-web-auto-update', false);
+  const [desktopReminders, setDesktopReminders] = usePersistentState('lc-desktop-reminders', true);
+  const [desktopReminderOffset, setDesktopReminderOffset] = usePersistentState('lc-desktop-reminder-offset', 10);
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
@@ -607,6 +610,14 @@ export default function App() {
   const weekPlanEvents = getWeekEvents(weekStart, 'plan');
   const weekActualEvents = getWeekEvents(weekStart, 'actual');
   const weekEnd = addDays(weekStart, 6);
+
+  // Desktop (Tauri) only: surface the next planned event in the system tray and
+  // fire a native reminder before it starts. No-ops on web/PWA.
+  useDesktopTray(planEvents, {
+    enabled: desktopReminders,
+    offsetMinutes: desktopReminderOffset,
+    militaryTime,
+  });
 
   function toggleView(v) {
     setEnabledViews(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
@@ -2834,6 +2845,33 @@ export default function App() {
                                       }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
                                     </div>
                                   </div>
+
+                                  {/* Desktop tray reminders (Tauri only) */}
+                                  {typeof window.__TAURI__ !== 'undefined' && (
+                                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
+                                      <div className="flex items-center justify-between px-1">
+                                        <div>
+                                          <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Tray reminders</p>
+                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Show the next event in the menubar and notify before it starts</p>
+                                        </div>
+                                        <Toggle checked={desktopReminders} onChange={() => setDesktopReminders(v => !v)} />
+                                      </div>
+                                      {desktopReminders && (
+                                        <div className="flex items-center justify-between px-1">
+                                          <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
+                                          <select
+                                            value={desktopReminderOffset}
+                                            onChange={e => setDesktopReminderOffset(parseInt(e.target.value, 10))}
+                                            className="text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                          >
+                                            {[5, 10, 15, 30, 60].map(m => (
+                                              <option key={m} value={m}>{m} min</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* Check for Updates */}
                                   {typeof window.__TAURI__ !== 'undefined' ? (
