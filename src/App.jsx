@@ -69,6 +69,7 @@ import DiffView from './views/DiffView';
 import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
+import TutorialHub from './components/TutorialHub';
 import TodoTutorialModal from './components/TodoTutorialModal';
 import AdminSecrets from './components/AdminSecrets';
 import DownloadModal from './components/DownloadModal';
@@ -302,7 +303,8 @@ export default function App() {
     return stored ? parseInt(stored, 10) : 1;
   });
   const [exportFormat, setExportFormat] = useState('csv');
-  const [showTutorial, setShowTutorial] = useState(false);
+  const [showTutorialHub, setShowTutorialHub] = useState(false);
+  const [tutorialTopic, setTutorialTopic] = useState(null);
   const [showTabMenu, setShowTabMenu] = useState(false);
   const [mobileDefaultView, setMobileDefaultView] = usePersistentState('lc-mobile-default-view', 'month');
   const [exporting, setExporting] = useState(false);
@@ -873,8 +875,18 @@ export default function App() {
       {showTodoTutorial && (
         <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
       )}
-      {showTutorial && (
-        <TutorialModal onClose={() => setShowTutorial(false)} />
+      {showTutorialHub && (
+        <TutorialHub
+          onSelect={(topicId) => { setShowTutorialHub(false); setTutorialTopic(topicId); }}
+          onClose={() => setShowTutorialHub(false)}
+        />
+      )}
+      {tutorialTopic && (
+        <TutorialModal
+          topicId={tutorialTopic}
+          onClose={() => setTutorialTopic(null)}
+          onBack={() => { setTutorialTopic(null); setShowTutorialHub(true); }}
+        />
       )}
       <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
@@ -2975,14 +2987,14 @@ export default function App() {
                         {activePage === 'calendar' ? (
                           <button
                             type="button"
-                            onClick={() => { setShowSettings(false); setShowTutorial(true); }}
+                            onClick={() => { setShowSettings(false); setShowTutorialHub(true); }}
                             className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
                           >
                             <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                             </svg>
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Calendar Tutorial</span>
-                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">8 steps</span>
+                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">13 topics</span>
                           </button>
                         ) : (
                           <button
