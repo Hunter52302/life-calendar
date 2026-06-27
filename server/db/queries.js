@@ -15,7 +15,12 @@ const LOGIN_LOCK_MINUTES = 15;
 /** SQLite stores booleans as 0/1. Convert back to JS boolean on read. */
 function deserializeEvent(row) {
   if (!row) return null;
-  return { ...row, is_all_day: row.is_all_day === 1 };
+  return {
+    ...row,
+    is_all_day: row.is_all_day === 1,
+    updatedAt:  row.updated_hlc ?? null, // HLC timestamp for conflict resolution
+    deleted:    row.deleted === 1,       // tombstone flag
+  };
 }
 
 function deserializeLinkedCal(row) {
@@ -137,7 +142,14 @@ export const users = {
 // ── Events ────────────────────────────────────────────────────────────────────
 
 export const events = {
+  // Live events only — tombstones are hidden from feeds, the scheduler, and
+  // any non-sync reader so deleted events never resurface in output.
   getAll: (userId) =>
+    db.prepare('SELECT * FROM events WHERE user_id = ? AND deleted = 0').all(userId).map(deserializeEvent),
+
+  // Full set incl. tombstones — only the /api/sync path needs these so clients
+  // can merge deletions. (See server/index.js.)
+  getAllForSync: (userId) =>
     db.prepare('SELECT * FROM events WHERE user_id = ?').all(userId).map(deserializeEvent),
 
   create: (userId, event) => {
@@ -145,11 +157,11 @@ export const events = {
       INSERT INTO events
         (id, user_id, label, category, color, calendar, week_start,
          day_of_week, slot_start, slot_duration, precision, is_all_day,
-         source, source_calendar_id, plan_event_id, notes)
+         source, source_calendar_id, plan_event_id, notes, updated_hlc, deleted)
       VALUES
         (@id, @user_id, @label, @category, @color, @calendar, @week_start,
          @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day,
-         @source, @source_calendar_id, @plan_event_id, @notes)
+         @source, @source_calendar_id, @plan_event_id, @notes, @updated_hlc, @deleted)
     `).run({
       id: event.id,
       user_id: userId,
@@ -167,6 +179,8 @@ export const events = {
       source_calendar_id: event.source_calendar_id ?? null,
       plan_event_id: event.plan_event_id ?? null,
       notes: event.notes ?? null,
+      updated_hlc: event.updatedAt ?? null,
+      deleted: event.deleted ? 1 : 0,
     });
     return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(event.id));
   },
@@ -178,15 +192,25 @@ export const events = {
       'slot_start','slot_duration','precision','is_all_day',
       'source','source_calendar_id','plan_event_id','notes',
     ];
-    const fields = Object.keys(updates).filter(k => allowed.includes(k));
-    if (!fields.length) return;
-    const setClause = fields.map(f => `${f} = @${f}`).join(', ');
     const params = { id, user_id: userId };
-    for (const f of fields) {
+    const setParts = [];
+    for (const f of Object.keys(updates).filter(k => allowed.includes(k))) {
       params[f] = f === 'is_all_day' ? (updates[f] ? 1 : 0) : updates[f];
+      setParts.push(`${f} = @${f}`);
     }
+    // Sync metadata: the HLC stamp and the delete tombstone. A delete arrives as
+    // an update of only these two fields, so they're handled outside `allowed`.
+    if (updates.updatedAt !== undefined) {
+      params.updated_hlc = updates.updatedAt;
+      setParts.push('updated_hlc = @updated_hlc');
+    }
+    if (updates.deleted !== undefined) {
+      params.deleted = updates.deleted ? 1 : 0;
+      setParts.push('deleted = @deleted');
+    }
+    if (!setParts.length) return;
     db.prepare(`
-      UPDATE events SET ${setClause}, updated_at = unixepoch()
+      UPDATE events SET ${setParts.join(', ')}, updated_at = unixepoch()
       WHERE id = @id AND user_id = @user_id
     `).run(params);
     return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ? AND user_id = ?').get(id, userId));
@@ -263,17 +287,32 @@ export const events = {
     run();
   },
 
-  /** Bulk insert — used for the one-time localStorage migration. */
+  /**
+   * Bulk upsert — used for the one-time localStorage migration, iCal imports,
+   * and the client's sync-push of records it holds newer versions of (offline
+   * edits and tombstones). ON CONFLICT keeps the existing created_at and just
+   * overwrites the mutable columns, so re-pushing a record is idempotent.
+   */
   batchCreate: (userId, eventsArray) => {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO events
+      INSERT INTO events
         (id, user_id, label, category, color, calendar, week_start,
          day_of_week, slot_start, slot_duration, precision, is_all_day,
-         source, source_calendar_id, plan_event_id, notes)
+         source, source_calendar_id, plan_event_id, notes, updated_hlc, deleted)
       VALUES
         (@id, @user_id, @label, @category, @color, @calendar, @week_start,
          @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day,
-         @source, @source_calendar_id, @plan_event_id, @notes)
+         @source, @source_calendar_id, @plan_event_id, @notes, @updated_hlc, @deleted)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label, category = excluded.category, color = excluded.color,
+        calendar = excluded.calendar, week_start = excluded.week_start,
+        day_of_week = excluded.day_of_week, slot_start = excluded.slot_start,
+        slot_duration = excluded.slot_duration, precision = excluded.precision,
+        is_all_day = excluded.is_all_day, source = excluded.source,
+        source_calendar_id = excluded.source_calendar_id,
+        plan_event_id = excluded.plan_event_id, notes = excluded.notes,
+        updated_hlc = excluded.updated_hlc, deleted = excluded.deleted,
+        updated_at = unixepoch()
     `);
     const run = db.transaction(() => {
       for (const e of eventsArray) {
@@ -288,6 +327,8 @@ export const events = {
           source_calendar_id: e.source_calendar_id ?? null,
           plan_event_id: e.plan_event_id ?? null,
           notes: e.notes ?? null,
+          updated_hlc: e.updatedAt ?? null,
+          deleted: e.deleted ? 1 : 0,
         });
       }
     });

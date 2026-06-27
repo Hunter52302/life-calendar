@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { generateId, getEventEndDateTime } from '../lib/utils';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { tick, observe } from '../lib/clock.js';
+import { mergeRecordSets, visible, recordsToPush } from '../lib/syncMerge.js';
 
 // Trailing window for auto-completing past-due plan events, so turning the
 // setting on doesn't retroactively backfill someone's entire plan history.
@@ -35,19 +37,26 @@ function load(key, fallback) {
  *
  * Startup behaviour:
  *   1. Immediately load from localStorage (zero-latency render).
- *   2. If authenticated, call GET /api/sync to get the authoritative
- *      server state and replace local state with it.
+ *   2. If authenticated, call GET /api/sync and MERGE the server state with
+ *      local state by per-record HLC timestamp (see lib/syncMerge.js), rather
+ *      than overwriting — so edits made while offline are never clobbered.
+ *      Records we hold newer versions of are pushed back up.
  *   3. First-time migration: if the server has no events but localStorage
  *      does, push all local data to the server automatically.
  *
  * Mutation behaviour (optimistic + background sync):
+ *   - Every write stamps the record with a fresh HLC `updatedAt` (lib/clock.js)
+ *     so concurrent edits across devices resolve deterministically.
+ *   - Deletes are tombstones: the record is kept with `deleted: true` and a
+ *     fresh stamp so the deletion propagates and competes by timestamp. The
+ *     rendered list (`events`) filters tombstones out via `visible()`.
  *   - State and localStorage update immediately (app feels instant).
- *   - API call fires in the background; errors are logged but don't
- *     block the UI. A future phase will add a retry / dirty queue.
+ *   - API call fires in the background; errors are logged but don't block the
+ *     UI — the next sync's merge/push reconciles anything that didn't land.
  *
  * Offline behaviour:
- *   - If the server is unreachable, localStorage data is used as-is.
- *   - The app is fully functional; data just won't sync across devices.
+ *   - If the server is unreachable, localStorage data (incl. tombstones) is
+ *     used as-is and reconciled on the next successful sync.
  */
 export function useEvents(authState, assumeCompleted = true) {
   const { masterKey, isZkEnabled } = useCrypto();
@@ -60,6 +69,10 @@ export function useEvents(authState, assumeCompleted = true) {
   // excluded from re-materialization so a delete isn't silently undone.
   const [dismissedAutoIds, setDismissedAutoIds] = useState(() => load(DISMISSED_AUTO_KEY, []));
   const [syncing, setSyncing] = useState(false);
+
+  // `events` holds the full record set incl. tombstones (needed for merge/push);
+  // consumers and internal logic use the tombstone-free `liveEvents`.
+  const liveEvents = useMemo(() => visible(events), [events]);
 
   // Keep localStorage in sync (offline cache)
   useEffect(() => { localStorage.setItem(EVENTS_KEY,           JSON.stringify(events));           }, [events]);
@@ -140,7 +153,24 @@ export function useEvents(authState, assumeCompleted = true) {
   }, [authState, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function applyServerData(data) {
-    setEvents(await decryptServerEvents(data.events));
+    const serverEvents = await decryptServerEvents(data.events);
+    // Fold remote clocks in so our HLC never trails anything we've seen.
+    serverEvents.forEach(e => observe(e.updatedAt));
+    // Merge by timestamp instead of overwriting, then push anything we hold a
+    // newer version of (offline edits / tombstones the server hasn't seen).
+    // Merge against the freshest state (prev) so edits made while this sync was
+    // in flight aren't clobbered.
+    setEvents(prev => {
+      const merged = mergeRecordSets(prev, serverEvents);
+      const toPush = recordsToPush(merged, serverEvents);
+      if (toPush.length) {
+        Promise.all(toPush.map(encryptEventForApi))
+          .then(p => api.events.batch(p)).catch(console.warn);
+      }
+      return merged;
+    });
+    // Categories / overrides / linked calendars don't carry tombstones yet —
+    // they still replace wholesale (a later slice extends the merge to them).
     setCustomCategories(await decryptCategories(data.customCategories));
     setCategoryOverrides(await decryptOverrides(data.categoryOverrides));
     setLinkedCalendars(await decryptLinkedCalendars(data.linkedCalendars));
@@ -179,14 +209,14 @@ export function useEvents(authState, assumeCompleted = true) {
   // ── Events ───────────────────────────────────────────────────────────────
 
   function addEvent(eventData) {
-    const event = { ...eventData, id: generateId() };
+    const event = { ...eventData, id: generateId(), updatedAt: tick() };
     setEvents(prev => [...prev, event]);
     if (isOnline) encryptEventForApi(event).then(p => api.events.create(p)).catch(console.warn);
     return event;
   }
 
   function addEvents(eventsArray) {
-    const withIds = eventsArray.map(e => ({ ...e, id: generateId() }));
+    const withIds = eventsArray.map(e => ({ ...e, id: generateId(), updatedAt: tick() }));
     setEvents(prev => [...prev, ...withIds]);
     if (isOnline) {
       Promise.all(withIds.map(encryptEventForApi))
@@ -195,25 +225,29 @@ export function useEvents(authState, assumeCompleted = true) {
   }
 
   function updateEvent(id, updates) {
-    setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-    if (isOnline) encryptEventForApi(updates).then(p => api.events.update(id, p)).catch(console.warn);
+    const stamped = { ...updates, updatedAt: tick() };
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, ...stamped } : e));
+    if (isOnline) encryptEventForApi(stamped).then(p => api.events.update(id, p)).catch(console.warn);
   }
 
   function deleteEvent(id) {
-    const target = events.find(e => e.id === id);
+    const target = liveEvents.find(e => e.id === id);
     if (target?.source === 'auto-completed' && target.plan_event_id) {
       setDismissedAutoIds(prev => prev.includes(target.plan_event_id) ? prev : [...prev, target.plan_event_id]);
     }
-    setEvents(prev => prev.filter(e => e.id !== id));
-    if (isOnline) api.events.delete(id).catch(console.warn);
+    // Tombstone rather than drop, so the deletion can propagate and win/lose by
+    // timestamp on the next merge instead of being silently resurrected.
+    const ts = tick();
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, deleted: true, updatedAt: ts } : e));
+    if (isOnline) api.events.update(id, { deleted: true, updatedAt: ts }).catch(console.warn);
   }
 
   function getWeekEvents(weekStart, calendar) {
-    return events.filter(e => e.week_start === weekStart && e.calendar === calendar);
+    return liveEvents.filter(e => e.week_start === weekStart && e.calendar === calendar);
   }
 
   function getEvents(calendar) {
-    return events.filter(e => e.calendar === calendar);
+    return liveEvents.filter(e => e.calendar === calendar);
   }
 
   // ── Auto-complete past-due plan events ──────────────────────────────────
@@ -232,10 +266,10 @@ export function useEvents(authState, assumeCompleted = true) {
       const cutoff = now - AUTO_COMPLETE_WINDOW_MS;
       setEvents(prev => {
         const loggedPlanIds = new Set(
-          prev.filter(e => e.calendar === 'actual' && e.plan_event_id).map(e => e.plan_event_id)
+          prev.filter(e => e.calendar === 'actual' && e.plan_event_id && !e.deleted).map(e => e.plan_event_id)
         );
         const due = prev.filter(e => {
-          if (e.calendar !== 'plan' || e.is_all_day) return false;
+          if (e.calendar !== 'plan' || e.is_all_day || e.deleted) return false;
           if (loggedPlanIds.has(e.id) || dismissedAutoIds.includes(e.id)) return false;
           const endMs = getEventEndDateTime(e).getTime();
           return endMs <= now && endMs >= cutoff;
@@ -247,6 +281,7 @@ export function useEvents(authState, assumeCompleted = true) {
           week_start: pe.week_start, day_of_week: pe.day_of_week,
           slot_start: pe.slot_start, slot_duration: pe.slot_duration, precision: pe.precision,
           calendar: 'actual', source: 'auto-completed', plan_event_id: pe.id,
+          updatedAt: tick(),
         }));
         if (isOnline) {
           Promise.all(materialized.map(encryptEventForApi))
@@ -261,7 +296,7 @@ export function useEvents(authState, assumeCompleted = true) {
   }, [assumeCompleted, dismissedAutoIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function replaceEventsBySource(source, newEvents) {
-    const withIds = newEvents.map(e => ({ ...e, id: generateId() }));
+    const withIds = newEvents.map(e => ({ ...e, id: generateId(), updatedAt: tick() }));
     setEvents(prev => [...prev.filter(e => e.source !== source), ...withIds]);
     if (isOnline) {
       Promise.all(withIds.map(encryptEventForApi))
@@ -271,7 +306,7 @@ export function useEvents(authState, assumeCompleted = true) {
 
   /** Re-sync a subscribed calendar: swap out all its events atomically. */
   function replaceEventsBySourceCalendar(sourceCalendarId, newEvents) {
-    const withIds = newEvents.map(e => ({ ...e, id: generateId(), source_calendar_id: sourceCalendarId }));
+    const withIds = newEvents.map(e => ({ ...e, id: generateId(), source_calendar_id: sourceCalendarId, updatedAt: tick() }));
     setEvents(prev => [...prev.filter(e => e.source_calendar_id !== sourceCalendarId), ...withIds]);
     if (isOnline) {
       Promise.all(withIds.map(encryptEventForApi))
@@ -334,7 +369,7 @@ export function useEvents(authState, assumeCompleted = true) {
 
   function clearLegacyEvents(calendar) {
     const isLegacy = e => e.calendar === calendar && !e.source_calendar_id && e.source !== 'manual';
-    const removedIds = events.filter(isLegacy).map(e => e.id);
+    const removedIds = liveEvents.filter(isLegacy).map(e => e.id);
     setEvents(prev => prev.filter(e => !isLegacy(e)));
     if (isOnline) {
       Promise.all(removedIds.map(id => api.events.delete(id))).catch(console.warn);
@@ -342,7 +377,7 @@ export function useEvents(authState, assumeCompleted = true) {
   }
 
   return {
-    events, syncing,
+    events: liveEvents, syncing,
     customCategories, categoryOverrides,
     addEvent, addEvents, updateEvent, deleteEvent,
     getWeekEvents, getEvents,
