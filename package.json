@@ -50,6 +50,7 @@
     "jspdf-autotable": "^5.0.8",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-router-dom": "^7.18.0",
     "web-push": "^3.6.7"
   },
   "optionalDependencies": {

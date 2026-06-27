@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import './index.css'
 import App from './App.jsx'
-import LandingPage from './components/LandingPage.jsx'
+import LandingRouter from './components/LandingRouter.jsx'
 import UpdatePrompt from './components/UpdatePrompt.jsx'
 import { CryptoProvider } from './context/CryptoContext.jsx'
 import { isWebBrowser } from './lib/platform.js'
@@ -44,7 +44,13 @@ function Root() {
 
   if (!entered) {
     const theme = localStorage.getItem('lc-theme') || 'dark';
-    return <LandingPage onEnter={() => setEntered(true)} theme={theme} />;
+    // Reset any landing path (e.g. /docs) back to root before the app mounts —
+    // App reads query params, not the path, so this just keeps the URL tidy.
+    const enter = () => {
+      if (window.location.pathname !== '/') window.history.replaceState({}, '', '/');
+      setEntered(true);
+    };
+    return <LandingRouter onEnter={enter} theme={theme} />;
   }
 
   return (
