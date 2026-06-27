@@ -256,6 +256,12 @@ export function runMigrations(db) {
     `ALTER TABLE linked_calendars ADD COLUMN external_calendar_id TEXT`,
     `ALTER TABLE events ADD COLUMN integration_hint TEXT`,
     `ALTER TABLE habits ADD COLUMN integration_hint TEXT`,
+    // Conflict resolution: per-record HLC timestamp + delete tombstone.
+    // updated_hlc is the client's Hybrid Logical Clock string (see src/lib/hlc.js);
+    // deleted=1 is a tombstone kept so deletions can propagate and win/lose by
+    // timestamp rather than by whichever sync request lands last.
+    `ALTER TABLE events ADD COLUMN updated_hlc TEXT`,
+    `ALTER TABLE events ADD COLUMN deleted     INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of alters) {
     try { db.exec(sql); } catch { /* column already exists — ignore */ }

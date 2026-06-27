@@ -94,7 +94,7 @@ await initializeInfisical();
  */
 app.get('/api/sync', requireAuth, (req, res) => {
   res.json({
-    events:            events.getAll(req.userId),
+    events:            events.getAllForSync(req.userId), // incl. tombstones for client merge
     customCategories:  customCategories.getAll(req.userId),
     categoryOverrides: categoryOverrides.getAll(req.userId),
     linkedCalendars:   linkedCalendars.getAll(req.userId),
