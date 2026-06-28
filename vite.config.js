@@ -118,6 +118,12 @@ export default defineConfig({
   },
 
   server: {
+    // Honor an injected PORT (e.g. the Claude preview harness assigns a free
+    // port this way); Vite otherwise ignores PORT and scans from 5173 upward,
+    // which leaves the harness proxying a port nothing is listening on. Plain
+    // `npm run dev` has no PORT set and keeps the default 5173.
+    port: process.env.PORT ? Number(process.env.PORT) : 5173,
+    strictPort: !!process.env.PORT,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

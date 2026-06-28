@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClock } from './hlc.js';
-import { mergeRecordSets, visible, recordsToPush } from './syncMerge.js';
+import { createClock, pack } from './hlc.js';
+import { mergeRecordSets, visible, recordsToPush, pruneExpiredTombstones } from './syncMerge.js';
 
 // Helper: deterministic sort for set comparison (order-independent).
 const sortById = recs => [...recs].sort((a, b) => a.id.localeCompare(b.id));
@@ -85,4 +85,18 @@ test('end-to-end: two devices reconcile to the same state in any order', () => {
   const onB = mergeRecordSets([bEdit], [aEdit]);
   sameSet(onA, onB);                       // convergence
   assert.equal(visible(onA)[0].label, 'B edit'); // B's later write wins deterministically
+});
+
+test('pruneExpiredTombstones drops old tombstones but keeps live + recent ones', () => {
+  const live    = { id: 'e1', updatedAt: pack({ millis: 1000, counter: 0, node: 'aaaa' }) };
+  const oldTomb  = { id: 'e2', deleted: true, updatedAt: pack({ millis: 1000, counter: 0, node: 'aaaa' }) };
+  const newTomb  = { id: 'e3', deleted: true, updatedAt: pack({ millis: 9000, counter: 0, node: 'aaaa' }) };
+  const cutoff = 5000;
+  const kept = pruneExpiredTombstones([live, oldTomb, newTomb], cutoff).map(r => r.id).sort();
+  assert.deepEqual(kept, ['e1', 'e3']); // live kept regardless of age; only the old tombstone is GC'd
+});
+
+test('pruneExpiredTombstones discards a tombstone with no timestamp', () => {
+  const orphan = { id: 'e1', deleted: true }; // never stamped — can't win a merge, so don't carry it
+  assert.deepEqual(pruneExpiredTombstones([orphan], 1), []);
 });

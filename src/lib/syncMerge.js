@@ -23,9 +23,19 @@
  * event) is a future refinement and is noted in the plan.
  */
 
-import { compare } from './hlc.js';
+import { compare, unpack } from './hlc.js';
 
 const UPDATED_AT = 'updatedAt';
+
+/**
+ * How long tombstones are retained before they're garbage-collected.
+ *
+ * A tombstone has to outlive the longest plausible offline window: if a device
+ * that still holds the live record syncs after the tombstone is gone, it would
+ * resurrect the record. 30 days is the agreed ceiling on both client and server
+ * (mirror the value in server/db/queries.js `purgeExpiredTombstones`).
+ */
+export const TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Pick the winning record between two versions of the same id. */
 function pickWinner(a, b) {
@@ -54,6 +64,25 @@ export function mergeRecordSets(local = [], remote = []) {
 /** Strip tombstones — the live records to actually render/use. */
 export function visible(records = []) {
   return records.filter(r => !r.deleted);
+}
+
+/**
+ * Drop tombstones older than `cutoffMillis` (a wall-clock ms threshold, compared
+ * against the tombstone's HLC physical-time component). Bounds the otherwise
+ * unbounded growth of the record set in state/localStorage, and — crucially —
+ * stops a device from re-pushing tombstones the server has already purged.
+ * Live records and recent tombstones (un-synced offline deletes) are untouched.
+ *
+ * @param {object[]} records      records incl. tombstones
+ * @param {number}   cutoffMillis tombstones with HLC millis below this are dropped
+ * @returns {object[]} records with expired tombstones removed
+ */
+export function pruneExpiredTombstones(records = [], cutoffMillis = 0) {
+  return records.filter(r => {
+    if (!r.deleted) return true;
+    const { millis } = unpack(r[UPDATED_AT] ?? '');
+    return !(millis < cutoffMillis); // keep NaN/recent tombstones, drop old ones
+  });
 }
 
 /**

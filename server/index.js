@@ -93,8 +93,11 @@ await initializeInfisical();
  * The frontend calls this once on startup instead of 4 separate fetches.
  */
 app.get('/api/sync', requireAuth, (req, res) => {
+  // Opportunistically GC this user's expired tombstones before we read them, so
+  // the sync payload (and the table) stay bounded over time.
+  try { events.purgeExpiredTombstones(req.userId); } catch { /* non-critical */ }
   res.json({
-    events:            events.getAllForSync(req.userId), // incl. tombstones for client merge
+    events:            events.getAllForSync(req.userId), // live + recent tombstones for client merge
     customCategories:  customCategories.getAll(req.userId),
     categoryOverrides: categoryOverrides.getAll(req.userId),
     linkedCalendars:   linkedCalendars.getAll(req.userId),

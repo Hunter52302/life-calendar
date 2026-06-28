@@ -4,7 +4,7 @@ import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 import { tick, observe } from '../lib/clock.js';
-import { mergeRecordSets, visible, recordsToPush } from '../lib/syncMerge.js';
+import { mergeRecordSets, visible, recordsToPush, pruneExpiredTombstones, TOMBSTONE_RETENTION_MS } from '../lib/syncMerge.js';
 
 // Trailing window for auto-completing past-due plan events, so turning the
 // setting on doesn't retroactively backfill someone's entire plan history.
@@ -74,8 +74,14 @@ export function useEvents(authState, assumeCompleted = true) {
   // consumers and internal logic use the tombstone-free `liveEvents`.
   const liveEvents = useMemo(() => visible(events), [events]);
 
+  // Latest committed events, readable synchronously outside React's render/commit
+  // cycle. Used by the sync-merge and bulk-replace paths so they can compute the
+  // next state (and what to push) without doing side effects inside a setState
+  // updater — which React may invoke more than once.
+  const eventsRef = useRef(events);
+
   // Keep localStorage in sync (offline cache)
-  useEffect(() => { localStorage.setItem(EVENTS_KEY,           JSON.stringify(events));           }, [events]);
+  useEffect(() => { localStorage.setItem(EVENTS_KEY,           JSON.stringify(events)); eventsRef.current = events; }, [events]);
   useEffect(() => { localStorage.setItem(CATEGORIES_KEY,       JSON.stringify(customCategories)); }, [customCategories]);
   useEffect(() => { localStorage.setItem(OVERRIDES_KEY,        JSON.stringify(categoryOverrides));}, [categoryOverrides]);
   useEffect(() => { localStorage.setItem(LINKED_KEY,           JSON.stringify(linkedCalendars));  }, [linkedCalendars]);
@@ -156,19 +162,25 @@ export function useEvents(authState, assumeCompleted = true) {
     const serverEvents = await decryptServerEvents(data.events);
     // Fold remote clocks in so our HLC never trails anything we've seen.
     serverEvents.forEach(e => observe(e.updatedAt));
-    // Merge by timestamp instead of overwriting, then push anything we hold a
-    // newer version of (offline edits / tombstones the server hasn't seen).
-    // Merge against the freshest state (prev) so edits made while this sync was
-    // in flight aren't clobbered.
-    setEvents(prev => {
-      const merged = mergeRecordSets(prev, serverEvents);
-      const toPush = recordsToPush(merged, serverEvents);
-      if (toPush.length) {
-        Promise.all(toPush.map(encryptEventForApi))
-          .then(p => api.events.batch(p)).catch(console.warn);
-      }
-      return merged;
-    });
+    // Merge by timestamp instead of overwriting (so offline edits aren't
+    // clobbered), against the freshest committed state. We compute the merge and
+    // the push set here rather than inside a setState updater: the push is a side
+    // effect, and React may invoke an updater more than once.
+    const merged = mergeRecordSets(eventsRef.current, serverEvents);
+    // Push anything we hold a newer version of (offline edits / tombstones the
+    // server hasn't seen) before pruning, so a freshly-merged record we still own
+    // still propagates.
+    const toPush = recordsToPush(merged, serverEvents);
+    if (toPush.length) {
+      Promise.all(toPush.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
+    // Garbage-collect tombstones past the retention window so the record set
+    // (and localStorage) doesn't grow without bound, and so we stop re-pushing
+    // tombstones the server has already purged.
+    const next = pruneExpiredTombstones(merged, Date.now() - TOMBSTONE_RETENTION_MS);
+    eventsRef.current = next;
+    setEvents(next);
     // Categories / overrides / linked calendars don't carry tombstones yet —
     // they still replace wholesale (a later slice extends the merge to them).
     setCustomCategories(await decryptCategories(data.customCategories));
@@ -295,23 +307,45 @@ export function useEvents(authState, assumeCompleted = true) {
     return () => clearInterval(id);
   }, [assumeCompleted, dismissedAutoIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Replace every event matching `predicate` with `additions`, tombstoning the
+   * old records instead of hard-deleting them. Removals must be tombstones: a
+   * hard delete would be seen as "remote-missing" by another device that still
+   * holds the record, which would then keep and re-push it — silently
+   * resurrecting it (and any new records) on the next merge. Old tombstones and
+   * the new records are pushed together through the batch upsert, which carries
+   * the HLC stamp and tombstone flag.
+   */
+  function replaceMatching(predicate, additions = []) {
+    const ts = tick();
+    const tombstoned = [];
+    const carried = eventsRef.current.map(e => {
+      if (!e.deleted && predicate(e)) {
+        const t = { ...e, deleted: true, updatedAt: ts };
+        tombstoned.push(t);
+        return t;
+      }
+      return e;
+    });
+    const next = [...carried, ...additions];
+    eventsRef.current = next;
+    setEvents(next);
+    const toPush = [...tombstoned, ...additions];
+    if (isOnline && toPush.length) {
+      Promise.all(toPush.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
+  }
+
   function replaceEventsBySource(source, newEvents) {
     const withIds = newEvents.map(e => ({ ...e, id: generateId(), updatedAt: tick() }));
-    setEvents(prev => [...prev.filter(e => e.source !== source), ...withIds]);
-    if (isOnline) {
-      Promise.all(withIds.map(encryptEventForApi))
-        .then(p => api.events.replaceBySource(source, p)).catch(console.warn);
-    }
+    replaceMatching(e => e.source === source, withIds);
   }
 
   /** Re-sync a subscribed calendar: swap out all its events atomically. */
   function replaceEventsBySourceCalendar(sourceCalendarId, newEvents) {
     const withIds = newEvents.map(e => ({ ...e, id: generateId(), source_calendar_id: sourceCalendarId, updatedAt: tick() }));
-    setEvents(prev => [...prev.filter(e => e.source_calendar_id !== sourceCalendarId), ...withIds]);
-    if (isOnline) {
-      Promise.all(withIds.map(encryptEventForApi))
-        .then(p => api.events.replaceBySourceCalendar(sourceCalendarId, p)).catch(console.warn);
-    }
+    replaceMatching(e => e.source_calendar_id === sourceCalendarId, withIds);
   }
 
   /** Update sync metadata (url, lastSyncedAt, …) on a linked calendar. */
@@ -369,11 +403,9 @@ export function useEvents(authState, assumeCompleted = true) {
 
   function clearLegacyEvents(calendar) {
     const isLegacy = e => e.calendar === calendar && !e.source_calendar_id && e.source !== 'manual';
-    const removedIds = liveEvents.filter(isLegacy).map(e => e.id);
-    setEvents(prev => prev.filter(e => !isLegacy(e)));
-    if (isOnline) {
-      Promise.all(removedIds.map(id => api.events.delete(id))).catch(console.warn);
-    }
+    // Tombstone rather than hard-delete so the removal propagates by HLC instead
+    // of being resurrected by a device that still holds these events.
+    replaceMatching(isLegacy);
   }
 
   return {

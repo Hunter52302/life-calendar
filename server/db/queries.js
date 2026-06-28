@@ -152,6 +152,20 @@ export const events = {
   getAllForSync: (userId) =>
     db.prepare('SELECT * FROM events WHERE user_id = ?').all(userId).map(deserializeEvent),
 
+  /**
+   * Garbage-collect tombstones older than `retentionDays`, so the table and the
+   * /api/sync payload don't grow without bound. The window must comfortably
+   * exceed the longest plausible offline period (a device that still holds the
+   * live record and syncs after its tombstone is gone would resurrect it);
+   * clients prune on the same window (see src/lib/syncMerge.js) so they stop
+   * re-pushing tombstones once they age out. `updated_at` is the row's last write
+   * time in epoch seconds.
+   */
+  purgeExpiredTombstones: (userId, retentionDays = 30) =>
+    db.prepare(
+      'DELETE FROM events WHERE user_id = ? AND deleted = 1 AND updated_at < unixepoch() - ?'
+    ).run(userId, retentionDays * 24 * 60 * 60),
+
   create: (userId, event) => {
     db.prepare(`
       INSERT INTO events
@@ -200,9 +214,15 @@ export const events = {
     }
     // Sync metadata: the HLC stamp and the delete tombstone. A delete arrives as
     // an update of only these two fields, so they're handled outside `allowed`.
+    let hlcGuard = '';
     if (updates.updatedAt !== undefined) {
       params.updated_hlc = updates.updatedAt;
       setParts.push('updated_hlc = @updated_hlc');
+      // Enforce Last-Writer-Wins at the write layer: ignore a stale edit/delete
+      // whose HLC isn't newer than the version we already hold, so a late-landing
+      // request can't clobber a newer concurrent write. `updated_hlc` in the WHERE
+      // is the pre-update value. (Packed HLC strings sort lexicographically.)
+      hlcGuard = ' AND (updated_hlc IS NULL OR @updated_hlc > updated_hlc)';
     }
     if (updates.deleted !== undefined) {
       params.deleted = updates.deleted ? 1 : 0;
@@ -211,7 +231,7 @@ export const events = {
     if (!setParts.length) return;
     db.prepare(`
       UPDATE events SET ${setParts.join(', ')}, updated_at = unixepoch()
-      WHERE id = @id AND user_id = @user_id
+      WHERE id = @id AND user_id = @user_id${hlcGuard}
     `).run(params);
     return deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ? AND user_id = ?').get(id, userId));
   },
@@ -234,10 +254,10 @@ export const events = {
     const insertStmt = db.prepare(`
       INSERT INTO events
         (id, user_id, label, category, color, calendar, week_start,
-         day_of_week, slot_start, slot_duration, precision, is_all_day, source)
+         day_of_week, slot_start, slot_duration, precision, is_all_day, source, updated_hlc)
       VALUES
         (@id, @user_id, @label, @category, @color, @calendar, @week_start,
-         @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day, @source)
+         @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day, @source, @updated_hlc)
     `);
     const run = db.transaction(() => {
       deleteStmt.run(userId, source);
@@ -249,6 +269,9 @@ export const events = {
           day_of_week: e.day_of_week ?? 0, slot_start: e.slot_start ?? 0,
           slot_duration: e.slot_duration ?? 4, precision: e.precision ?? 1,
           is_all_day: e.is_all_day ? 1 : 0, source,
+          // Stamp so the rows have an HLC; otherwise the originating device would
+          // see them as remote-NULL and re-push the whole set on every sync.
+          updated_hlc: e.updatedAt ?? null,
         });
       }
     });
@@ -262,11 +285,11 @@ export const events = {
       INSERT INTO events
         (id, user_id, label, category, color, calendar, week_start,
          day_of_week, slot_start, slot_duration, precision, is_all_day,
-         source, source_calendar_id, notes)
+         source, source_calendar_id, notes, updated_hlc)
       VALUES
         (@id, @user_id, @label, @category, @color, @calendar, @week_start,
          @day_of_week, @slot_start, @slot_duration, @precision, @is_all_day,
-         @source, @source_calendar_id, @notes)
+         @source, @source_calendar_id, @notes, @updated_hlc)
     `);
     const run = db.transaction(() => {
       deleteStmt.run(userId, sourceCalendarId);
@@ -281,6 +304,9 @@ export const events = {
           source: e.source ?? 'ical-subscription',
           source_calendar_id: sourceCalendarId,
           notes: e.notes ?? null,
+          // Stamp so the rows have an HLC; otherwise the originating device would
+          // see them as remote-NULL and re-push the whole set on every sync.
+          updated_hlc: e.updatedAt ?? null,
         });
       }
     });
@@ -313,6 +339,14 @@ export const events = {
         plan_event_id = excluded.plan_event_id, notes = excluded.notes,
         updated_hlc = excluded.updated_hlc, deleted = excluded.deleted,
         updated_at = unixepoch()
+      -- Enforce Last-Writer-Wins at the write layer: a pushed record only wins
+      -- if its HLC is strictly newer than what we already hold. Without this, a
+      -- stale push (computed against an older /api/sync snapshot) would clobber a
+      -- newer concurrent write until some later read-merge happened to correct
+      -- it. Packed HLC strings are fixed-width, so lexicographic > matches HLC
+      -- order. A row with no HLC yet (legacy / un-stamped) always loses to one
+      -- that has a stamp, and is overwritten by anything.
+      WHERE events.updated_hlc IS NULL OR excluded.updated_hlc > events.updated_hlc
     `);
     const run = db.transaction(() => {
       for (const e of eventsArray) {

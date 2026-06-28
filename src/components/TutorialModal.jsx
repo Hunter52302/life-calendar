@@ -209,12 +209,70 @@ export const TOPICS = [
         ),
       },
       {
-        icon: <IconViews />,
-        title: 'There\'s More Under the Hood',
+        icon: <IconQuickAdd />,
+        title: 'Quick Add, Voice & AI',
         body: (
           <>
-            <p className="mb-2">Categories, calendar imports, drive-time tracking, voice notes, AI-assisted parsing, multiple time zones, fonts, habits, and data export are all in here too.</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Open <span className="font-medium text-gray-700 dark:text-gray-300">Settings → Tutorial</span> whenever you want a focused walkthrough of one of these — no need to sit through everything at once.</p>
+            <p className="mb-2">In a hurry? You don't have to fill out a form every time.</p>
+            <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
+              <li><strong className="text-gray-800 dark:text-gray-200">Paste</strong> a schedule, email, or message — the app pulls out the dates, times, and names</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Speak</strong> an event and it's transcribed and parsed for you</li>
+              <li>Connect your own AI for smarter parsing — entirely optional</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: <IconCategories />,
+        title: 'Color-Coded Categories',
+        body: (
+          <>
+            <p className="mb-2">Every event belongs to a color-coded category, so a single glance shows where your time goes.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Filter the calendar by category, pin the ones you care about, and add or recolor your own.</p>
+          </>
+        ),
+      },
+      {
+        icon: <IconCalendarLink />,
+        title: 'Bring In Your Other Calendars',
+        body: (
+          <>
+            <p className="mb-2">You don't have to leave your existing calendars behind:</p>
+            <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
+              <li>Connect <strong className="text-gray-800 dark:text-gray-200">Google</strong> or <strong className="text-gray-800 dark:text-gray-200">Outlook</strong></li>
+              <li>Import or export <strong className="text-gray-800 dark:text-gray-200">.ics</strong> files</li>
+              <li>Subscribe to a live calendar URL that auto-refreshes</li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        icon: <IconDiff />,
+        title: 'See Your Life — the payoff',
+        body: (
+          <>
+            <p className="mb-2">This is the whole point: <strong className="text-gray-800 dark:text-gray-200">See Your Life</strong> lays your plan next to what you actually did.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Compare any date range per category, spot where you drift, track against time budgets you set, and export it all as CSV, JSON, or PDF.</p>
+          </>
+        ),
+      },
+      {
+        icon: <IconShield />,
+        title: 'Private by Design',
+        body: (
+          <>
+            <p className="mb-2">Your data is protected with <strong className="text-gray-800 dark:text-gray-200">zero-knowledge encryption</strong>.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Only your browser ever holds the key that can read it — the server just stores encrypted data it can't decrypt. There's a full "Your Account &amp; Privacy" topic if you want the details.</p>
+          </>
+        ),
+      },
+      {
+        icon: <IconViews />,
+        title: 'There\'s Even More',
+        body: (
+          <>
+            <p className="mb-2">Plenty more to explore: day-to-year calendar <strong className="text-gray-800 dark:text-gray-200">views</strong>, <strong className="text-gray-800 dark:text-gray-200">habits</strong> &amp; streaks, automatic <strong className="text-gray-800 dark:text-gray-200">drive-time</strong> tracking, multiple <strong className="text-gray-800 dark:text-gray-200">time zones</strong>, and custom <strong className="text-gray-800 dark:text-gray-200">fonts</strong>.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Open <span className="font-medium text-gray-700 dark:text-gray-300">Settings → Tutorial</span> any time for a focused walkthrough of any one of these — no need to sit through everything at once.</p>
           </>
         ),
       },
@@ -795,8 +853,10 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
         </div>
 
         {/* Footer */}
-        {current.intro ? (
-          /* Intro slide — Skip / Let's go */
+        {current.intro && !onBack ? (
+          /* First-run welcome only (no hub to return to) — Skip / Let's go.
+             When opened from the topic hub the choice was already made there,
+             so we fall through to the standard Back/Next nav instead. */
           <div className="flex items-center justify-center gap-3 px-5 pb-6">
             <button
               type="button"
@@ -814,17 +874,18 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
             </button>
           </div>
         ) : (
-          /* All other slides — dots + Back / Next / Done */
+          /* Standard nav — dots + Back / Next / Done. Used for every slide when
+             opened from the hub, and every non-intro slide otherwise. */
           <div className="flex items-center justify-between px-5 pb-5">
-            {/* Step dots (exclude intro step 0) */}
+            {/* Step dots */}
             <div className="flex items-center gap-1.5">
-              {STEPS.slice(1).map((_, i) => (
+              {STEPS.map((_, i) => (
                 <button
                   key={i}
                   type="button"
-                  onClick={() => setStep(i + 1)}
+                  onClick={() => setStep(i)}
                   className={`rounded-full transition-all ${
-                    i + 1 === step
+                    i === step
                       ? 'w-4 h-2 bg-indigo-500'
                       : 'w-2 h-2 bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500'
                   }`}
@@ -833,15 +894,18 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
               ))}
             </div>
 
-            {/* Back / Next / Done */}
+            {/* Back / Next / Done. On the first slide there's no prior step —
+               the header's "← All topics" handles going back to the hub. */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setStep(s => s - 1)}
-                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Back
-              </button>
+              {step > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setStep(s => s - 1)}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Back
+                </button>
+              )}
               {step < total - 1 ? (
                 <button
                   type="button"
@@ -850,18 +914,10 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
                 >
                   Next
                 </button>
-              ) : onBack ? (
-                <button
-                  type="button"
-                  onClick={onBack}
-                  className="px-4 py-1.5 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors"
-                >
-                  Done
-                </button>
               ) : (
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={onBack ?? onClose}
                   className="px-4 py-1.5 text-sm rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white font-medium transition-colors"
                 >
                   Done
