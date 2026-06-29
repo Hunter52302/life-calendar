@@ -12,8 +12,8 @@ const FEATURES = [
     icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z',
   },
   {
-    title: 'Habits, budgets & to-dos',
-    body: 'Track streaks, set weekly time budgets per category, and manage tasks on a list or kanban board — all in one place, all encrypted.',
+    title: 'Habits & budgets',
+    body: 'Track streaks and set weekly time budgets per category — all in one place, all encrypted.',
     icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
   },
   {
@@ -68,7 +68,7 @@ export default function HomePage() {
       <section id="features" className="max-w-5xl mx-auto px-5 py-16 border-t border-gray-100 dark:border-gray-800">
         <h2 className="text-2xl sm:text-3xl font-bold text-center">Everything in one private place</h2>
         <p className="mt-3 text-center text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-          A planner, a habit tracker, time budgets, and a to-do board — all end-to-end encrypted.
+          A planner, a habit tracker, and time budgets — all end-to-end encrypted.
         </p>
         <div className="mt-12 grid sm:grid-cols-2 gap-6">
           {FEATURES.map(f => (

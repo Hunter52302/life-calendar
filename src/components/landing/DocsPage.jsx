@@ -28,7 +28,7 @@ const SECTIONS = [
     id: 'encryption',
     title: 'Encryption & privacy',
     body: [
-      'PLS Calendar uses zero-knowledge encryption. Your calendar, tasks, habits, and budgets are encrypted in your browser before anything is sent to the server. The server only ever stores ciphertext.',
+      'PLS Calendar uses zero-knowledge encryption. Your calendar, habits, and budgets are encrypted in your browser before anything is sent to the server. The server only ever stores ciphertext.',
       'Because of this, nobody — including the operators of the service — can read your data. The trade-off is that losing both your password and your recovery code means the data cannot be recovered.',
     ],
   },

@@ -9,7 +9,6 @@ const CATS_KEY    = 'lc-m-categories';
 const OVRS_KEY    = 'lc-m-overrides';
 const DISMISSED_AUTO_KEY = 'lc-m-dismissed-auto-complete';
 const LINKED_KEY  = 'lc-m-linked';
-const TASKS_KEY   = 'lc-m-tasks';
 
 // Trailing window for auto-completing past-due plan events, so turning the
 // setting on doesn't retroactively backfill someone's entire plan history.
@@ -32,7 +31,6 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   // excluded from re-materialization so a delete isn't silently undone.
   const [dismissedAutoIds, setDismissedAutoIds] = useState([]);
   const [linkedCalendars, setLinkedCals] = useState([]);
-  const [tasks, setTasks]       = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -41,14 +39,12 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
       asyncLoad(OVRS_KEY, {}),
       asyncLoad(DISMISSED_AUTO_KEY, []),
       asyncLoad(LINKED_KEY, []),
-      asyncLoad(TASKS_KEY, []),
-    ]).then(([e, c, o, d, l, t]) => {
+    ]).then(([e, c, o, d, l]) => {
       setEvents(e);
       setCustomCats(c);
       setOverrides(o);
       setDismissedAutoIds(d);
       setLinkedCals(l);
-      setTasks(t);
       setReady(true);
     });
   }, []);
@@ -57,7 +53,6 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   useEffect(() => { if (ready) AsyncStorage.setItem(CATS_KEY,    JSON.stringify(customCats)).catch(() => {}); },   [customCats, ready]);
   useEffect(() => { if (ready) AsyncStorage.setItem(OVRS_KEY,    JSON.stringify(overrides)).catch(() => {}); },    [overrides, ready]);
   useEffect(() => { if (ready) AsyncStorage.setItem(LINKED_KEY,  JSON.stringify(linkedCalendars)).catch(() => {}); }, [linkedCalendars, ready]);
-  useEffect(() => { if (ready) AsyncStorage.setItem(TASKS_KEY,   JSON.stringify(tasks)).catch(() => {}); },        [tasks, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -221,29 +216,6 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     if (isOnline) api.categories.delete(id).catch(console.warn);
   }
 
-  // ── Tasks ──────────────────────────────────────────────────────────────────
-  function addTask(data) {
-    const today = new Date().toISOString().slice(0, 10);
-    const task = { id: generateId(), title: '', status: 'pending', priority: 'medium', due_date: today, kanban_column: 'todo', sort_order: Date.now(), ...data };
-    setTasks(p => [...p, task]);
-  }
-
-  function updateTask(id, updates) {
-    setTasks(p => p.map(t => t.id === id ? { ...t, ...updates } : t));
-  }
-
-  function deleteTask(id) {
-    setTasks(p => p.filter(t => t.id !== id));
-  }
-
-  function completeTask(id) {
-    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'completed', completed_at: Date.now(), kanban_column: 'done' } : t));
-  }
-
-  function uncompleteTask(id) {
-    setTasks(p => p.map(t => t.id === id ? { ...t, status: 'pending', completed_at: null, kanban_column: 'todo' } : t));
-  }
-
   // ── Linked Calendars ───────────────────────────────────────────────────────
   function addLinkedCalendar(cal) {
     const newCal = { ...cal, id: generateId(), importedAt: new Date().toLocaleDateString() };
@@ -259,10 +231,9 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   }
 
   return {
-    ready, events, allCategories, linkedCalendars, tasks,
+    ready, events, allCategories, linkedCalendars,
     addEvent, addEvents, updateEvent, deleteEvent,
     addCategory, updateCategory, deleteCategory,
     addLinkedCalendar, deleteLinkedCalendar,
-    addTask, updateTask, deleteTask, completeTask, uncompleteTask,
   };
 }

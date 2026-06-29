@@ -66,11 +66,9 @@ import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils'
 import PlanView from './views/PlanView';
 import ActualView from './views/ActualView';
 import DiffView from './views/DiffView';
-import TodoView from './views/TodoView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import TutorialHub from './components/TutorialHub';
-import TodoTutorialModal from './components/TodoTutorialModal';
 import AdminSecrets from './components/AdminSecrets';
 import DownloadModal from './components/DownloadModal';
 import ConnectCalendarModal from './components/ConnectCalendarModal';
@@ -83,7 +81,6 @@ import { useCategoryKeywords } from './hooks/useCategoryKeywords';
 import { useLlmSettings } from './hooks/useLlmSettings';
 import ListFieldEditor from './components/ListFieldEditor';
 import { usePersistentState } from './hooks/usePersistentState';
-import { useTasks } from './hooks/useTasks';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import UpdateSettings from './components/UpdateSettings';
@@ -160,12 +157,6 @@ function Toggle({ checked, onChange }) {
 
 export default function App() {
   const { authState, zkInfo, isAdmin, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
-  const [activePage, setActivePage]   = useState('calendar'); // 'calendar' | 'todo'
-  const [todoView,          setTodoView]          = useState(() => localStorage.getItem('lc-todo-view') || 'list');
-  const [autoHideCompleted, setAutoHideCompleted] = useState(() => localStorage.getItem('lc-auto-hide-completed') === 'true');
-  const [todoFabOpen,       setTodoFabOpen]       = useState(false);
-  const [showTodoTutorial,  setShowTodoTutorial]  = useState(false);
-  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -316,9 +307,7 @@ export default function App() {
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem('lc-todo-view', todoView); }, [todoView]);
   useEffect(() => { localStorage.setItem('lc-precision', String(precision)); }, [precision]);
-  useEffect(() => { localStorage.setItem('lc-auto-hide-completed', String(autoHideCompleted)); }, [autoHideCompleted]);
   // theme / militaryTime / enabledViews / showWeekNumbers / pinnedCategories persist themselves via usePersistentState
   // lc-profile localStorage is managed by useProfile hook
   // Apply selected font to the whole app via CSS variable
@@ -587,7 +576,6 @@ export default function App() {
     syncing = false,
   } = useEvents(authState, assumeCompleted);
 
-  const { tasks = [], addTask, updateTask, deleteTask, completeTask, uncompleteTask, moveKanbanCard, reorderTasks } = useTasks(authState);
   const { budgets, setBudget, deleteBudget } = useBudgets(authState);
   const { keywordMap } = useCategoryKeywords(authState);
   const { llmSettings, setLlmSettings } = useLlmSettings(authState);
@@ -883,9 +871,6 @@ export default function App() {
           onClose={() => { setConnectModalOpen(false); setPendingConnectionId(null); }}
         />
       )}
-      {showTodoTutorial && (
-        <TodoTutorialModal onClose={() => setShowTodoTutorial(false)} />
-      )}
       {showTutorialHub && (
         <TutorialHub
           onSelect={(topicId) => { setShowTutorialHub(false); setTutorialTopic(topicId); }}
@@ -903,44 +888,10 @@ export default function App() {
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
-            {/* App switcher */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setAppSwitcherOpen(v => !v)}
-                className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center gap-1"
-                title="Switch app"
-              >
-                {activePage === 'todo' ? 'PLS Do It' : 'PLS Calendar'}
-                <svg className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${appSwitcherOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {appSwitcherOpen && (
-                <>
-                  <div className="fixed inset-0 z-[60]" onClick={() => setAppSwitcherOpen(false)} />
-                  <div className="absolute left-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden z-[70]">
-                    {[
-                      { id: 'calendar', label: '📅 PLS Calendar' },
-                      { id: 'todo',     label: '✓ PLS Do It' },
-                    ].map(app => (
-                      <button
-                        key={app.id}
-                        type="button"
-                        onClick={() => { setActivePage(app.id); setAppSwitcherOpen(false); }}
-                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
-                          activePage === app.id
-                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                        }`}
-                      >
-                        {app.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
+            {/* App title */}
+            <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+              PLS Calendar
+            </span>
             {syncing && (
               <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
             )}
@@ -975,20 +926,8 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Task count — shown when on PLS Do It page */}
-            {activePage === 'todo' && (() => {
-              const today = new Date().toISOString().slice(0, 10);
-              const pendingToday = tasks.filter(t => t.due_date === today && t.status !== 'completed').length;
-              const rolledOver   = tasks.filter(t => t.status !== 'completed' && t.original_date && t.original_date !== t.due_date).length;
-              const total = pendingToday + rolledOver;
-              return (
-                <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                  {total === 0 ? 'All done ✓' : `${total} task${total !== 1 ? 's' : ''} today`}
-                </span>
-              );
-            })()}
-            {/* Tab switcher — only visible on calendar page */}
-            {activePage === 'calendar' && (<div className="relative lg:hidden">
+            {/* Tab switcher */}
+            {(<div className="relative lg:hidden">
               <button
                 type="button"
                 onClick={() => setShowTabMenu(s => !s)}
@@ -1021,7 +960,7 @@ export default function App() {
                 </>
               )}
             </div>)}
-            {activePage === 'calendar' && (<nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
+            {(<nav className="hidden lg:flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-800 p-1">
               {visibleTabs.map(tab => (
                 <button
                   key={tab.id}
@@ -1121,13 +1060,13 @@ export default function App() {
                                 <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
                               </label>
                             )}
-                            {activePage === 'calendar' && sv(['military', 'time']) && (
+                            {sv(['military', 'time']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
                                 <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
                               </label>
                             )}
-                            {activePage === 'calendar' && sv(['week', 'numbers', 'month', 'view']) && (
+                            {sv(['week', 'numbers', 'month', 'view']) && (
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
@@ -1135,7 +1074,7 @@ export default function App() {
                             )}
                             </div>
                             {/* ── Minimalist Mode ── */}
-                            {activePage === 'calendar' && sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
+                            {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
                               <div className="space-y-2">
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
                                   <div>
@@ -1271,7 +1210,7 @@ export default function App() {
 
                             <div className={`space-y-3${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
                             {/* ── Mobile default view (calendar only) ── */}
-                            {activePage === 'calendar' && sv(['mobile', 'phone', 'default', 'view']) && (
+                            {sv(['mobile', 'phone', 'default', 'view']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Mobile default view</p>
                                 <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">What view opens first on phones</p>
@@ -1295,7 +1234,7 @@ export default function App() {
                             )}
 
                             {/* ── Floating Button Options ── */}
-                            {activePage === 'calendar' && sv(['floating', 'button', 'drag', 'show']) && (
+                            {sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Floating Button</p>
                                 <label className="flex items-center justify-between gap-3 cursor-pointer">
@@ -1321,7 +1260,7 @@ export default function App() {
                                 )}
                               </div>
                             )}
-                            {activePage === 'calendar' && sv(['views', 'quarter', 'half', 'extra']) && (
+                            {sv(['views', 'quarter', 'half', 'extra']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Extra views</p>
                                 {[{ id: 'quarter', label: 'Quarter view' }, { id: 'half', label: 'Half-year view' }].map(v => (
@@ -1335,38 +1274,6 @@ export default function App() {
                                     <span className="text-sm text-gray-600 dark:text-gray-400">{v.label}</span>
                                   </label>
                                 ))}
-                              </div>
-                            )}
-                            {/* ── To-Do View (todo page only) ── */}
-                            {activePage === 'todo' && sv(['todo', 'kanban', 'list', 'task', 'tasks', 'do it', 'completed', 'hide', 'auto']) && (
-                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
-                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">PLS Do It view</p>
-                                <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1">
-                                  {[{ id: 'list', label: 'List' }, { id: 'kanban', label: 'Kanban' }].map(v => (
-                                    <button
-                                      key={v.id}
-                                      type="button"
-                                      onClick={() => setTodoView(v.id)}
-                                      className={`flex-1 py-1 rounded-md text-xs font-medium transition-colors ${
-                                        todoView === v.id
-                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
-                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                                      }`}
-                                    >
-                                      {v.label}
-                                    </button>
-                                  ))}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setAutoHideCompleted(v => !v)}
-                                  className="flex items-center justify-between w-full py-0.5 group"
-                                >
-                                  <span className="text-xs text-gray-600 dark:text-gray-300 group-hover:text-gray-800 dark:group-hover:text-gray-100 transition-colors">Auto-hide completed tasks</span>
-                                  <span className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ${autoHideCompleted ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'}`}>
-                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${autoHideCompleted ? 'translate-x-4' : 'translate-x-0'}`} />
-                                  </span>
-                                </button>
                               </div>
                             )}
                             </div>{/* end other-settings wrapper */}
@@ -1483,7 +1390,7 @@ export default function App() {
                       )}
 
                       {/* ── Search Options (collapsible, calendar only) ── */}
-                      {activePage === 'calendar' && sv(SECTION_KWS.search) && (
+                      {sv(SECTION_KWS.search) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1582,7 +1489,7 @@ export default function App() {
                       )}
 
                       {/* ── Time Zones (collapsible) ── */}
-                      {activePage === 'calendar' && sv(SECTION_KWS.timezone) && (
+                      {sv(SECTION_KWS.timezone) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -1709,7 +1616,7 @@ export default function App() {
                       )}
 
                       {/* ── Manage Categories (collapsible) ── */}
-                      {activePage === 'calendar' && sv(SECTION_KWS.categories) && (
+                      {sv(SECTION_KWS.categories) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
                           type="button"
@@ -2339,7 +2246,7 @@ export default function App() {
                       )}
 
                       {/* ── Connected Calendars (collapsible) ── */}
-                      {activePage === 'calendar' && (activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
+                      {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
                           <button
                             type="button"
@@ -2963,7 +2870,7 @@ export default function App() {
                       const legacyPlan = events.filter(e => e.calendar === 'plan' && !e.source_calendar_id && e.source !== 'manual').length;
                       const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
                       const hasAny = linkedCalendars.length > 0 || legacyPlan > 0 || legacyActual > 0;
-                      if (activePage !== 'calendar' || !hasAny || !sv(SECTION_KWS.linked)) return null;
+                      if (!hasAny || !sv(SECTION_KWS.linked)) return null;
                       return null; // Linked calendars now shown inside Connected Calendars
                     })()}
 
@@ -3025,31 +2932,17 @@ export default function App() {
 
                       {/* ── Tutorial (page-specific) ── */}
                       <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
-                        {activePage === 'calendar' ? (
-                          <button
-                            type="button"
-                            onClick={() => { setShowSettings(false); setShowTutorialHub(true); }}
-                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                          >
-                            <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Calendar Tutorial</span>
-                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">13 topics</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => { setShowSettings(false); setShowTodoTutorial(true); }}
-                            className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
-                          >
-                            <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                            </svg>
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Do It Tutorial</span>
-                            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">6 steps</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => { setShowSettings(false); setShowTutorialHub(true); }}
+                          className="flex items-center gap-2 w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+                        >
+                          <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                          </svg>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">PLS Calendar Tutorial</span>
+                          <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">13 topics</span>
+                        </button>
                       </div>
 
                   </div>
@@ -3062,23 +2955,7 @@ export default function App() {
 
         {/* Main content */}
         <main className="flex-1 overflow-hidden pb-safe">
-          {/* PLS Do It page */}
-          {activePage === 'todo' && (
-            <TodoView
-              tasks={tasks}
-              todoView={todoView}
-              fabOpen={todoFabOpen}
-              onFabClose={() => setTodoFabOpen(false)}
-              onAddTask={addTask}
-              onUpdateTask={updateTask}
-              onDeleteTask={deleteTask}
-              onCompleteTask={completeTask}
-              onUncompleteTask={uncompleteTask}
-              onMoveCard={moveKanbanCard}
-              onReorderTasks={reorderTasks}
-            />
-          )}
-          {activePage === 'calendar' && activeTab === 'plan' && (
+          {activeTab === 'plan' && (
             <PlanView
               events={planEvents}
               weekStart={weekStart}
@@ -3106,7 +2983,7 @@ export default function App() {
               savedAddresses={profile.otherAddresses || []}
             />
           )}
-          {activePage === 'calendar' && activeTab === 'actual' && (
+          {activeTab === 'actual' && (
             <ActualView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -3135,7 +3012,7 @@ export default function App() {
               savedAddresses={profile.otherAddresses || []}
             />
           )}
-          {activePage === 'calendar' && activeTab === 'reality' && (
+          {activeTab === 'reality' && (
             <DiffView
               planEvents={planEvents}
               actualEvents={actualEvents}
@@ -3157,25 +3034,10 @@ export default function App() {
         <InstallPrompt />
         <UpdateBanner updater={desktopUpdater} />
 
-        {/* Floating quick-add button — todo page */}
-        {activePage === 'todo' && todoView === 'list' && (
-          <button
-            type="button"
-            onClick={() => setTodoFabOpen(true)}
-            className="fixed bottom-6 right-6 z-30 rounded-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white shadow-lg flex items-center justify-center transition-all"
-            style={{ width: '3.25rem', height: '3.25rem' }}
-            aria-label="Add task"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-        )}
-
-        {/* Floating quick-add button — calendar page. Forced visible when a
-            share-target launch is pending so the shared text isn't silently
-            dropped by "Hide FAB"/minimalist mode. */}
-        {activePage === 'calendar' && (eff.fabVisible || shareText) && (
+        {/* Floating quick-add button. Forced visible when a share-target launch
+            is pending so the shared text isn't silently dropped by
+            "Hide FAB"/minimalist mode. */}
+        {(eff.fabVisible || shareText) && (
           <QuickAddFAB
             allCategories={allCategories}
             homeAddress={profile.homeAddress || ''}

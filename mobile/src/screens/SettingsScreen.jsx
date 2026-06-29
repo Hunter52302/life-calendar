@@ -288,14 +288,6 @@ function ProfileField({ label, value, onSave, placeholder, T, last, secureTextEn
   );
 }
 
-const TODO_TUTORIAL_STEPS = [
-  { icon: 'checkmark-circle-outline', title: 'Welcome to PLS Do It', body: 'PLS Do It is your personal task list. Add tasks, set priorities and due dates, and check them off as you go.' },
-  { icon: 'add-circle-outline',       title: 'Adding Tasks',         body: 'Tap the + button or the FAB in the bottom-right to add a new task. Give it a title — due date and priority are optional.' },
-  { icon: 'checkbox-outline',         title: 'Completing Tasks',     body: 'Tap the circle on the left of any task to mark it done. Completed tasks collapse into a toggle at the bottom.' },
-  { icon: 'create-outline',           title: 'Editing Details',      body: 'Tap a task title to expand it. You can change the title, set a due date, pick a priority, and choose a color label.' },
-  { icon: 'alert-circle-outline',     title: 'Overdue Rollover',     body: 'Tasks from past days that are still pending automatically appear in the Overdue section so nothing slips through.' },
-  { icon: 'settings-outline',         title: 'Settings',             body: 'In Settings → Habit Tracker you can manage your habits. The Tutorial button always brings you back here.' },
-];
 
 // ── Tutorial Modal ─────────────────────────────────────────────────────────────
 
@@ -624,7 +616,6 @@ export default function SettingsScreen() {
   const navigation = useNavigation();
   const [query,           setQuery]           = useState('');
   const [showTutorial,    setShowTutorial]    = useState(false);
-  const [showTodoTutorial, setShowTodoTutorial] = useState(false);
   const [tzPickerOpen,    setTzPickerOpen]    = useState(false);
   const [addIntOpen,      setAddIntOpen]      = useState(false);
   const [addAddrOpen,     setAddAddrOpen]     = useState(false);
@@ -1634,16 +1625,6 @@ export default function SettingsScreen() {
               </View>
               <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
             </Pressable>
-            <Pressable style={s.tutRow} onPress={() => setShowTodoTutorial(true)}>
-              <View style={[s.tutIconSmall, { backgroundColor: '#EFF6FF' }]}>
-                <Ionicons name="play" size={14} color="#3B82F6" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.rowTitle, { color: T.text }]}>PLS Do It Tutorial</Text>
-                <Text style={[s.rowSub, { color: T.textFaint }]}>6-step tour of the task list</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color={T.textFaint} />
-            </Pressable>
           </Section>
         )}
 
@@ -1691,7 +1672,6 @@ export default function SettingsScreen() {
 
       {/* ── Modals ── */}
       <TutorialModal visible={showTutorial} onClose={() => setShowTutorial(false)} T={T} />
-      <TutorialModal visible={showTodoTutorial} steps={TODO_TUTORIAL_STEPS} onClose={() => setShowTodoTutorial(false)} T={T} />
 
       <TzPickerModal
         visible={tzPickerOpen}

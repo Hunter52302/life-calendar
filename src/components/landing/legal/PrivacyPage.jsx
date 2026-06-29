@@ -11,7 +11,7 @@ export default function PrivacyPage() {
 
       <LegalSection heading="1. Our zero-knowledge model">
         <p>
-          {COMPANY_NAME} is designed so that your calendar, tasks, habits, budgets, and related
+          {COMPANY_NAME} is designed so that your calendar, habits, budgets, and related
           content are encrypted on your device before being sent to us. We store only encrypted
           data and cannot read its contents. As a result, we are unable to recover your content if
           you lose both your password and your recovery code.

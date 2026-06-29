@@ -25,7 +25,6 @@ import PlanScreen     from './src/screens/PlanScreen.jsx';
 import LiveScreen     from './src/screens/LiveScreen.jsx';
 import HabitsScreen   from './src/screens/HabitsScreen.jsx';
 import RealityScreen  from './src/screens/RealityScreen.jsx';
-import TodoScreen     from './src/screens/TodoScreen.jsx';
 import SettingsScreen from './src/screens/SettingsScreen.jsx';
 import ParseModal     from './src/components/ParseModal.jsx';
 import UpdateBanner   from './src/components/UpdateBanner.jsx';
@@ -37,7 +36,6 @@ const TAB_ICONS = {
   Live:            'time-outline',
   Habits:          'checkmark-circle-outline',
   'See Your Life': 'bar-chart-outline',
-  'PLS Do It':     'checkbox-outline',
   Settings:        'settings-outline',
 };
 
@@ -244,7 +242,6 @@ function Main() {
             {effShowLiveTab    && <Tab.Screen name="Live"          component={LiveScreen} />}
             <Tab.Screen name="Habits"        component={HabitsScreen} />
             {effShowRealityTab && <Tab.Screen name="See Your Life" component={RealityScreen} />}
-            <Tab.Screen name="PLS Do It"     component={TodoScreen} />
             <Tab.Screen name="Settings"      component={SettingsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
