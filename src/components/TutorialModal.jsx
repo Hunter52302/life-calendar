@@ -210,14 +210,14 @@ export const TOPICS = [
       },
       {
         icon: <IconQuickAdd />,
-        title: 'Quick Add, Voice & AI',
+        title: 'Quick Add, Voice & Text Parsing',
         body: (
           <>
             <p className="mb-2">In a hurry? You don't have to fill out a form every time.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
               <li><strong className="text-gray-800 dark:text-gray-200">Paste</strong> a schedule, email, or message — the app pulls out the dates, times, and names</li>
               <li><strong className="text-gray-800 dark:text-gray-200">Speak</strong> an event and it's transcribed and parsed for you</li>
-              <li>Connect your own AI for smarter parsing — entirely optional</li>
+              <li>Connect your own LLM for smarter parsing — entirely optional</li>
             </ul>
           </>
         ),
@@ -525,7 +525,7 @@ export const TOPICS = [
   },
   {
     id: 'quickAdd',
-    label: 'Quick Add, Voice & AI Parsing',
+    label: 'Quick Add, Voice & Text Parsing',
     blurb: 'Turn pasted text or your voice into events, with optional LLM help.',
     icon: <IconQuickAdd />,
     gradient: 'from-purple-400 via-pink-400 to-red-400',
@@ -533,7 +533,7 @@ export const TOPICS = [
       {
         intro: true,
         icon: <IconQuickAdd />,
-        title: 'Quick Add, Voice & AI Parsing',
+        title: 'Quick Add, Voice & Text Parsing',
         body: (
           <p>Instead of filling out a form for every event, you can paste in messy text or just talk — the app finds the dates, times, and event names for you.</p>
         ),

@@ -42,6 +42,7 @@ function fmtTime(hhmm, military) {
 
 /** Human-readable duration string between two date+time pairs */
 function calcDurLabel(sd, st, ed, et) {
+  if (!st || !et) return '—';
   const start = new Date(`${sd}T${st}:00`);
   const end   = new Date(`${ed}T${et}:00`);
   const ms = end - start;
@@ -145,10 +146,10 @@ function TimeRow({ startDate, startTime, endDate, endTime, onStartChange, onEndC
           {fmtTime(startTime, militaryTime)}
         </p>
       </Field>
-      <Field label="End" className="flex-1">
+      <Field label="End (optional)" className="flex-1">
         <input type="time" value={endTime} onChange={e => onEndChange(e.target.value)} className={inputCls} />
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 px-0.5 tabular-nums">
-          {fmtTime(endTime, militaryTime)}
+          {endTime ? fmtTime(endTime, militaryTime) : 'defaults to 1 hour'}
         </p>
       </Field>
       <Field label="Duration" className="flex-shrink-0">
