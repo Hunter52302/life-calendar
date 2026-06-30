@@ -167,8 +167,8 @@ export default function PlanScreen() {
           <Pressable onPress={() => navigate(1)} hitSlop={12} style={s.navBtn}>
             <Text style={[s.navArrow, { color: T.accent }]}>›</Text>
           </Pressable>
-          <Pressable onPress={() => openParseModal()} hitSlop={8} style={styles.navBtn}>
-            <Text style={styles.clipboardIcon}>📋</Text>
+          <Pressable onPress={() => openParseModal()} hitSlop={8} style={s.navBtn}>
+            <Text style={s.clipboardIcon}>📋</Text>
           </Pressable>
         </View>
       </View>
@@ -300,6 +300,7 @@ const s = StyleSheet.create({
   navRow:      { flexDirection: 'row', alignItems: 'center' },
   navBtn:      { padding: 8 },
   navArrow:    { fontSize: 26, fontWeight: '300', lineHeight: 30 },
+  clipboardIcon: { fontSize: 20, lineHeight: 26 },
   navLabel:    { flex: 1, alignItems: 'center' },
   navTitle:    { fontSize: 15, fontWeight: '600', textAlign: 'center' },
   // Category bar
