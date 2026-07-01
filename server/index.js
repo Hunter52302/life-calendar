@@ -3,9 +3,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 
-// ── Database (imported for side-effect: connects + runs migrations) ──────────
-import './db/index.js';
-
 // ── Route modules ────────────────────────────────────────────────────────────
 import authRoute            from './routes/auth.js';
 import eventsRoute          from './routes/events.js';
@@ -29,10 +26,13 @@ import oauthMicrosoftRoute  from './routes/oauthMicrosoft.js';
 import calendarConnectionsRoute from './routes/calendarConnections.js';
 import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
+import { pocketbaseEvents } from './lib/pocketbaseEvents.js';
+import { pocketbaseHabitCompletions, pocketbaseHabits } from './lib/pocketbaseHabits.js';
+import { pocketbaseNotificationSchedules, pocketbaseUserIntegrations } from './lib/pocketbaseNotifications.js';
+import { pbCategoryKeywords, pbCategoryOverrides, pbCustomCategories, pbDeletedDefaults, pbLinkedCalendars, pbTimeBudgets, pbUserLlmSettings, pbUserProfile } from './lib/pocketbaseSupport.js';
 
 // ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
 import { requireAuth } from './middleware/auth.js';
-import { events, customCategories, categoryOverrides, deletedDefaults, linkedCalendars, habits, habitCompletions, timeBudgets, userIntegrations, notificationSchedules, userProfile, categoryKeywords, userLlmSettings } from './db/queries.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -92,24 +92,53 @@ await initializeInfisical();
  * Convenience endpoint: returns ALL user data in one request.
  * The frontend calls this once on startup instead of 4 separate fetches.
  */
-app.get('/api/sync', requireAuth, (req, res) => {
+app.get('/api/sync', requireAuth, async (req, res) => {
   // Opportunistically GC this user's expired tombstones before we read them, so
   // the sync payload (and the table) stay bounded over time.
-  try { events.purgeExpiredTombstones(req.userId); } catch { /* non-critical */ }
+  try { await pocketbaseEvents.purgeExpiredTombstones(req.userId); } catch { /* non-critical */ }
+  const [
+    syncEvents,
+    syncCustomCategories,
+    syncCategoryOverrides,
+    syncLinkedCalendars,
+    syncDeletedDefaultIds,
+    syncBudgets,
+    syncProfile,
+    syncCategoryKeywords,
+    syncLlmSettings,
+    syncHabits,
+    syncHabitCompletions,
+    syncIntegrations,
+    syncSchedules,
+  ] = await Promise.all([
+    pocketbaseEvents.getAllForSync(req.userId),
+    pbCustomCategories.getAll(req.userId),
+    pbCategoryOverrides.getAll(req.userId),
+    pbLinkedCalendars.getAll(req.userId),
+    pbDeletedDefaults.getAll(req.userId),
+    pbTimeBudgets.getAll(req.userId),
+    pbUserProfile.get(req.userId),
+    pbCategoryKeywords.getAll(req.userId),
+    pbUserLlmSettings.get(req.userId),
+    pocketbaseHabits.getAll(req.userId),
+    pocketbaseHabitCompletions.getAll(req.userId),
+    pocketbaseUserIntegrations.getAll(req.userId),
+    pocketbaseNotificationSchedules.getAll(req.userId),
+  ]);
   res.json({
-    events:            events.getAllForSync(req.userId), // live + recent tombstones for client merge
-    customCategories:  customCategories.getAll(req.userId),
-    categoryOverrides: categoryOverrides.getAll(req.userId),
-    linkedCalendars:   linkedCalendars.getAll(req.userId),
-    deletedDefaultIds: deletedDefaults.getAll(req.userId),
-    habits:            habits.getAll(req.userId),
-    habitCompletions:  habitCompletions.getAll(req.userId),
-    budgets:           timeBudgets.getAll(req.userId),
-    integrations:      userIntegrations.getAll(req.userId),
-    schedules:         notificationSchedules.getAll(req.userId),
-    profile:           userProfile.get(req.userId),
-    categoryKeywords:  categoryKeywords.getAll(req.userId),
-    llmSettings:       userLlmSettings.get(req.userId),
+    events:            syncEvents, // live + recent tombstones for client merge
+    customCategories:  syncCustomCategories,
+    categoryOverrides: syncCategoryOverrides,
+    linkedCalendars:   syncLinkedCalendars,
+    deletedDefaultIds: syncDeletedDefaultIds,
+    habits:            syncHabits,
+    habitCompletions:  syncHabitCompletions,
+    budgets:           syncBudgets,
+    integrations:      syncIntegrations,
+    schedules:         syncSchedules,
+    profile:           syncProfile,
+    categoryKeywords:  syncCategoryKeywords,
+    llmSettings:       syncLlmSettings,
   });
 });
 

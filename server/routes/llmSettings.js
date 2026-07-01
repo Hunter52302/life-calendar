@@ -1,23 +1,24 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { userLlmSettings } from '../db/queries.js';
+import { pbUserLlmSettings } from '../lib/pocketbaseSupport.js';
 
 const router = Router();
 router.use(requireAuth);
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-router.get('/', (req, res) => {
-  res.json(userLlmSettings.get(req.userId));
-});
+router.get('/', asyncHandler(async (req, res) => {
+  res.json(await pbUserLlmSettings.get(req.userId));
+}));
 
-router.put('/', (req, res) => {
+router.put('/', asyncHandler(async (req, res) => {
   const { provider, apiKey, endpoint, model } = req.body;
-  userLlmSettings.set(req.userId, {
+  await pbUserLlmSettings.set(req.userId, {
     provider: provider ?? 'none',
     apiKey:   apiKey   ?? null,
     endpoint: endpoint ?? null,
     model:    model    ?? null,
   });
   res.json({ ok: true });
-});
+}));
 
 export default router;

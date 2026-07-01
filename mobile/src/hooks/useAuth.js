@@ -1,92 +1,104 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
 import { storage } from '../lib/storage.js';
-import { deriveKey, verifyKey, generateSalt, generateVerifyBlob } from '../lib/crypto.js';
+import { createEnvelope, deriveAuthVerifier, unlockWithPassword } from '../lib/zkEnvelope.js';
 
 /**
- * Authentication + zero-knowledge key management for mobile.
+ * Mobile auth aligned with the current server envelope model.
  *
- * States: checking | setup | login | locked | ready | offline | offline-ok
- *
- * Unlike the web (which splits this across useAuth + CryptoContext), the
- * mobile hook owns the master key directly: `masterKey` is a Uint8Array
- * held in JS memory only — never written to SecureStore or AsyncStorage.
+ * States:
+ *   checking | setup | login | unlock | recovery | ready | offline | offline-ok
  */
 export function useAuth() {
   const [authState, setAuthState] = useState('checking');
-  const [zkInfo, setZkInfo]       = useState(null); // { kdf_salt, zk_verify }
-  const [masterKey, setMasterKey] = useState(null);
-  const [isZkEnabled, setIsZkEnabled] = useState(false);
+  const [zkInfo, setZkInfo] = useState(null); // { kdfSalt, wrappedDekPassword }
+  const [masterKey, setMasterKey] = useState(null); // raw DEK bytes
+  const [recoveryCode, setRecoveryCode] = useState(null);
 
   useEffect(() => {
     api.auth.status()
-      .then(({ isSetup, tokenValid, zk_enabled, kdf_salt, zk_verify }) => {
-        if (tokenValid) {
-          if (zk_enabled) {
-            setZkInfo({ kdf_salt, zk_verify });
-            setIsZkEnabled(true);
-            setAuthState('locked');
-          } else {
-            setAuthState('ready');
-          }
-        } else if (!isSetup) {
-          setAuthState('setup');
-        } else {
-          setAuthState('login');
-        }
-      })
+      .then(applyStatus)
       .catch(() => setAuthState('offline'));
   }, []);
 
-  /** Derive + verify the master key from a password. Throws when wrong. */
-  async function unlock(password) {
-    const info = zkInfo;
-    if (!info) return;
-    const key = await deriveKey(password, info.kdf_salt);
-    if (!(await verifyKey(key, info.zk_verify))) {
-      throw new Error('Incorrect password — your data stays encrypted until the right one is entered.');
+  function applyStatus({ isSetup, tokenValid, kdf_salt, wrapped_dek_password }) {
+    if (tokenValid) {
+      setZkInfo({
+        kdfSalt: kdf_salt ?? null,
+        wrappedDekPassword: wrapped_dek_password ?? null,
+      });
+      setMasterKey(null);
+      setAuthState('unlock');
+      return;
     }
-    setMasterKey(key);
-    setIsZkEnabled(true);
-    setAuthState('ready');
+
+    setMasterKey(null);
+    setZkInfo(null);
+    setRecoveryCode(null);
+    setAuthState(isSetup ? 'login' : 'setup');
+  }
+
+  async function unlock(password) {
+    if (!zkInfo?.kdfSalt || !zkInfo?.wrappedDekPassword) {
+      throw new Error('This account is missing its unlock envelope.');
+    }
+
+    try {
+      const dek = await unlockWithPassword(zkInfo, password);
+      setMasterKey(dek);
+      setAuthState('ready');
+    } catch {
+      throw new Error('Incorrect password.');
+    }
   }
 
   async function login(email, password) {
-    const res = await api.auth.login(email, password);
+    const salts = await api.auth.prelogin(email);
+    const authVerifier = await deriveAuthVerifier(password, salts.auth_salt);
+    const res = await api.auth.login(email, authVerifier);
     await storage.setToken(res.token);
-    if (res.zk_enabled) {
-      setZkInfo({ kdf_salt: res.kdf_salt, zk_verify: res.zk_verify });
-      setIsZkEnabled(true);
-      const key = await deriveKey(password, res.kdf_salt);
-      if (await verifyKey(key, res.zk_verify)) {
-        setMasterKey(key);
-        setAuthState('ready');
-      } else {
-        // Password was admin-reset: data is under the previous password
-        setAuthState('locked');
-      }
-    } else {
+
+    const nextInfo = {
+      kdfSalt: res.kdf_salt,
+      wrappedDekPassword: res.wrapped_dek_password,
+    };
+    setZkInfo(nextInfo);
+
+    try {
+      const dek = await unlockWithPassword(nextInfo, password);
+      setMasterKey(dek);
       setAuthState('ready');
+    } catch {
+      setMasterKey(null);
+      setAuthState('unlock');
+      throw new Error('Signed in, but this password could not unlock your data.');
     }
   }
 
-  /** ZK is on by default: the key is derived locally before the account exists. */
   async function register(email, password) {
-    const salt = generateSalt();
-    const key  = await deriveKey(password, salt);
-    const blob = await generateVerifyBlob(key);
-    const res  = await api.auth.register(email, password, salt, blob);
+    const envelope = await createEnvelope(password);
+    const res = await api.auth.register(email, envelope.authVerifier, {
+      authSalt: envelope.authSalt,
+      kdfSalt: envelope.kdfSalt,
+      recoverySalt: envelope.recoverySalt,
+      recoveryAuthSalt: envelope.recoveryAuthSalt,
+      recoveryVerifier: envelope.recoveryVerifier,
+      wrappedDekPassword: envelope.wrappedDekPassword,
+      wrappedDekRecovery: envelope.wrappedDekRecovery,
+    });
+
     await storage.setToken(res.token);
-    setZkInfo({ kdf_salt: salt, zk_verify: blob });
-    setMasterKey(key);
-    setIsZkEnabled(true);
-    setAuthState('ready');
+    setZkInfo({
+      kdfSalt: envelope.kdfSalt,
+      wrappedDekPassword: envelope.wrappedDekPassword,
+    });
+    setMasterKey(envelope.dek);
+    setRecoveryCode(envelope.recoveryCode);
+    setAuthState('recovery');
   }
 
-  /** Legacy single-user first launch (password only). */
-  async function setup(password) {
-    const { token } = await api.auth.setup(password);
-    await storage.setToken(token);
+  function acknowledgeRecoveryCode() {
+    setRecoveryCode(null);
     setAuthState('ready');
   }
 
@@ -94,7 +106,7 @@ export function useAuth() {
     await storage.removeToken();
     setMasterKey(null);
     setZkInfo(null);
-    setIsZkEnabled(false);
+    setRecoveryCode(null);
     setAuthState('login');
   }
 
@@ -105,24 +117,23 @@ export function useAuth() {
   async function retry() {
     setAuthState('checking');
     try {
-      const { isSetup, tokenValid, zk_enabled, kdf_salt, zk_verify } = await api.auth.status();
-      if (tokenValid) {
-        if (zk_enabled) {
-          setZkInfo({ kdf_salt, zk_verify });
-          setIsZkEnabled(true);
-          setAuthState('locked');
-        } else {
-          setAuthState('ready');
-        }
-      } else if (!isSetup) setAuthState('setup');
-      else                 setAuthState('login');
+      applyStatus(await api.auth.status());
     } catch {
       setAuthState('offline');
     }
   }
 
   return {
-    authState, masterKey, isZkEnabled,
-    setup, register, login, unlock, logout, continueOffline, retry,
+    authState,
+    masterKey,
+    isZkEnabled: true,
+    recoveryCode,
+    register,
+    login,
+    unlock,
+    logout,
+    continueOffline,
+    retry,
+    acknowledgeRecoveryCode,
   };
 }

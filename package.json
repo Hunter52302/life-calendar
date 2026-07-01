@@ -9,7 +9,12 @@
   ],
   "scripts": {
     "dev": "vite",
-    "server": "node --watch server/index.js",
+    "server": "node server/index.js",
+    "server:watch": "node --watch server/index.js",
+    "pb:serve": "./pocketbase/pocketbase serve --migrationsDir=./pocketbase/pb_migrations",
+    "pb:migrate:create": "./pocketbase/pocketbase migrate create --migrationsDir=./pocketbase/pb_migrations",
+    "pb:migrate:collections": "./pocketbase/pocketbase migrate collections --migrationsDir=./pocketbase/pb_migrations",
+    "pb:migrate:history-sync": "./pocketbase/pocketbase migrate history-sync --migrationsDir=./pocketbase/pb_migrations",
     "build": "vite build",
     "lint": "eslint .",
     "test": "node --test \"src/**/*.test.js\"",
@@ -55,14 +60,10 @@
     "react-router-dom": "^7.18.0",
     "web-push": "^3.6.7"
   },
-  "optionalDependencies": {
-    "better-sqlite3": "^12.10.0"
-  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2.11.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

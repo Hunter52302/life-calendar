@@ -2544,9 +2544,29 @@ export default function App() {
                                   </div>
                                 </>
                               )}
-                              {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
+                            {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
                             </div>
                             )}
+
+                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Session</p>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                Sign out of this account and lock the calendar on this device.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  lock();
+                                  logout();
+                                  setShowSettings(false);
+                                  setSettingsSearch('');
+                                }}
+                                className="w-full flex items-center justify-center gap-2 text-sm px-3 py-2 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-semibold transition-colors"
+                              >
+                                <span aria-hidden="true">↩</span>
+                                <span>Log Out</span>
+                              </button>
+                            </div>
 
                             {/* ── User Profile (nested collapsible) ── */}
                             <div className="rounded-lg overflow-hidden">

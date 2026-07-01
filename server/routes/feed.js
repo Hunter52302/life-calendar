@@ -14,9 +14,11 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
-import { users, events } from '../db/queries.js';
+import { pocketbaseUsers } from '../lib/pocketbaseInternal.js';
+import { pocketbaseEvents } from '../lib/pocketbaseEvents.js';
 
 const router = Router();
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 function icsEscape(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
@@ -64,37 +66,37 @@ function buildIcs(userEvents, zkEnabled, calendarName) {
   return lines.join('\r\n');
 }
 
-router.post('/enable', requireAuth, (req, res) => {
+router.post('/enable', requireAuth, asyncHandler(async (req, res) => {
   const token = randomBytes(24).toString('base64url');
-  users.setFeedToken(req.userId, token);
+  await pocketbaseUsers.setFeedToken(req.userId, token);
   res.json({ enabled: true, path: `/api/feed/${token}` });
-});
+}));
 
-router.get('/status', requireAuth, (req, res) => {
-  const user = users.getById(req.userId);
+router.get('/status', requireAuth, asyncHandler(async (req, res) => {
+  const user = await pocketbaseUsers.getById(req.userId);
   const token = user?.ics_feed_token;
   res.json(token ? { enabled: true, path: `/api/feed/${token}` } : { enabled: false });
-});
+}));
 
-router.delete('/', requireAuth, (req, res) => {
-  users.setFeedToken(req.userId, null);
+router.delete('/', requireAuth, asyncHandler(async (req, res) => {
+  await pocketbaseUsers.setFeedToken(req.userId, null);
   res.json({ ok: true });
-});
+}));
 
 // Public — the unguessable token is the credential (same model as Google's
 // "secret address"). Keep last so /enable and /status match first.
-router.get('/:token', (req, res) => {
+router.get('/:token', asyncHandler(async (req, res) => {
   const token = req.params.token.replace(/\.ics$/i, '');
-  const user = users.getByFeedToken(token);
+  const user = await pocketbaseUsers.getByFeedToken(token);
   if (!user || user.is_blocked) return res.status(404).send('Not found');
 
   const calendar = req.query.calendar === 'actual' ? 'actual' : 'plan';
-  const userEvents = events.getAll(user.id).filter(e => e.calendar === calendar);
+  const userEvents = (await pocketbaseEvents.getAll(user.id)).filter(e => e.calendar === calendar);
   const name = calendar === 'plan' ? 'PLS Calendar — Plan' : 'PLS Calendar — Live';
 
   res.set('Content-Type', 'text/calendar; charset=utf-8');
   res.set('Cache-Control', 'private, max-age=300');
-  res.send(buildIcs(userEvents, user.zk_enabled === 1, name));
-});
+  res.send(buildIcs(userEvents, !!user.zk_enabled, name));
+}));
 
 export default router;

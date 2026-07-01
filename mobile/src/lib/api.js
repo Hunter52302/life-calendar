@@ -3,7 +3,7 @@
 
 import { storage } from './storage.js';
 
-const BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api';
+const BASE = globalThis.process?.env?.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
 async function request(method, path, body) {
   const headers = { 'Content-Type': 'application/json' };
@@ -28,11 +28,16 @@ export const api = {
   health: () => request('GET', '/health'),
 
   auth: {
-    status:   ()         => request('GET',  '/auth/status'),
-    setup:    (password) => request('POST', '/auth/setup', { password }),
-    login:    (email, password) => request('POST', '/auth/login', { email, password }),
-    register: (email, password, kdf_salt, zk_verify) =>
-                request('POST', '/auth/register', { email, password, kdf_salt, zk_verify }),
+    status:           ()                          => request('GET',  '/auth/status'),
+    prelogin:         (email)                     => request('POST', '/auth/prelogin', { email }),
+    register:         (email, authVerifier, envelope, turnstile_token) =>
+                        request('POST', '/auth/register', { email, authVerifier, envelope, turnstile_token }),
+    login:            (email, authVerifier)       => request('POST', '/auth/login', { email, authVerifier }),
+    recoveryEnvelope: (email)                     => request('POST', '/auth/recovery-envelope', { email }),
+    resetPassword:    (email, recoveryVerifier, envelope) =>
+                        request('POST', '/auth/reset-password', { email, recoveryVerifier, envelope }),
+    setEmail:         (email)                     => request('PUT',  '/auth/email',    { email }),
+    setTimezone:      (timezone)                  => request('PUT',  '/auth/timezone', { timezone }),
   },
 
   sync: () => request('GET', '/sync'),

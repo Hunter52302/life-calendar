@@ -70,6 +70,7 @@ export function useAuth() {
 
   function logout() {
     storage.removeToken();
+    api.admin.clearAdminToken();
     setZkInfo(null);
     setAccountRole(null);
     setAccountEmail(null);

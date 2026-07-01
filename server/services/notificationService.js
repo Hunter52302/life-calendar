@@ -8,8 +8,11 @@
  */
 import webpush from 'web-push';
 import { randomUUID } from 'crypto';
-import { userIntegrations, notificationSchedules, notificationLog, pushSubscriptions, habits, habitCompletions, events } from '../db/queries.js';
-import { users } from '../db/queries.js';
+import { pocketbaseHabitCompletions, pocketbaseHabits } from '../lib/pocketbaseHabits.js';
+import { pocketbaseEvents } from '../lib/pocketbaseEvents.js';
+import { pocketbaseUsers } from '../lib/pocketbaseInternal.js';
+import { pocketbaseNotificationSchedules, pocketbaseUserIntegrations } from '../lib/pocketbaseNotifications.js';
+import { pocketbaseNotificationLog, pocketbasePushSubscriptions } from '../lib/pocketbaseOperational.js';
 
 // ── VAPID setup ───────────────────────────────────────────────────────────────
 
@@ -84,7 +87,7 @@ async function dispatchWebhook(url, payload, label) {
 
 async function dispatchWebPush(userId, title, body) {
   if (!vapidConfigured) return;
-  const subs = pushSubscriptions.getAll(userId);
+  const subs = await pocketbasePushSubscriptions.getAll(userId);
   await Promise.allSettled(
     subs.map(({ subscription }) =>
       webpush.sendNotification(subscription, JSON.stringify({ title, body, url: '/' }))
@@ -112,7 +115,7 @@ async function dispatchExpoPush(token, title, body) {
 // ── Dispatch router ───────────────────────────────────────────────────────────
 
 async function dispatchToIntegration(integration, title, body, entityId, userId) {
-  const alreadySent = notificationLog.wasFiredToday(integration.id, entityId, title);
+  const alreadySent = await pocketbaseNotificationLog.wasFiredToday(integration.id, entityId, title);
   if (alreadySent) return;
 
   let status = 'sent';
@@ -132,7 +135,7 @@ async function dispatchToIntegration(integration, title, body, entityId, userId)
     status = 'failed';
   }
 
-  notificationLog.record(randomUUID(), userId, integration.id, title, entityId, status);
+  await pocketbaseNotificationLog.record(randomUUID(), userId, integration.id, title, entityId, status);
 }
 
 // ── Label helper (respects ZK) ────────────────────────────────────────────────
@@ -144,8 +147,8 @@ function resolveLabel(entity, integration) {
 
 // ── Trigger checkers ──────────────────────────────────────────────────────────
 
-function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
-  const allEvents = events.getAll(userId).filter(e => e.calendar === 'plan' && !e.is_all_day);
+async function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
+  const allEvents = (await pocketbaseEvents.getAll(userId)).filter(e => e.calendar === 'plan' && !e.is_all_day);
   const results = [];
   for (const ev of allEvents) {
     // Compute event's absolute datetime string in UTC
@@ -167,10 +170,10 @@ function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
   return results;
 }
 
-function getHabitsNotDoneToday(userId, tzNow) {
-  const allHabits = habits.getAll(userId).filter(h => h.active && (h.target_days ?? [0,1,2,3,4,5,6]).includes(tzNow.dayOfWeek));
+async function getHabitsNotDoneToday(userId, tzNow) {
+  const allHabits = (await pocketbaseHabits.getAll(userId)).filter(h => h.active && (h.target_days ?? [0,1,2,3,4,5,6]).includes(tzNow.dayOfWeek));
   const done = new Set(
-    habitCompletions.getAll(userId).filter(c => c.date === tzNow.date).map(c => c.habit_id)
+    (await pocketbaseHabitCompletions.getAll(userId)).filter(c => c.date === tzNow.date).map(c => c.habit_id)
   );
   return allHabits.filter(h => !done.has(h.id));
 }
@@ -179,24 +182,27 @@ function getHabitsNotDoneToday(userId, tzNow) {
 
 async function tick() {
   try {
-    const allUsers = users.getAllForScheduler();
+    const allUsers = await pocketbaseUsers.getAllForScheduler();
     for (const user of allUsers) {
       const tz = user.user_timezone ?? 'UTC';
       const tzNow = nowInTz(tz);
-      const integrations = userIntegrations.getAll(user.id).filter(i => i.enabled);
-      const schedules = notificationSchedules.getAllActive(user.id);
+      const [integrations, schedules] = await Promise.all([
+        pocketbaseUserIntegrations.getAll(user.id),
+        pocketbaseNotificationSchedules.getAllActive(user.id),
+      ]);
+      const enabledIntegrations = integrations.filter(i => i.enabled);
 
-      if (!integrations.length || !schedules.length) continue;
+      if (!enabledIntegrations.length || !schedules.length) continue;
 
       for (const sched of schedules) {
         if (!sched.days_of_week.includes(tzNow.dayOfWeek)) continue;
 
         const targets = sched.integration_id
-          ? integrations.filter(i => i.id === sched.integration_id)
-          : integrations;
+          ? enabledIntegrations.filter(i => i.id === sched.integration_id)
+          : enabledIntegrations;
 
         if (sched.trigger_type === 'event_reminder') {
-          const dueEvents = getEventsDueForReminder(user.id, tzNow, sched.offset_minutes);
+          const dueEvents = await getEventsDueForReminder(user.id, tzNow, sched.offset_minutes);
           for (const ev of dueEvents) {
             for (const integration of targets) {
               const hint = resolveLabel(ev, integration);
@@ -212,7 +218,7 @@ async function tick() {
         if (sched.trigger_type === 'habit_reminder') {
           const hhmm = tzNow.timeStr;
           if (sched.time_of_day && Math.abs(parseInt(hhmm.replace(':',''),10) - parseInt((sched.time_of_day ?? '').replace(':',''),10)) > 1) continue;
-          const pending = getHabitsNotDoneToday(user.id, tzNow);
+          const pending = await getHabitsNotDoneToday(user.id, tzNow);
           if (!pending.length) continue;
           for (const integration of targets) {
             const hints = pending.map(h => resolveLabel(h, integration)).filter(Boolean);
@@ -228,8 +234,9 @@ async function tick() {
         if (sched.trigger_type === 'daily_summary') {
           const hhmm = tzNow.timeStr;
           if (sched.time_of_day && Math.abs(parseInt(hhmm.replace(':',''),10) - parseInt((sched.time_of_day ?? '').replace(':',''),10)) > 1) continue;
-          const todayEvents = events.getAll(user.id).filter(e => e.calendar === 'plan' && addDaysToDate(e.week_start, e.day_of_week) === tzNow.date);
-          const pending = getHabitsNotDoneToday(user.id, tzNow);
+          const todayEvents = (await pocketbaseEvents.getAll(user.id))
+            .filter(e => e.calendar === 'plan' && addDaysToDate(e.week_start, e.day_of_week) === tzNow.date);
+          const pending = await getHabitsNotDoneToday(user.id, tzNow);
           for (const integration of targets) {
             const title = `Daily Summary — ${tzNow.date}`;
             const body  = `${todayEvents.length} event${todayEvents.length !== 1 ? 's' : ''} planned · ${pending.length} habit${pending.length !== 1 ? 's' : ''} pending`;
@@ -249,8 +256,8 @@ export async function checkStreakMilestone(userId, habitId, currentStreak) {
   const milestones = [7, 30, 100, 365];
   if (!milestones.includes(currentStreak)) return;
   const emojis = { 7: '🔥', 30: '⭐', 100: '💎', 365: '👑' };
-  const integrations = userIntegrations.getAll(userId).filter(i => i.enabled);
-  const habit = habits.getById(userId, habitId);
+  const integrations = (await pocketbaseUserIntegrations.getAll(userId)).filter(i => i.enabled);
+  const habit = await pocketbaseHabits.getById(userId, habitId);
   for (const integration of integrations) {
     const hint = resolveLabel(habit ?? {}, integration);
     const title = `Streak Milestone ${emojis[currentStreak]}`;

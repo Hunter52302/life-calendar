@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { users, userZk } from '../db/queries.js';
+import { pocketbaseUsers, pocketbaseUserZk } from '../lib/pocketbaseInternal.js';
 import { requireAuth } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 
@@ -11,6 +11,7 @@ const SECRET = process.env.JWT_SECRET;
 const TOKEN_TTL = '30d';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VERIFIER_RE = /^[0-9a-f]{64}$/; // 32-byte hex from zkEnvelope.deriveAuthVerifier
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 /**
  * Envelope ZK (Model B): the server NEVER receives the password. The client
@@ -76,15 +77,15 @@ function fakeSalt(email, label) {
  * Whether any account exists, and (with a valid token) the account identity +
  * unlock envelope so a reloaded client can re-derive its key.
  */
-router.get('/status', (req, res) => {
-  const isSetup = users.count() > 0;
+router.get('/status', asyncHandler(async (req, res) => {
+  const isSetup = (await pocketbaseUsers.count()) > 0;
   const header = req.headers.authorization;
   let tokenValid = false;
   let extra = null;
   if (header?.startsWith('Bearer ')) {
     try {
       const payload = jwt.verify(header.slice(7), SECRET);
-      const user = users.getById(payload.userId);
+      const user = await pocketbaseUsers.getById(payload.userId);
       if (user && !user.is_blocked) {
         tokenValid = true;
         extra = {
@@ -98,7 +99,7 @@ router.get('/status', (req, res) => {
     } catch { /* expired or invalid */ }
   }
   res.json({ isSetup, tokenValid, ...(extra ?? {}) });
-});
+}));
 
 /**
  * POST /api/auth/prelogin
@@ -106,17 +107,17 @@ router.get('/status', (req, res) => {
  * Returns the salts the client needs to derive its auth verifier + KEK. Always
  * 200 with realistic salts (fake for unknown emails) to prevent enumeration.
  */
-router.post('/prelogin', authLimiter, (req, res) => {
+router.post('/prelogin', authLimiter, asyncHandler(async (req, res) => {
   const email = req.body?.email?.trim().toLowerCase();
   if (!email || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
-  const user = users.getByEmail(email);
+  const user = await pocketbaseUsers.getByEmail(email);
   if (user && user.auth_salt && user.kdf_salt) {
     return res.json({ auth_salt: user.auth_salt, kdf_salt: user.kdf_salt });
   }
   res.json({ auth_salt: fakeSalt(email, 'auth'), kdf_salt: fakeSalt(email, 'kdf') });
-});
+}));
 
 /**
  * POST /api/auth/register
@@ -126,7 +127,7 @@ router.post('/prelogin', authLimiter, (req, res) => {
  * The first account ever becomes the admin. The server stores bcrypt(verifier)
  * and bcrypt(recoveryVerifier) — never the password or recovery code.
  */
-router.post('/register', authLimiter, async (req, res) => {
+router.post('/register', authLimiter, asyncHandler(async (req, res) => {
   const { email, authVerifier, envelope, turnstile_token } = req.body ?? {};
   const normEmail = email?.trim().toLowerCase();
 
@@ -144,17 +145,17 @@ router.post('/register', authLimiter, async (req, res) => {
       !VERIFIER_RE.test(envelope.recoveryVerifier ?? '')) {
     return res.status(400).json({ error: 'Incomplete encryption envelope.' });
   }
-  if (users.getByEmail(normEmail)) {
+  if (await pocketbaseUsers.getByEmail(normEmail)) {
     return res.status(409).json({ error: 'An account with this email already exists.' });
   }
 
   const id = crypto.randomUUID();
-  const role = users.count() === 0 ? 'admin' : 'user';
+  const role = (await pocketbaseUsers.count()) === 0 ? 'admin' : 'user';
   const [verifierHash, recoveryVerifierHash] = await Promise.all([
     bcrypt.hash(authVerifier, 12),
     bcrypt.hash(envelope.recoveryVerifier, 12),
   ]);
-  users.create(id, verifierHash, {
+  await pocketbaseUsers.create(id, verifierHash, {
     email: normEmail,
     role,
     signupIp: req.ip ?? null,
@@ -168,21 +169,21 @@ router.post('/register', authLimiter, async (req, res) => {
       wrappedDekRecovery: envelope.wrappedDekRecovery,
     },
   });
-  res.json(authPayload(users.getById(id)));
-});
+  res.json(authPayload(await pocketbaseUsers.getById(id)));
+}));
 
 /**
  * POST /api/auth/login
  * Body: { email, authVerifier }
  */
-router.post('/login', authLimiter, async (req, res) => {
+router.post('/login', authLimiter, asyncHandler(async (req, res) => {
   const { email, authVerifier } = req.body ?? {};
   const normEmail = email?.trim().toLowerCase();
   if (!normEmail || !VERIFIER_RE.test(authVerifier ?? '')) {
     return res.status(400).json({ error: 'Invalid email or password.' });
   }
 
-  const user = users.getByEmail(normEmail);
+  const user = await pocketbaseUsers.getByEmail(normEmail);
   // Compare against a dummy hash for unknown users so timing doesn't leak existence.
   const hash = user?.password_hash ?? '$2a$12$0000000000000000000000000000000000000000000000000000a';
 
@@ -196,12 +197,12 @@ router.post('/login', authLimiter, async (req, res) => {
 
   const match = await bcrypt.compare(authVerifier, hash);
   if (!user || !match) {
-    if (user) users.recordFailedLogin(user.id);
+    if (user) await pocketbaseUsers.recordFailedLogin(user.id);
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
-  users.resetLoginAttempts(user.id);
+  await pocketbaseUsers.resetLoginAttempts(user.id);
   res.json(authPayload(user));
-});
+}));
 
 /**
  * POST /api/auth/recovery-envelope
@@ -209,12 +210,12 @@ router.post('/login', authLimiter, async (req, res) => {
  * Returns the recovery-side material so the client can unwrap the DEK with the
  * user's recovery code and build a reset. Enumeration-safe (fake for unknown).
  */
-router.post('/recovery-envelope', authLimiter, (req, res) => {
+router.post('/recovery-envelope', authLimiter, asyncHandler(async (req, res) => {
   const email = req.body?.email?.trim().toLowerCase();
   if (!email || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
-  const user = users.getByEmail(email);
+  const user = await pocketbaseUsers.getByEmail(email);
   if (user?.recovery_salt && user?.wrapped_dek_recovery) {
     return res.json({
       recovery_salt:        user.recovery_salt,
@@ -230,7 +231,7 @@ router.post('/recovery-envelope', authLimiter, (req, res) => {
     recovery_auth_salt:   fakeSalt(email, 'recauth'),
     wrapped_dek_recovery: 'zk1:' + crypto.randomBytes(60).toString('base64'),
   });
-});
+}));
 
 /**
  * POST /api/auth/reset-password
@@ -238,7 +239,7 @@ router.post('/recovery-envelope', authLimiter, (req, res) => {
  * The client proves it holds the recovery code (recoveryVerifier) and supplies a
  * DEK freshly re-wrapped under the new password. Server never sees either secret.
  */
-router.post('/reset-password', authLimiter, async (req, res) => {
+router.post('/reset-password', authLimiter, asyncHandler(async (req, res) => {
   const { email, recoveryVerifier, envelope } = req.body ?? {};
   const normEmail = email?.trim().toLowerCase();
   if (!normEmail || !VERIFIER_RE.test(recoveryVerifier ?? '')) {
@@ -249,7 +250,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Incomplete reset envelope.' });
   }
 
-  const user = users.getByEmail(normEmail);
+  const user = await pocketbaseUsers.getByEmail(normEmail);
   const recHash = user?.recovery_verifier ?? '$2a$12$0000000000000000000000000000000000000000000000000000a';
   const ok = await bcrypt.compare(recoveryVerifier, recHash);
   if (!user || !ok) {
@@ -257,39 +258,39 @@ router.post('/reset-password', authLimiter, async (req, res) => {
   }
 
   const verifierHash = await bcrypt.hash(envelope.authVerifier, 12);
-  users.setPasswordEnvelope(user.id, {
+  await pocketbaseUsers.setPasswordEnvelope(user.id, {
     verifierHash,
     authSalt:           envelope.authSalt,
     kdfSalt:            envelope.kdfSalt,
     wrappedDekPassword: envelope.wrappedDekPassword,
   });
-  res.json(authPayload(users.getById(user.id)));
-});
+  res.json(authPayload(await pocketbaseUsers.getById(user.id)));
+}));
 
 /**
  * PUT /api/auth/email — set/change login email.
  */
-router.put('/email', requireAuth, (req, res) => {
+router.put('/email', requireAuth, asyncHandler(async (req, res) => {
   const normEmail = req.body?.email?.trim().toLowerCase();
   if (!normEmail || !EMAIL_RE.test(normEmail)) {
     return res.status(400).json({ error: 'A valid email address is required.' });
   }
-  const existing = users.getByEmail(normEmail);
+  const existing = await pocketbaseUsers.getByEmail(normEmail);
   if (existing && existing.id !== req.userId) {
     return res.status(409).json({ error: 'An account with this email already exists.' });
   }
-  users.setEmail(req.userId, normEmail);
+  await pocketbaseUsers.setEmail(req.userId, normEmail);
   res.json({ ok: true, email: normEmail });
-});
+}));
 
 /**
  * PUT /api/auth/timezone — update timezone for notification scheduling.
  */
-router.put('/timezone', requireAuth, (req, res) => {
+router.put('/timezone', requireAuth, asyncHandler(async (req, res) => {
   const { timezone } = req.body;
   if (!timezone) return res.status(400).json({ error: 'timezone required' });
-  userZk.setTimezone(req.userId, timezone);
+  await pocketbaseUserZk.setTimezone(req.userId, timezone);
   res.json({ ok: true });
-});
+}));
 
 export default router;

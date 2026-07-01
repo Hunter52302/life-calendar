@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
-import { pushSubscriptions, userIntegrations } from '../db/queries.js';
+import { pocketbasePushSubscriptions } from '../lib/pocketbaseOperational.js';
+import { pocketbaseUserIntegrations } from '../lib/pocketbaseNotifications.js';
 
 const router = Router();
 
@@ -14,15 +15,16 @@ router.get('/vapid-public-key', (_req, res) => {
 
 router.use(requireAuth);
 
-router.post('/subscribe', (req, res) => {
+router.post('/subscribe', async (req, res, next) => {
+  try {
   const { subscription } = req.body;
   if (!subscription?.endpoint) return res.status(400).json({ error: 'subscription.endpoint required' });
-  pushSubscriptions.upsert(req.userId, randomUUID(), subscription);
+  await pocketbasePushSubscriptions.upsert(req.userId, randomUUID(), subscription);
 
   // Auto-create a web_push integration row if one doesn't exist yet
-  const existing = userIntegrations.getAll(req.userId).find(i => i.type === 'web_push');
+  const existing = await pocketbaseUserIntegrations.findByType(req.userId, 'web_push');
   if (!existing) {
-    userIntegrations.create(req.userId, {
+    await pocketbaseUserIntegrations.create(req.userId, {
       id: randomUUID(),
       type: 'web_push',
       label: 'Browser Push',
@@ -31,25 +33,33 @@ router.post('/subscribe', (req, res) => {
   }
 
   res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.delete('/subscribe', (req, res) => {
   const { endpoint } = req.body;
   if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
-  pushSubscriptions.deleteByEndpoint(req.userId, endpoint);
-  res.status(204).end();
+  pocketbasePushSubscriptions.deleteByEndpoint(req.userId, endpoint).then(() => {
+    res.status(204).end();
+  }).catch(err => {
+    console.error('deletePushSubscription failed:', err.message);
+    res.status(500).json({ error: 'Could not remove push subscription.' });
+  });
 });
 
-router.post('/expo-token', (req, res) => {
+router.post('/expo-token', async (req, res, next) => {
+  try {
   const { token } = req.body;
   if (!token) return res.status(400).json({ error: 'token required' });
 
   // Upsert expo_push integration with the new token
-  const existing = userIntegrations.getAll(req.userId).find(i => i.type === 'expo_push');
+  const existing = await pocketbaseUserIntegrations.findByType(req.userId, 'expo_push');
   if (existing) {
-    userIntegrations.update(req.userId, existing.id, { push_token: token, enabled: true });
+    await pocketbaseUserIntegrations.update(req.userId, existing.id, { push_token: token, enabled: true });
   } else {
-    userIntegrations.create(req.userId, {
+    await pocketbaseUserIntegrations.create(req.userId, {
       id: randomUUID(),
       type: 'expo_push',
       label: 'Mobile Push',
@@ -59,6 +69,9 @@ router.post('/expo-token', (req, res) => {
   }
 
   res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

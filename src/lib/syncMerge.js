@@ -33,7 +33,7 @@ const UPDATED_AT = 'updatedAt';
  * A tombstone has to outlive the longest plausible offline window: if a device
  * that still holds the live record syncs after the tombstone is gone, it would
  * resurrect the record. 30 days is the agreed ceiling on both client and server
- * (mirror the value in server/db/queries.js `purgeExpiredTombstones`).
+ * (mirror the value in the server tombstone purge logic).
  */
 export const TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 

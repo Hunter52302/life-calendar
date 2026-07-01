@@ -12,7 +12,7 @@
  */
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { calendarConnections } from '../db/queries.js';
+import { pocketbaseCalendarConnections } from '../lib/pocketbaseOperational.js';
 import { getProvider, getValidAccessToken } from '../lib/oauth/tokenManager.js';
 
 const router = Router();
@@ -24,16 +24,23 @@ const WINDOW_BACK_MS    = 56  * 24 * 60 * 60 * 1000;
 const WINDOW_FORWARD_MS = 112 * 24 * 60 * 60 * 1000;
 
 router.get('/', (req, res) => {
-  res.json(calendarConnections.getAll(req.userId));
+  pocketbaseCalendarConnections.getAll(req.userId).then(rows => res.json(rows)).catch(err => {
+    console.error('listConnections failed:', err.message);
+    res.status(500).json({ error: 'Could not load calendar connections.' });
+  });
 });
 
 router.delete('/:id', (req, res) => {
-  calendarConnections.delete(req.userId, req.params.id);
-  res.json({ ok: true });
+  pocketbaseCalendarConnections.delete(req.userId, req.params.id).then(() => {
+    res.json({ ok: true });
+  }).catch(err => {
+    console.error('deleteConnection failed:', err.message);
+    res.status(500).json({ error: 'Could not delete calendar connection.' });
+  });
 });
 
 router.get('/:id/calendars', async (req, res) => {
-  const conn = calendarConnections.getById(req.userId, req.params.id);
+  const conn = await pocketbaseCalendarConnections.getById(req.userId, req.params.id);
   if (!conn) return res.status(404).json({ error: 'Connection not found.' });
   try {
     const provider = getProvider(conn.provider);
@@ -46,7 +53,7 @@ router.get('/:id/calendars', async (req, res) => {
 });
 
 router.get('/:id/events', async (req, res) => {
-  const conn = calendarConnections.getById(req.userId, req.params.id);
+  const conn = await pocketbaseCalendarConnections.getById(req.userId, req.params.id);
   if (!conn) return res.status(404).json({ error: 'Connection not found.' });
 
   const externalCalendarId = req.query.externalCalendarId;

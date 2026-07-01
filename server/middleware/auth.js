@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { users } from '../db/queries.js';
+import { pocketbaseUsers } from '../lib/pocketbaseInternal.js';
 
 const SECRET = process.env.JWT_SECRET;
 
@@ -8,14 +8,14 @@ const SECRET = process.env.JWT_SECRET;
  * `req.userId` / `req.userRole` so routes don't have to repeat this logic.
  * Blocked or deleted accounts are rejected even with a valid token.
  */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'No token provided' });
   }
   try {
     const payload = jwt.verify(header.slice(7), SECRET);
-    const user = users.getById(payload.userId);
+    const user = await pocketbaseUsers.getById(payload.userId);
     if (!user) {
       return res.status(401).json({ error: 'Account no longer exists' });
     }

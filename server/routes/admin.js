@@ -21,11 +21,12 @@
  */
 
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { requireAuth, requireAdmin, requireElevatedAdmin } from '../middleware/auth.js';
 import { adminLimiter } from '../middleware/rateLimit.js';
-import { users, adminAuditLog, secrets } from '../db/queries.js';
+import { pocketbaseAdminAuditLog, pocketbaseSecrets, pocketbaseUsers } from '../lib/pocketbaseInternal.js';
 import {
   getSecret,
   getInfisicalStatus,
@@ -40,24 +41,36 @@ import { encrypt, decrypt } from '../lib/crypto.js';
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_TTL = '1h';
+const PBKDF2_ITERS = 600_000;
+
+async function deriveAuthVerifier(password, authSaltB64) {
+  const bits = crypto.pbkdf2Sync(
+    String(password),
+    Buffer.from(String(authSaltB64), 'base64'),
+    PBKDF2_ITERS,
+    32,
+    'sha256',
+  );
+  return [...bits].map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 router.use(adminLimiter, requireAuth, requireAdmin);
 
 // ── Account panel ─────────────────────────────────────────────────────────────
 
 /** GET /api/admin/users — list accounts (email + status only). */
-router.get('/users', (req, res) => {
-  res.json(users.listAll());
+router.get('/users', async (req, res) => {
+  res.json(await pocketbaseUsers.listAll());
 });
 
 /** GET /api/admin/audit-log — recent admin actions (who did what, to whom, when). */
-router.get('/audit-log', (req, res) => {
-  res.json(adminAuditLog.listRecent());
+router.get('/audit-log', async (req, res) => {
+  res.json(await pocketbaseAdminAuditLog.listRecent());
 });
 
 /** GET /api/admin/signup-clusters — IPs that registered more than one account (bot-farm signal). */
-router.get('/signup-clusters', (req, res) => {
-  res.json(users.getSignupIpClusters());
+router.get('/signup-clusters', async (req, res) => {
+  res.json(await pocketbaseUsers.getSignupIpClusters());
 });
 
 /**
@@ -78,27 +91,27 @@ router.post('/users/:id/reset-password', (req, res) => {
  * PUT /api/admin/users/:id/block
  * Body: { blocked: boolean }
  */
-router.put('/users/:id/block', (req, res) => {
+router.put('/users/:id/block', async (req, res) => {
   if (req.params.id === req.userId) {
     return res.status(400).json({ error: 'You cannot block your own account.' });
   }
-  const target = users.getById(req.params.id);
+  const target = await pocketbaseUsers.getById(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found.' });
   const blocked = !!req.body?.blocked;
-  users.setBlocked(target.id, blocked);
-  adminAuditLog.record(req.userId, blocked ? 'block' : 'unblock', target.id);
+  await pocketbaseUsers.setBlocked(target.id, blocked);
+  await pocketbaseAdminAuditLog.record(req.userId, blocked ? 'block' : 'unblock', target.id);
   res.json({ ok: true });
 });
 
 /** DELETE /api/admin/users/:id — removes the account and all its data (FK cascade). */
-router.delete('/users/:id', (req, res) => {
+router.delete('/users/:id', async (req, res) => {
   if (req.params.id === req.userId) {
     return res.status(400).json({ error: 'You cannot delete your own account.' });
   }
-  const target = users.getById(req.params.id);
+  const target = await pocketbaseUsers.getById(req.params.id);
   if (!target) return res.status(404).json({ error: 'User not found.' });
-  adminAuditLog.record(req.userId, 'delete', target.id);
-  users.deleteUser(target.id);
+  await pocketbaseAdminAuditLog.record(req.userId, 'delete', target.id);
+  await pocketbaseUsers.deleteUser(target.id);
   res.json({ ok: true });
 });
 
@@ -138,10 +151,11 @@ router.post('/auth', async (req, res) => {
   const { password } = req.body ?? {};
   if (!password) return res.status(400).json({ error: 'password is required' });
 
-  const user = users.getById(req.userId);
+  const user = await pocketbaseUsers.getById(req.userId);
   if (!user) return res.status(404).json({ error: 'No user found' });
 
-  const match = await bcrypt.compare(password, user.password_hash);
+  const authVerifier = user.auth_salt ? await deriveAuthVerifier(password, user.auth_salt) : null;
+  const match = authVerifier ? await bcrypt.compare(authVerifier, user.password_hash) : false;
   if (!match) return res.status(401).json({ error: 'Incorrect password' });
 
   const adminToken = jwt.sign(
@@ -162,7 +176,7 @@ router.get('/infisical/status', requireElevatedAdmin, (_req, res) => {
 // ── GET /api/admin/secrets ────────────────────────────────────────────────────
 
 router.get('/secrets', requireElevatedAdmin, async (_req, res) => {
-  const rows = secrets.getAll();
+  const rows = await pocketbaseSecrets.getAll();
 
   // Merge with Infisical to flag any keys that exist there but not in our DB
   const infisicalList = await listInfisicalSecrets();
@@ -220,7 +234,7 @@ router.post('/secrets', requireElevatedAdmin, async (req, res) => {
     }
   }
 
-  const row = secrets.upsert(keyName, {
+  const row = await pocketbaseSecrets.upsert(keyName, {
     serviceName,
     description: description ?? '',
     expiresAt:   expiresAt   ?? null,
@@ -237,7 +251,7 @@ router.put('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
   const { value, serviceName, description, expiresAt } = req.body ?? {};
 
-  const existing = secrets.getByKey(keyName);
+  const existing = await pocketbaseSecrets.getByKey(keyName);
   if (!existing) return res.status(404).json({ error: 'Secret not found' });
 
   if (value !== undefined && value !== '') {
@@ -269,7 +283,7 @@ router.put('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
       }
     }
 
-    secrets.patch(keyName, {
+    await pocketbaseSecrets.patch(keyName, {
       encrypted_previous_value: encryptedPrev,
       infisical_managed: infisicalManaged ? 1 : 0,
       ...(serviceName  !== undefined && { service_name: serviceName }),
@@ -278,14 +292,14 @@ router.put('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
     });
   } else {
     // Metadata-only update
-    secrets.patch(keyName, {
+    await pocketbaseSecrets.patch(keyName, {
       ...(serviceName !== undefined && { service_name: serviceName }),
       ...(description !== undefined && { description }),
       ...(expiresAt   !== undefined && { expires_at: expiresAt }),
     });
   }
 
-  res.json(sanitizeRow(secrets.getByKey(keyName)));
+  res.json(sanitizeRow(await pocketbaseSecrets.getByKey(keyName)));
 });
 
 // ── POST /api/admin/secrets/:keyName/restore ──────────────────────────────────
@@ -293,7 +307,7 @@ router.put('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
 
 router.post('/secrets/:keyName/restore', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
-  const existing = secrets.getByKey(keyName);
+  const existing = await pocketbaseSecrets.getByKey(keyName);
 
   if (!existing) return res.status(404).json({ error: 'Secret not found' });
   if (!existing.encrypted_previous_value) {
@@ -325,7 +339,7 @@ router.post('/secrets/:keyName/restore', requireElevatedAdmin, async (req, res) 
   }
 
   // Swap in DB
-  secrets.patch(keyName, { encrypted_previous_value: encryptedCurrent });
+  await pocketbaseSecrets.patch(keyName, { encrypted_previous_value: encryptedCurrent });
 
   res.json({ ok: true, message: 'Previous value restored' });
 });
@@ -336,7 +350,7 @@ router.delete('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
   const { keyName } = req.params;
   const { deleteFromInfisical = false } = req.body ?? {};
 
-  const existing = secrets.getByKey(keyName);
+  const existing = await pocketbaseSecrets.getByKey(keyName);
   if (!existing) return res.status(404).json({ error: 'Secret not found' });
 
   if (deleteFromInfisical && existing.infisical_managed) {
@@ -351,7 +365,7 @@ router.delete('/secrets/:keyName', requireElevatedAdmin, async (req, res) => {
     }
   }
 
-  secrets.delete(keyName);
+  await pocketbaseSecrets.delete(keyName);
   res.json({ ok: true });
 });
 

@@ -1,7 +1,7 @@
 /**
  * AES-256-GCM encrypt / decrypt helpers.
  *
- * Used to store "previous value" snapshots of secrets in SQLite so we never
+ * Used to store "previous value" snapshots of secrets in PocketBase so we never
  * keep plain-text keys on disk.
  *
  * Key derivation: scryptSync(JWT_SECRET, fixed-salt, 32) — deterministic so

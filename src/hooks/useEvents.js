@@ -369,6 +369,12 @@ export function useEvents(authState, assumeCompleted = true) {
   }
 
   function updateCategory(id, updates) {
+    const isCustom = customCategories.some(c => c.id === id);
+    if (isCustom) {
+      setCustomCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+      if (isOnline) encryptCategoryForApi(updates).then(p => api.categories.update(id, p)).catch(console.warn);
+      return;
+    }
     setCategoryOverrides(prev => ({ ...prev, [id]: { ...(prev[id] || {}), ...updates } }));
     if (isOnline) encryptOverrideForApi(updates).then(p => api.categories.update(id, p)).catch(console.warn);
   }

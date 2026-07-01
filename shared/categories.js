@@ -1,5 +1,5 @@
 // Canonical list of built-in categories.
-// These ids are stored in the SQLite database and localStorage —
+// These ids are stored in PocketBase and localStorage —
 // changing them is a breaking migration.
 export const DEFAULT_CATEGORIES = [
   { id: 'sleep',      label: 'Sleep',      color: '#3B82F6' },

@@ -8,49 +8,99 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 /**
  * AuthScreen — sign in / create account / unlock encrypted data.
  *
- * authState: 'setup' (first launch → register), 'login', 'locked'
- * (valid session but the ZK master key needs the password), 'offline'.
+ * authState: 'setup' (first account), 'login', 'unlock', 'offline', 'recovery'
  */
-export default function AuthScreen({ authState, onSetup, onLogin, onRegister, onUnlock, onContinueOffline, onRetry, onLogout }) {
-  const [mode, setMode]         = useState(null); // null | 'login' | 'register'
-  const [email, setEmail]       = useState('');
+export default function AuthScreen({
+  authState,
+  recoveryCode,
+  onLogin,
+  onRegister,
+  onUnlock,
+  onContinueOffline,
+  onRetry,
+  onLogout,
+  onRecoverySaved,
+}) {
+  const [mode, setMode] = useState(null); // null | 'login' | 'register'
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirm,  setConfirm]  = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [savedConfirmed, setSavedConfirmed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const isOffline  = authState === 'offline';
-  const isLocked   = authState === 'locked';
+  const isOffline = authState === 'offline';
+  const isUnlock = authState === 'unlock';
   const effectiveMode = authState === 'setup' ? 'register' : (mode ?? 'login');
-  const isRegister = effectiveMode === 'register' && !isLocked;
+  const isRegister = effectiveMode === 'register' && !isUnlock;
 
   async function handleSubmit() {
     setError('');
-    if (isLocked) {
+
+    if (isUnlock) {
       if (!password) return;
       setLoading(true);
-      try { await onUnlock(password); }
-      catch (err) { setError(err.message || 'Incorrect password.'); }
-      finally { setLoading(false); }
+      try {
+        await onUnlock(password);
+      } catch (err) {
+        setError(err.message || 'Incorrect password.');
+      } finally {
+        setLoading(false);
+      }
       return;
     }
+
     if (isRegister) {
       if (!email.trim()) { setError('Email is required.'); return; }
       if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
       if (password !== confirm) { setError('Passwords do not match.'); return; }
-    } else if (!password) {
-      setError('Please enter your password.');
-      return;
+    } else {
+      if (!email.trim()) { setError('Email is required.'); return; }
+      if (!password) { setError('Please enter your password.'); return; }
     }
+
     setLoading(true);
     try {
       if (isRegister) await onRegister(email.trim(), password);
-      else            await onLogin(email.trim(), password);
+      else await onLogin(email.trim(), password);
     } catch (err) {
       setError(err.message || 'Authentication failed.');
     } finally {
       setLoading(false);
     }
+  }
+
+  if (recoveryCode) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <View style={styles.iconWrap}>
+            <Text style={styles.iconText}>🔑</Text>
+          </View>
+          <Text style={styles.heading}>Save your recovery code</Text>
+          <Text style={styles.sub}>
+            You need this code if you ever reset your password.
+          </Text>
+          <View style={styles.recoveryBox}>
+            <Text selectable style={styles.recoveryText}>{recoveryCode}</Text>
+          </View>
+          <Pressable
+            onPress={() => setSavedConfirmed(v => !v)}
+            style={styles.checkboxRow}
+          >
+            <View style={[styles.checkbox, savedConfirmed && styles.checkboxChecked]} />
+            <Text style={styles.checkboxLabel}>I saved it somewhere safe.</Text>
+          </Pressable>
+          <Pressable
+            onPress={onRecoverySaved}
+            style={[styles.btnPrimary, !savedConfirmed && styles.btnDisabled]}
+            disabled={!savedConfirmed}
+          >
+            <Text style={styles.btnPrimaryText}>Continue</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   if (isOffline) {
@@ -84,23 +134,23 @@ export default function AuthScreen({ authState, onSetup, onLogin, onRegister, on
       >
         <View style={styles.center}>
           <View style={styles.logoWrap}>
-            <Text style={styles.logoText}>{isLocked ? '🔒' : 'PLS'}</Text>
+            <Text style={styles.logoText}>{isUnlock ? '🔒' : 'PLS'}</Text>
           </View>
           <Text style={styles.heading}>
-            {isLocked ? 'Unlock your data' : isRegister ? 'Create your account' : 'Welcome back'}
+            {isUnlock ? 'Unlock your data' : isRegister ? 'Create your account' : 'Welcome back'}
           </Text>
           <Text style={styles.sub}>
-            {isLocked
-              ? 'Enter your password to decrypt your calendar.'
+            {isUnlock
+              ? 'Enter your password to unlock your encrypted calendar.'
               : isRegister
-                ? 'Your password also encrypts your data — zero-knowledge by default.'
+                ? 'Your password also encrypts your data.'
                 : 'Sign in to sync your calendar.'}
           </Text>
 
-          {!isLocked && (
+          {!isUnlock && (
             <TextInput
               style={styles.input}
-              placeholder={isRegister ? 'Email' : 'Email (blank if set up before accounts)'}
+              placeholder="Email"
               placeholderTextColor="#9CA3AF"
               value={email}
               onChangeText={t => { setEmail(t); setError(''); }}
@@ -118,7 +168,7 @@ export default function AuthScreen({ authState, onSetup, onLogin, onRegister, on
             value={password}
             onChangeText={t => { setPassword(t); setError(''); }}
             secureTextEntry
-            autoFocus={isLocked}
+            autoFocus={isUnlock}
             returnKeyType={isRegister ? 'next' : 'done'}
             onSubmitEditing={isRegister ? undefined : handleSubmit}
           />
@@ -142,36 +192,34 @@ export default function AuthScreen({ authState, onSetup, onLogin, onRegister, on
             {loading
               ? <ActivityIndicator color="#fff" />
               : <Text style={styles.btnPrimaryText}>
-                  {isLocked ? 'Unlock' : isRegister ? 'Create account' : 'Sign in'}
+                  {isUnlock ? 'Unlock' : isRegister ? 'Create account' : 'Sign in'}
                 </Text>
             }
           </Pressable>
-          {loading && (isLocked || isRegister) && (
-            <Text style={styles.hint}>Deriving encryption key — this takes a few seconds…</Text>
+
+          {loading && (
+            <Text style={styles.hint}>Working on your encryption keys…</Text>
           )}
 
           {authState === 'login' && (
-            <Pressable onPress={() => { setMode(isRegister ? 'login' : 'register'); setError(''); setConfirm(''); }} style={styles.btnSecondary}>
+            <Pressable
+              onPress={() => {
+                setMode(isRegister ? 'login' : 'register');
+                setError('');
+                setConfirm('');
+              }}
+              style={styles.btnSecondary}
+            >
               <Text style={styles.btnSecondaryText}>
                 {isRegister ? 'Already have an account? Sign in' : 'New here? Create an account'}
               </Text>
             </Pressable>
           )}
-          {isLocked && (
+
+          {isUnlock && (
             <Pressable onPress={onLogout} style={styles.btnSecondary}>
               <Text style={styles.btnSecondaryText}>Sign in as someone else</Text>
             </Pressable>
-          )}
-
-          {isRegister && (
-            <Text style={styles.hint}>
-              If you forget your password, your encrypted data cannot be recovered.
-            </Text>
-          )}
-          {isLocked && (
-            <Text style={styles.hint}>
-              If an admin reset your password, enter your previous password here.
-            </Text>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -180,20 +228,27 @@ export default function AuthScreen({ authState, onSetup, onLogin, onRegister, on
 }
 
 const styles = StyleSheet.create({
-  safe:            { flex: 1, backgroundColor: '#F9FAFB' },
-  kvWrap:          { flex: 1 },
-  center:          { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
-  logoWrap:        { width: 72, height: 72, borderRadius: 20, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  logoText:        { color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 2 },
-  iconWrap:        { marginBottom: 16 },
-  iconText:        { fontSize: 48 },
-  heading:         { fontSize: 24, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 },
-  sub:             { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
-  input:           { width: '100%', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, padding: 14, fontSize: 16, color: '#111827', backgroundColor: '#fff', marginBottom: 12 },
-  error:           { color: '#DC2626', fontSize: 13, marginBottom: 12, textAlign: 'center' },
-  btnPrimary:      { width: '100%', backgroundColor: '#7C3AED', borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12 },
-  btnPrimaryText:  { color: '#fff', fontSize: 16, fontWeight: '700' },
-  btnSecondary:    { width: '100%', borderRadius: 12, padding: 14, alignItems: 'center' },
-  btnSecondaryText:{ color: '#7C3AED', fontSize: 15, fontWeight: '600' },
-  hint:            { fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 4, lineHeight: 17 },
+  safe: { flex: 1, backgroundColor: '#F9FAFB' },
+  kvWrap: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  logoWrap: { width: 72, height: 72, borderRadius: 20, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  logoText: { color: '#fff', fontSize: 24, fontWeight: '800', letterSpacing: 2 },
+  iconWrap: { marginBottom: 16 },
+  iconText: { fontSize: 48 },
+  heading: { fontSize: 24, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 },
+  sub: { fontSize: 14, color: '#6B7280', textAlign: 'center', marginBottom: 32, lineHeight: 20 },
+  input: { width: '100%', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, padding: 14, fontSize: 16, color: '#111827', backgroundColor: '#fff', marginBottom: 12 },
+  error: { color: '#DC2626', fontSize: 13, marginBottom: 12, textAlign: 'center' },
+  btnPrimary: { width: '100%', backgroundColor: '#7C3AED', borderRadius: 12, padding: 14, alignItems: 'center', marginBottom: 12 },
+  btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  btnSecondary: { width: '100%', borderRadius: 12, padding: 14, alignItems: 'center' },
+  btnSecondaryText: { color: '#7C3AED', fontSize: 15, fontWeight: '600' },
+  hint: { fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 4, lineHeight: 17 },
+  recoveryBox: { width: '100%', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#fff', padding: 16, marginBottom: 16 },
+  recoveryText: { color: '#111827', fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  checkboxRow: { width: '100%', flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#fff' },
+  checkboxChecked: { backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
+  checkboxLabel: { flex: 1, color: '#4B5563', fontSize: 13, lineHeight: 18 },
+  btnDisabled: { opacity: 0.45 },
 });

@@ -2,7 +2,7 @@
  * AdminSecrets — "No Touchy" panel
  *
  * Shown inside the Settings dropdown after admin re-authentication.
- * Manages API keys and secrets backed by Infisical + local SQLite metadata.
+ * Manages API keys and secrets backed by Infisical + PocketBase metadata.
  */
 
 import { useState } from 'react';

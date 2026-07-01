@@ -1,17 +1,18 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { userProfile } from '../db/queries.js';
+import { pbUserProfile } from '../lib/pocketbaseSupport.js';
 
 const router = Router();
 router.use(requireAuth);
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-router.get('/', (req, res) => {
-  res.json(userProfile.get(req.userId));
-});
+router.get('/', asyncHandler(async (req, res) => {
+  res.json(await pbUserProfile.get(req.userId));
+}));
 
-router.put('/', (req, res) => {
+router.put('/', asyncHandler(async (req, res) => {
   const { username, displayName, email, phones, birthday, homeAddress, otherAddresses } = req.body;
-  userProfile.set(req.userId, {
+  await pbUserProfile.set(req.userId, {
     username:       username       ?? null,
     displayName:    displayName    ?? null,
     email:          email          ?? null,
@@ -21,6 +22,6 @@ router.put('/', (req, res) => {
     otherAddresses: otherAddresses ?? [],
   });
   res.json({ ok: true });
-});
+}));
 
 export default router;

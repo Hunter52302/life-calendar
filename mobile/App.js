@@ -139,18 +139,19 @@ function Main() {
   }
 
   // Auth required (or ZK vault locked)
-  if (['setup', 'login', 'locked', 'offline'].includes(auth.authState)) {
+  if (['setup', 'login', 'unlock', 'offline', 'recovery'].includes(auth.authState)) {
     return (
       <SafeAreaProvider>
         <AuthScreen
           authState={auth.authState}
-          onSetup={auth.setup}
+          recoveryCode={auth.recoveryCode}
           onLogin={auth.login}
           onRegister={auth.register}
           onUnlock={auth.unlock}
           onLogout={auth.logout}
           onContinueOffline={auth.continueOffline}
           onRetry={auth.retry}
+          onRecoverySaved={auth.acknowledgeRecoveryCode}
         />
         <StatusBar style="dark" />
       </SafeAreaProvider>

@@ -13,7 +13,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { signState, verifyState } from '../lib/oauth/state.js';
 import { redirectUriFor, frontendBaseUrl } from '../lib/oauth/urls.js';
 import { encryptToken } from '../lib/tokenCrypto.js';
-import { calendarConnections } from '../db/queries.js';
+import { pocketbaseCalendarConnections } from '../lib/pocketbaseOperational.js';
 
 export function createOAuthRouter(provider) {
   const router = Router();
@@ -55,7 +55,7 @@ export function createOAuthRouter(provider) {
         return bounce(res, { connectError: 'No refresh token returned. Please reconnect and grant offline access.' });
       }
       const accountEmail = await provider.fetchAccountEmail(tokens.accessToken).catch(() => null);
-      const conn = calendarConnections.create(userId, {
+      const conn = await pocketbaseCalendarConnections.create(userId, {
         provider: name,
         accountEmail,
         accessToken:    encryptToken(tokens.accessToken),

@@ -7,7 +7,7 @@
 import * as google from './google.js';
 import * as microsoft from './microsoft.js';
 import { encryptToken, decryptToken } from '../tokenCrypto.js';
-import { calendarConnections } from '../../db/queries.js';
+import { pocketbaseCalendarConnections } from '../pocketbaseOperational.js';
 
 const PROVIDERS = { google, microsoft };
 const EXPIRY_SKEW_SECONDS = 60; // refresh a bit early to avoid mid-request expiry
@@ -40,6 +40,6 @@ export async function getValidAccessToken(connection) {
   if (refreshed.refreshToken) {
     updates.refreshToken = encryptToken(refreshed.refreshToken);
   }
-  calendarConnections.updateTokens(connection.id, updates);
+  await pocketbaseCalendarConnections.updateTokens(connection.id, updates);
   return refreshed.accessToken;
 }
