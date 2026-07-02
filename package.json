@@ -1,7 +1,7 @@
 {
   "name": "pls-calendar-root",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.11",
   "type": "module",
   "workspaces": [
     "shared",
