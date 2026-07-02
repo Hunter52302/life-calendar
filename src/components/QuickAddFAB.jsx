@@ -10,10 +10,12 @@
  * Respects militaryTime prop for consistent time display.
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { todayStr } from '../lib/utils';
 import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
 import ParseEventsModal from './ParseEventsModal.jsx';
+import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
+import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions.js';
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const FAB_SIZE    = 56;
@@ -193,7 +195,7 @@ const EVENT_CONFIG = {
   actual: { title: 'Quick Add Event - Live', accent: '#10B981', btnLabel: 'Add to Live' },
 };
 
-function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onSave, onClose }) {
+function EventForm({ allCategories, allEvents = [], calendar = 'plan', militaryTime = false, onSave, onClose }) {
   const cfg   = EVENT_CONFIG[calendar] ?? EVENT_CONFIG.plan;
   const start = nextHourStr();
 
@@ -204,8 +206,10 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
   const [endTime,   setEndTime]   = useState(addOneHour(start));
   const [allDay,    setAllDay]    = useState(false);
   const [catId,     setCatId]     = useState(allCategories[0]?.id ?? 'personal');
-  const inputRef = useRef(null);
-  useEffect(() => { inputRef.current?.focus(); }, []);
+  const eventTitleSuggestions = useMemo(
+    () => buildEventTitleSuggestions(allEvents, calendar),
+    [allEvents, calendar]
+  );
 
   function handleStartDateChange(val) {
     setStartDate(val);
@@ -244,11 +248,14 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
   return (
     <FormShell title={cfg.title} accent={cfg.accent} onClose={onClose}>
       <Field label="Event name">
-        <input
-          ref={inputRef} type="text" value={label}
-          onChange={e => setLabel(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSave()}
-          placeholder="e.g. Team meeting, Dentist..." className={inputCls}
+        <EventTitleSuggestInput
+          value={label}
+          onChange={setLabel}
+          suggestions={eventTitleSuggestions}
+          onEnter={() => handleSave()}
+          placeholder="e.g. Team meeting, Dentist..."
+          autoFocus
+          className={inputCls}
         />
       </Field>
       <DateRow
@@ -479,6 +486,7 @@ function clampToViewport(p) {
 // Ã¢â€â‚¬Ã¢â€â‚¬ Main FAB Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 export default function QuickAddFAB({
   allCategories    = [],
+  allEvents         = [],
   militaryTime     = false,
   draggable        = false,
   posResetKey      = 0,
@@ -648,11 +656,11 @@ export default function QuickAddFAB({
 
       {/* Forms */}
       {mode === 'event-plan' && (
-        <EventForm allCategories={allCategories} calendar="plan" militaryTime={militaryTime}
+        <EventForm allCategories={allCategories} allEvents={allEvents} calendar="plan" militaryTime={militaryTime}
           onSave={handleAddPlanEvent} onClose={() => setMode(null)} />
       )}
       {mode === 'event-live' && (
-        <EventForm allCategories={allCategories} calendar="actual" militaryTime={militaryTime}
+        <EventForm allCategories={allCategories} allEvents={allEvents} calendar="actual" militaryTime={militaryTime}
           onSave={handleAddLiveEvent} onClose={() => setMode(null)} />
       )}
       {mode === 'buffer' && (

@@ -5,6 +5,7 @@ import PrecisionToggle from '../components/PrecisionToggle';
 import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
+import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
 const OPTIONAL_VIEWS = new Set(['quarter', 'half']);
@@ -12,7 +13,7 @@ const VIEW_LABELS = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarte
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function ActualView({
-  planEvents, actualEvents, weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
+  planEvents, actualEvents, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
@@ -47,6 +48,10 @@ export default function ActualView({
 
   const weekPlanEvents = useMemo(() => filteredPlanEvents.filter(e => e.week_start === weekStart), [filteredPlanEvents, weekStart]);
   const weekActualEvents = useMemo(() => filteredActualEvents.filter(e => e.week_start === weekStart), [filteredActualEvents, weekStart]);
+  const eventTitleSuggestions = useMemo(
+    () => buildEventTitleSuggestions(allEvents, 'actual'),
+    [allEvents]
+  );
 
   // Build map: plan_event_id → actual event
   const actualByPlanId = useMemo(() => {
@@ -270,6 +275,7 @@ export default function ActualView({
           defaultAllDay={formState.allDay ?? false}
           calendar="actual" weekStart={weekStart} precision={precision}
           allCategories={allCategories} militaryTime={militaryTime}
+          eventTitleSuggestions={eventTitleSuggestions}
           onSave={handleSave} onDelete={onDeleteEvent}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
           homeAddress={homeAddress} savedAddresses={savedAddresses}

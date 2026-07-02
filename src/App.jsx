@@ -2978,6 +2978,7 @@ export default function App() {
           {activeTab === 'plan' && (
             <PlanView
               events={planEvents}
+              allEvents={events}
               weekStart={weekStart}
               precision={precision}
               onPrecisionChange={setPrecision}
@@ -3007,6 +3008,7 @@ export default function App() {
             <ActualView
               planEvents={planEvents}
               actualEvents={actualEvents}
+              allEvents={events}
               weekStart={weekStart}
               precision={precision}
               onPrecisionChange={setPrecision}
@@ -3060,6 +3062,7 @@ export default function App() {
         {(eff.fabVisible || shareText) && (
           <QuickAddFAB
             allCategories={allCategories}
+            allEvents={events}
             homeAddress={profile.homeAddress || ''}
             militaryTime={militaryTime}
             draggable={fabDraggable}
