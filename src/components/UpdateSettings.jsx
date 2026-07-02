@@ -7,7 +7,7 @@
  * in sync with UpdateBanner instead of running its own listener/state.
  */
 export default function UpdateSettings({ updater }) {
-  const { autoUpdate, setAutoUpdate, status, pending, previousVersion, checkNow, install, revert } = updater;
+  const { autoUpdate, setAutoUpdate, status, pending, error, previousVersion, checkNow, install, revert } = updater;
 
   const statusLabel =
     status === 'checking' ? 'Checking…'
@@ -57,6 +57,12 @@ export default function UpdateSettings({ updater }) {
           <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">Revert to v{previousVersion}</span>
           <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a4 4 0 010 8H8m-5-8l4-4m-4 4l4 4" /></svg>
         </button>
+      )}
+
+      {status === 'error' && error && (
+        <p className="px-1 text-[10px] leading-snug text-red-500 dark:text-red-400 break-words">
+          {error}
+        </p>
       )}
     </div>
   );

@@ -64,78 +64,151 @@ jobs:
 
             | Platform | File |
             |----------|------|
-            | Windows  | `PLS.Calendar_*_x64-setup.exe` |
-            | Linux    | `PLS.Calendar_*_amd64.deb` or `PLS.Calendar_*_amd64.AppImage` |
+            | Windows  | `PLS Calendar_*_x64-setup.exe` |
+            | Linux    | `PLS Calendar_*_amd64.AppImage` |
 
             macOS support coming soon.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
-      # Generate latest.json right in the Linux job where the sig files are available
-      - name: Generate and upload latest.json (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+      - name: Collect Windows updater metadata
+        if: matrix.os == 'windows'
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.ref_name }}"
-          VERSION=$(node -p "require('./package.json').version")
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          BASE="https://github.com/Hunter52302/life-calendar/releases/download/${TAG}"
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path updater-metadata | Out-Null
 
-          echo "=== Searching for AppImage sig files ==="
-          find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null
+          $sig = Get-ChildItem -Path "src-tauri/target" -Recurse -File -Filter "*.exe.sig" |
+            Where-Object { $_.FullName -like "*\bundle\nsis\*" } |
+            Sort-Object FullName |
+            Select-Object -First 1
 
-          # Read sig content — handles spaces in filenames safely
-          SIG_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz.sig" 2>/dev/null | head -1)
-          TGZ_FILE=$(find src-tauri/target/release/bundle/appimage -name "*.AppImage.tar.gz" ! -name "*.sig" 2>/dev/null | head -1)
+          if (-not $sig) {
+            $sig = Get-ChildItem -Path "src-tauri/target" -Recurse -File -Filter "*.msi.sig" |
+              Where-Object { $_.FullName -like "*\bundle\msi\*" } |
+              Sort-Object FullName |
+              Select-Object -First 1
+          }
 
-          if [ -z "$SIG_FILE" ] || [ -z "$TGZ_FILE" ]; then
-            echo "ERROR: Could not find AppImage.tar.gz or its .sig file"
-            exit 0
+          if (-not $sig) {
+            throw "No signed Windows updater artifact was found."
+          }
+
+          $bundlePath = $sig.FullName -replace "\.sig$", ""
+          if (-not (Test-Path $bundlePath)) {
+            throw "Signed Windows bundle is missing: $bundlePath"
+          }
+
+          gh release upload "$env:TAG" "$bundlePath" "$($sig.FullName)" --clobber --repo Hunter52302/life-calendar
+
+          $metadata = [ordered]@{
+            platform = "windows-x86_64"
+            assetName = Split-Path $bundlePath -Leaf
+            signature = (Get-Content -Raw $sig.FullName).Trim()
+          }
+          $metadata | ConvertTo-Json -Depth 4 | Set-Content -Path updater-metadata/windows.json
+
+      - name: Collect Linux updater metadata
+        if: matrix.os == 'linux'
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p updater-metadata
+
+          SIG_FILE=$(find src-tauri/target -path "*/bundle/appimage/*.AppImage.sig" -type f | sort | head -1)
+          if [ -z "$SIG_FILE" ]; then
+            echo "No signed Linux updater artifact was found."
+            exit 1
           fi
 
-          SIG_CONTENT=$(cat "$SIG_FILE")
-          TGZ_NAME=$(basename "$TGZ_FILE")
+          BUNDLE_FILE="${SIG_FILE%.sig}"
+          if [ ! -f "$BUNDLE_FILE" ]; then
+            echo "Signed Linux bundle is missing: $BUNDLE_FILE"
+            exit 1
+          fi
 
-          echo "Found sig: $SIG_FILE"
-          echo "Found tar.gz: $TGZ_FILE"
-          echo "Sig content (first 40 chars): ${SIG_CONTENT:0:40}"
+          gh release upload "$TAG" "$BUNDLE_FILE" "$SIG_FILE" --clobber --repo Hunter52302/life-calendar
 
-          # Upload the AppImage.tar.gz to the release (needed for the updater download)
-          echo "Uploading $TGZ_NAME to release..."
-          gh release upload "$TAG" "$TGZ_FILE" --clobber --repo Hunter52302/life-calendar
-
-          # Build latest.json with Linux platform
-          node -e "
+          BUNDLE_FILE="$BUNDLE_FILE" SIG_FILE="$SIG_FILE" node -e "
             const fs = require('fs');
-            const json = {
-              version: '$VERSION',
-              notes: 'See the GitHub releases page for what is new.',
-              pub_date: '$DATE',
-              platforms: {
-                'linux-x86_64': {
-                  url: '$BASE/$TGZ_NAME',
-                  signature: fs.readFileSync('$SIG_FILE', 'utf8').trim()
-                }
-              }
-            };
-            fs.writeFileSync('latest.json', JSON.stringify(json, null, 2));
-            console.log('Generated latest.json:');
-            console.log(JSON.stringify(json, null, 2));
+            const path = require('path');
+            fs.writeFileSync('updater-metadata/linux.json', JSON.stringify({
+              platform: 'linux-x86_64',
+              assetName: path.basename(process.env.BUNDLE_FILE),
+              signature: fs.readFileSync(process.env.SIG_FILE, 'utf8').trim()
+            }, null, 2));
           "
 
-          # Upload latest.json
-          gh release upload "$TAG" latest.json --clobber --repo Hunter52302/life-calendar
-          echo "Uploaded latest.json"
+      - name: Upload updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-metadata-${{ matrix.os }}
+          path: updater-metadata/*.json
 
-      # Publish the release after both jobs finish
-      - name: Publish release (Linux only — runs after both jobs)
-        if: matrix.platform == 'ubuntu-22.04'
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download updater metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-metadata-*
+          merge-multiple: true
+          path: updater-metadata
+
+      - name: Generate latest.json
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
-          # Wait a bit for Windows job artifacts to also upload
-          sleep 30
-          gh release edit "${{ github.ref_name }}" --draft=false --repo Hunter52302/life-calendar
-          echo "Release published"
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const version = require('./package.json').version;
+          const base = `https://github.com/Hunter52302/life-calendar/releases/download/${process.env.TAG}`;
+          const platforms = {};
+
+          for (const file of fs.readdirSync('updater-metadata').filter(name => name.endsWith('.json'))) {
+            const meta = JSON.parse(fs.readFileSync(path.join('updater-metadata', file), 'utf8'));
+            platforms[meta.platform] = {
+              url: `${base}/${encodeURIComponent(meta.assetName)}`,
+              signature: meta.signature,
+            };
+          }
+
+          for (const platform of ['windows-x86_64', 'linux-x86_64']) {
+            if (!platforms[platform]) {
+              throw new Error(`Missing updater metadata for ${platform}`);
+            }
+          }
+
+          const latest = {
+            version,
+            notes: 'See the GitHub release for changes.',
+            pub_date: new Date().toISOString(),
+            platforms,
+          };
+
+          fs.writeFileSync('latest.json', `${JSON.stringify(latest, null, 2)}\n`);
+          NODE
+
+      - name: Upload latest.json and publish release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$TAG" latest.json --clobber --repo Hunter52302/life-calendar
+          gh release edit "$TAG" --draft=false --repo Hunter52302/life-calendar

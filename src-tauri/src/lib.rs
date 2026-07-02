@@ -1,6 +1,6 @@
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent, Wry};
+use tauri::{AppHandle, Manager, State, WindowEvent, Wry};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
@@ -157,24 +157,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // ── Updater check on launch (unchanged) ─────────────────────────
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Ok(updater) = handle.updater() {
-                    if let Ok(Some(update)) = updater.check().await {
-                        // Emit to frontend so React can show the update banner
-                        // and decide whether to auto-install it.
-                        let _ = handle.emit(
-                            "update-available",
-                            serde_json::json!({
-                                "version": update.version,
-                                "current_version": update.current_version,
-                                "body": update.body.clone().unwrap_or_default(),
-                            }),
-                        );
-                    }
-                }
-            });
             Ok(())
         })
         .run(tauri::generate_context!())
