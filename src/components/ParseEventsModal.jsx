@@ -110,6 +110,11 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             {isMultiDay && (
               <span className="text-[10px] text-amber-500 font-medium">2 segments</span>
             )}
+            {draft.meeting_url && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                Meeting link detected
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {draft.allDay ? (
@@ -283,6 +288,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
           calendar:   d.calendar,
           source:     'paste',
           is_all_day: !!d.allDay,
+          ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
         };
       });
     });

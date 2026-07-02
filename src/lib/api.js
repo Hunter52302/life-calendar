@@ -20,7 +20,7 @@ async function adminRequest(method, path, body) {
     throw err;
   }
   if (!res.ok) {
-    let msg = `${method} ${path} → ${res.status}`;
+    let msg = `${method} ${path} â†’ ${res.status}`;
     try { const j = await res.json(); msg = j.error ?? msg; } catch { /* ignore */ }
     throw new Error(msg);
   }
@@ -39,7 +39,7 @@ async function request(method, path, body) {
   });
 
   if (!res.ok) {
-    let msg = `${method} ${path} → ${res.status}`;
+    let msg = `${method} ${path} â†’ ${res.status}`;
     try { const j = await res.json(); msg = j.error ?? msg; } catch { /* ignore */ }
     throw new Error(msg);
   }
@@ -81,11 +81,8 @@ export const api = {
     hasAdminToken:   ()                => !!sessionStorage.getItem(ADMIN_TOKEN_KEY),
   },
 
-  driveTime: {
-    calc: (origin, destination) => request('POST', '/drive-time', { origin, destination }),
-  },
 
-  /** Full data snapshot — called once on startup */
+  /** Full data snapshot â€” called once on startup */
   sync: () => request('GET', '/sync'),
 
   events: {
@@ -180,3 +177,4 @@ export const api = {
   },
 
 };
+

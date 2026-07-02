@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-// ── Shared icons (one per topic, reused across that topic's steps) ───────────
+// â”€â”€ Shared icons (one per topic, reused across that topic's steps) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function IconWelcome() {
   return (
     <svg className="w-10 h-10" viewBox="0 0 40 40" fill="none">
@@ -158,14 +158,14 @@ function IconFont() {
   );
 }
 
-// ── Topic content ──────────────────────────────────────────────────────────
+// â”€â”€ Topic content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Every topic is a self-contained multi-step wizard. Step 0 of each topic is
 // always the "intro" slide (Skip / Let's go); the rest use Back/Next/Done.
 export const TOPICS = [
   {
     id: 'basics',
     label: 'Quick Tour',
-    blurb: 'The 2-minute version for new users — what Life Calendar does and how to get around.',
+    blurb: 'The 2-minute version for new users â€” what Life Calendar does and how to get around.',
     icon: <IconWelcome />,
     gradient: 'from-indigo-400 via-blue-400 to-purple-400',
     recommended: true,
@@ -177,7 +177,7 @@ export const TOPICS = [
         body: (
           <>
             <p className="mb-3">Life Calendar helps you close the gap between how you plan your time and how you actually spend it.</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">This is the short version. For a deep dive into any specific feature, reopen this from <span className="font-medium text-gray-700 dark:text-gray-300">Settings → Tutorial</span> any time — you'll get to pick exactly what you want to learn about.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">This is the short version. For a deep dive into any specific feature, reopen this from <span className="font-medium text-gray-700 dark:text-gray-300">Settings â†’ Tutorial</span> any time â€” you'll get to pick exactly what you want to learn about.</p>
           </>
         ),
       },
@@ -188,9 +188,9 @@ export const TOPICS = [
           <>
             <p className="mb-2">The app has three main views, selectable from the top:</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">Plan</strong> — block out how you intend to use your time</li>
-              <li><span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">Live</strong> — record what you actually did</li>
-              <li><span className="inline-block w-2 h-2 rounded-full bg-purple-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">See Your Life</strong> — compare plan vs reality side by side</li>
+              <li><span className="inline-block w-2 h-2 rounded-full bg-blue-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">Plan</strong> â€” block out how you intend to use your time</li>
+              <li><span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">Live</strong> â€” record what you actually did</li>
+              <li><span className="inline-block w-2 h-2 rounded-full bg-purple-400 mr-2 align-middle" /><strong className="text-gray-800 dark:text-gray-200">See Your Life</strong> â€” compare plan vs reality side by side</li>
             </ul>
           </>
         ),
@@ -215,9 +215,9 @@ export const TOPICS = [
           <>
             <p className="mb-2">In a hurry? You don't have to fill out a form every time.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><strong className="text-gray-800 dark:text-gray-200">Paste</strong> a schedule, email, or message — the app pulls out the dates, times, and names</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Paste</strong> a schedule, email, or message â€” the app pulls out the dates, times, and names</li>
               <li><strong className="text-gray-800 dark:text-gray-200">Speak</strong> an event and it's transcribed and parsed for you</li>
-              <li>Connect your own AI for smarter parsing — entirely optional</li>
+              <li>Connect your own AI for smarter parsing â€” entirely optional</li>
             </ul>
           </>
         ),
@@ -248,7 +248,7 @@ export const TOPICS = [
       },
       {
         icon: <IconDiff />,
-        title: 'See Your Life — the payoff',
+        title: 'See Your Life â€” the payoff',
         body: (
           <>
             <p className="mb-2">This is the whole point: <strong className="text-gray-800 dark:text-gray-200">See Your Life</strong> lays your plan next to what you actually did.</p>
@@ -262,7 +262,7 @@ export const TOPICS = [
         body: (
           <>
             <p className="mb-2">Your data is protected with <strong className="text-gray-800 dark:text-gray-200">zero-knowledge encryption</strong>.</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Only your browser ever holds the key that can read it — the server just stores encrypted data it can't decrypt. There's a full "Your Account &amp; Privacy" topic if you want the details.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Only your browser ever holds the key that can read it â€” the server just stores encrypted data it can't decrypt. There's a full "Your Account &amp; Privacy" topic if you want the details.</p>
           </>
         ),
       },
@@ -271,8 +271,8 @@ export const TOPICS = [
         title: 'There\'s Even More',
         body: (
           <>
-            <p className="mb-2">Plenty more to explore: day-to-year calendar <strong className="text-gray-800 dark:text-gray-200">views</strong>, <strong className="text-gray-800 dark:text-gray-200">habits</strong> &amp; streaks, automatic <strong className="text-gray-800 dark:text-gray-200">drive-time</strong> tracking, multiple <strong className="text-gray-800 dark:text-gray-200">time zones</strong>, and custom <strong className="text-gray-800 dark:text-gray-200">fonts</strong>.</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Open <span className="font-medium text-gray-700 dark:text-gray-300">Settings → Tutorial</span> any time for a focused walkthrough of any one of these — no need to sit through everything at once.</p>
+            <p className="mb-2">Plenty more to explore: day-to-year calendar <strong className="text-gray-800 dark:text-gray-200">views</strong>, <strong className="text-gray-800 dark:text-gray-200">habits</strong> &amp; streaks, automatic <strong className="text-gray-800 dark:text-gray-200">travel-buffer</strong> tracking, multiple <strong className="text-gray-800 dark:text-gray-200">time zones</strong>, and custom <strong className="text-gray-800 dark:text-gray-200">fonts</strong>.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Open <span className="font-medium text-gray-700 dark:text-gray-300">Settings â†’ Tutorial</span> any time for a focused walkthrough of any one of these â€” no need to sit through everything at once.</p>
           </>
         ),
       },
@@ -291,7 +291,7 @@ export const TOPICS = [
         title: 'Your Account & Privacy',
         body: (
           <>
-            <p className="mb-3">Life Calendar uses <strong className="text-gray-800 dark:text-gray-200">zero-knowledge encryption</strong>. That means the server stores your data, but it never sees the unencrypted contents — only your browser ever holds the key that can read it.</p>
+            <p className="mb-3">Life Calendar uses <strong className="text-gray-800 dark:text-gray-200">zero-knowledge encryption</strong>. That means the server stores your data, but it never sees the unencrypted contents â€” only your browser ever holds the key that can read it.</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">This tour explains what that means in practice and what to do if you lose your password.</p>
           </>
         ),
@@ -301,9 +301,9 @@ export const TOPICS = [
         title: 'How the encryption works',
         body: (
           <>
-            <p className="mb-2">On first run you set a password. Your browser turns it into an encryption key using PBKDF2 (600,000 iterations) and AES-256-GCM — industry-standard, computationally expensive on purpose to resist guessing.</p>
+            <p className="mb-2">On first run you set a password. Your browser turns it into an encryption key using PBKDF2 (600,000 iterations) and AES-256-GCM â€” industry-standard, computationally expensive on purpose to resist guessing.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li>The key is derived <strong className="text-gray-800 dark:text-gray-200">locally in your browser</strong> — your raw password never leaves your device</li>
+              <li>The key is derived <strong className="text-gray-800 dark:text-gray-200">locally in your browser</strong> â€” your raw password never leaves your device</li>
               <li>Events, categories, and settings are encrypted before they're sent to the server</li>
               <li>The server only ever stores ciphertext it cannot read</li>
             </ul>
@@ -315,8 +315,8 @@ export const TOPICS = [
         title: 'What "zero-knowledge" really means',
         body: (
           <>
-            <p className="mb-2">Nobody but you — not the server, not an attacker who steals the database — can read your plan, your live log, or your settings without your password.</p>
-            <p className="text-sm text-gray-600 dark:text-gray-400">A side effect: there's no "forgot password" reset that recovers your data, because the server genuinely cannot decrypt it for you. A wrong password doesn't show an error message — it just fails to unlock anything, since decryption itself fails.</p>
+            <p className="mb-2">Nobody but you â€” not the server, not an attacker who steals the database â€” can read your plan, your live log, or your settings without your password.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">A side effect: there's no "forgot password" reset that recovers your data, because the server genuinely cannot decrypt it for you. A wrong password doesn't show an error message â€” it just fails to unlock anything, since decryption itself fails.</p>
           </>
         ),
       },
@@ -325,10 +325,10 @@ export const TOPICS = [
         title: 'Staying unlocked',
         body: (
           <>
-            <p className="mb-2">By default, your decryption key lives only in memory — refreshing the page re-prompts you for your password.</p>
+            <p className="mb-2">By default, your decryption key lives only in memory â€” refreshing the page re-prompts you for your password.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><strong className="text-gray-800 dark:text-gray-200">Stay unlocked on this device</strong> — opt in at unlock time to keep the key in this browser tab's session storage. It's cleared the moment you close the tab, and is never written to localStorage or disk.</li>
-              <li>Use a recovery code (if you generated one) to regain access if you forget your password — keep it somewhere safe, since it's the only backdoor by design.</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Stay unlocked on this device</strong> â€” opt in at unlock time to keep the key in this browser tab's session storage. It's cleared the moment you close the tab, and is never written to localStorage or disk.</li>
+              <li>Use a recovery code (if you generated one) to regain access if you forget your password â€” keep it somewhere safe, since it's the only backdoor by design.</li>
             </ul>
           </>
         ),
@@ -354,14 +354,14 @@ export const TOPICS = [
         icon: <IconTabs />,
         title: 'Plan',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Block out how you <em>intend</em> to spend your time — meetings, workouts, sleep, deep work. Plan events can repeat, span multiple days, and be imported from other calendars.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Block out how you <em>intend</em> to spend your time â€” meetings, workouts, sleep, deep work. Plan events can repeat, span multiple days, and be imported from other calendars.</p>
         ),
       },
       {
         icon: <IconTabs />,
         title: 'Live',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Log what you <em>actually</em> did, after the fact or in real time. Drive Time entries and voice/text quick-adds land here by default. This is your record of reality.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Log what you <em>actually</em> did, after the fact or in real time. Travel Buffer entries and voice/text quick-adds land here by default. This is your record of reality.</p>
         ),
       },
       {
@@ -369,7 +369,7 @@ export const TOPICS = [
         title: 'See Your Life',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Compares Plan against Live over any date range — totals per category, where you drifted, and whether you're hitting time budgets you've set.</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Compares Plan against Live over any date range â€” totals per category, where you drifted, and whether you're hitting time budgets you've set.</p>
             <p className="text-xs text-gray-400 dark:text-gray-500">See the "See Your Life & Exporting" topic for details on exporting this comparison.</p>
           </>
         ),
@@ -378,16 +378,16 @@ export const TOPICS = [
   },
   {
     id: 'events',
-    label: 'Adding Events & Drive Time',
-    blurb: 'Creating events, multi-day spans, and automatic drive-time calculation.',
+    label: 'Adding Events & Travel Buffer',
+    blurb: 'Creating events, multi-day spans, and automatic travel-buffer calculation.',
     icon: <IconEvent />,
     gradient: 'from-blue-400 via-sky-400 to-orange-400',
     steps: [
       {
         intro: true,
         icon: <IconEvent />,
-        title: 'Adding Events & Drive Time',
-        body: <p>Events are the building blocks of both Plan and Live. This walkthrough covers creating them and using the automatic drive-time feature.</p>,
+        title: 'Adding Events & Travel Buffer',
+        body: <p>Events are the building blocks of both Plan and Live. This walkthrough covers creating them and using the automatic travel-buffer feature.</p>,
       },
       {
         icon: <IconEvent />,
@@ -395,23 +395,23 @@ export const TOPICS = [
         body: (
           <>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><span className="font-semibold text-gray-800 dark:text-gray-200">Tap a time slot</span> on the calendar grid — opens the event form pre-filled with that time</li>
-              <li><span className="font-semibold text-gray-800 dark:text-gray-200">+ button (FAB)</span> — add to Plan, add to Live, log Drive Time, paste text, or speak an event</li>
+              <li><span className="font-semibold text-gray-800 dark:text-gray-200">Tap a time slot</span> on the calendar grid â€” opens the event form pre-filled with that time</li>
+              <li><span className="font-semibold text-gray-800 dark:text-gray-200">+ button (FAB)</span> â€” add to Plan, add to Live, log Travel Buffer, paste text, or speak an event</li>
             </ul>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Every event has a label, a category, a start/end time (or "all day"), and can span multiple days — multi-day events are automatically split into one segment per day.</p>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Every event has a label, a category, a start/end time (or "all day"), and can span multiple days â€” multi-day events are automatically split into one segment per day.</p>
           </>
         ),
       },
       {
         icon: <IconCar />,
-        title: 'Drive Time — how it works',
+        title: 'Travel Buffer â€” how it works',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB and choose <strong className="text-gray-800 dark:text-gray-200">Drive Time</strong>. Enter a <strong>From</strong> and <strong>To</strong> address (your saved home address pre-fills "From").</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB and choose <strong className="text-gray-800 dark:text-gray-200">Travel Buffer</strong>. Enter a <strong>From</strong> and <strong>To</strong> address (your saved home address pre-fills "From").</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
               <li>The app calculates the route using open-source routing (OSRM) based on the two addresses you give it</li>
               <li>Once both fields are filled, it automatically estimates duration and distance</li>
-              <li>Your event's end time is set automatically — rounded up to the nearest 30-minute slot from the estimated drive duration</li>
+              <li>Your event's end time is set automatically â€” rounded up to the nearest 30-minute slot from the estimated drive duration</li>
               <li>You can still edit the time manually if the estimate is off</li>
             </ul>
           </>
@@ -419,9 +419,9 @@ export const TOPICS = [
       },
       {
         icon: <IconCar />,
-        title: 'Where Drive Time events live',
+        title: 'Where Travel Buffer events live',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Drive Time always saves to <strong className="text-gray-800 dark:text-gray-200">Live</strong>, under its own orange "Drive Time" category, so your commute time shows up honestly in See Your Life without you having to plan it in advance.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Travel Buffer always saves to <strong className="text-gray-800 dark:text-gray-200">Live</strong>, under its own orange "Travel Buffer" category, so your commute time shows up honestly in See Your Life without you having to plan it in advance.</p>
         ),
       },
     ],
@@ -444,8 +444,8 @@ export const TOPICS = [
         title: 'Filtering & pinning',
         body: (
           <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-            <li><span className="font-semibold text-gray-800 dark:text-gray-200">Filter</span> — click "Categories" in the toolbar to show or hide specific categories on the calendar</li>
-            <li><span className="font-semibold text-gray-800 dark:text-gray-200">Pin</span> — star a category to keep it visible in the legend for quick reference</li>
+            <li><span className="font-semibold text-gray-800 dark:text-gray-200">Filter</span> â€” click "Categories" in the toolbar to show or hide specific categories on the calendar</li>
+            <li><span className="font-semibold text-gray-800 dark:text-gray-200">Pin</span> â€” star a category to keep it visible in the legend for quick reference</li>
           </ul>
         ),
       },
@@ -453,7 +453,7 @@ export const TOPICS = [
         icon: <IconCategories />,
         title: 'Customizing',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Add, rename, or recolor categories from <strong className="text-gray-800 dark:text-gray-200">Settings → Manage Categories</strong>. Drive Time has its own built-in category so commute time is always tracked separately from everything else.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Add, rename, or recolor categories from <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Manage Categories</strong>. Travel Buffer has its own built-in category so commute time is always tracked separately from everything else.</p>
         ),
       },
     ],
@@ -487,7 +487,7 @@ export const TOPICS = [
         icon: <IconViews />,
         title: 'Quarter / Half-Year / Year',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Big-picture views for spotting longer-term patterns. Enable them in <strong className="text-gray-800 dark:text-gray-200">Settings → Appearance → Extra views</strong>.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Big-picture views for spotting longer-term patterns. Enable them in <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Appearance â†’ Extra views</strong>.</p>
         ),
       },
     ],
@@ -504,7 +504,7 @@ export const TOPICS = [
         icon: <IconSearch />,
         title: 'Search',
         body: (
-          <p>Press <kbd className="px-1.5 py-0.5 text-xs font-mono border border-gray-200 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700">⌘K</kbd> (or <kbd className="px-1.5 py-0.5 text-xs font-mono border border-gray-200 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700">Ctrl K</kbd> on Windows) anywhere in the app to open the search overlay.</p>
+          <p>Press <kbd className="px-1.5 py-0.5 text-xs font-mono border border-gray-200 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700">âŒ˜K</kbd> (or <kbd className="px-1.5 py-0.5 text-xs font-mono border border-gray-200 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-700">Ctrl K</kbd> on Windows) anywhere in the app to open the search overlay.</p>
         ),
       },
       {
@@ -518,7 +518,7 @@ export const TOPICS = [
         icon: <IconSearch />,
         title: 'Customizing the shortcut',
         body: (
-          <p className="text-sm text-gray-500 dark:text-gray-400">You can change the keyboard shortcut in <strong className="text-gray-700 dark:text-gray-300">Settings → Search Options</strong> if ⌘K/Ctrl K conflicts with something else.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">You can change the keyboard shortcut in <strong className="text-gray-700 dark:text-gray-300">Settings â†’ Search Options</strong> if âŒ˜K/Ctrl K conflicts with something else.</p>
         ),
       },
     ],
@@ -535,7 +535,7 @@ export const TOPICS = [
         icon: <IconQuickAdd />,
         title: 'Quick Add, Voice & AI Parsing',
         body: (
-          <p>Instead of filling out a form for every event, you can paste in messy text or just talk — the app finds the dates, times, and event names for you.</p>
+          <p>Instead of filling out a form for every event, you can paste in messy text or just talk â€” the app finds the dates, times, and event names for you.</p>
         ),
       },
       {
@@ -543,11 +543,11 @@ export const TOPICS = [
         title: 'Quick Add from text',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB → <strong className="text-gray-800 dark:text-gray-200">From Text</strong>. Paste anything with dates and times in it — a shift schedule, an email, a text message thread.</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB â†’ <strong className="text-gray-800 dark:text-gray-200">From Text</strong>. Paste anything with dates and times in it â€” a shift schedule, an email, a text message thread.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li>By default a free, fully offline local parser detects events — no internet or API key needed</li>
+              <li>By default a free, fully offline local parser detects events â€” no internet or API key needed</li>
               <li>Each detected event shows as its own card with a confidence badge (<em>exact</em>, <em>approx</em>, or <em>inferred</em>)</li>
-              <li>Review, edit, toggle off, or recategorize each one before adding — nothing is added until you confirm</li>
+              <li>Review, edit, toggle off, or recategorize each one before adding â€” nothing is added until you confirm</li>
               <li>On Android, once installed to your home screen, you can highlight text in any app and Share it straight into this screen (iOS doesn't support sharing into installed web apps)</li>
             </ul>
           </>
@@ -558,11 +558,11 @@ export const TOPICS = [
         title: 'Voice noting',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB → <strong className="text-gray-800 dark:text-gray-200">Record Voice</strong>, or tap the 🎤 icon inside the "From Text" box, then just speak.</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB â†’ <strong className="text-gray-800 dark:text-gray-200">Record Voice</strong>, or tap the ðŸŽ¤ icon inside the "From Text" box, then just speak.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li>Uses your browser's built-in speech recognition — no audio is uploaded anywhere outside the parsing step</li>
+              <li>Uses your browser's built-in speech recognition â€” no audio is uploaded anywhere outside the parsing step</li>
               <li>Your words are transcribed live into the text box as you talk</li>
-              <li>Keep the tab open and focused while speaking — recognition stops if you switch away</li>
+              <li>Keep the tab open and focused while speaking â€” recognition stops if you switch away</li>
               <li>Once you stop, it's parsed into event cards exactly like pasted text</li>
             </ul>
           </>
@@ -573,12 +573,12 @@ export const TOPICS = [
         title: 'Connecting your own LLM',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">For smarter multi-event extraction and category guessing, connect an LLM in <strong className="text-gray-800 dark:text-gray-200">Settings → Text/Voice Parsing</strong> — this is entirely optional.</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">For smarter multi-event extraction and category guessing, connect an LLM in <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Text/Voice Parsing</strong> â€” this is entirely optional.</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
               <li>Choose a provider: <strong>Anthropic</strong>, <strong>OpenAI</strong>, or a <strong>custom endpoint</strong> (e.g. a local Ollama server)</li>
               <li>Paste your API key and optionally a model name (e.g. <code>claude-3-5-haiku-latest</code>, <code>gpt-4o-mini</code>, <code>llama3.1</code>)</li>
-              <li>Your text and key go <strong className="text-gray-800 dark:text-gray-200">directly from your browser to that provider</strong> — never through the app's own server</li>
-              <li>If a request ever fails (bad key, offline, rate limit), parsing silently falls back to the local parser — it never blocks you from adding events</li>
+              <li>Your text and key go <strong className="text-gray-800 dark:text-gray-200">directly from your browser to that provider</strong> â€” never through the app's own server</li>
+              <li>If a request ever fails (bad key, offline, rate limit), parsing silently falls back to the local parser â€” it never blocks you from adding events</li>
             </ul>
           </>
         ),
@@ -597,7 +597,7 @@ export const TOPICS = [
         icon: <IconCalendarLink />,
         title: 'Connected Calendars',
         body: (
-          <p>You don't have to leave your other calendars behind. There are three ways to bring outside events into Life Calendar, all under <strong className="text-gray-800 dark:text-gray-200">Settings → Connected Calendars</strong>.</p>
+          <p>You don't have to leave your other calendars behind. There are three ways to bring outside events into Life Calendar, all under <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Connected Calendars</strong>.</p>
         ),
       },
       {
@@ -606,7 +606,7 @@ export const TOPICS = [
         body: (
           <>
             <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Click "Connect Google" or "Connect Outlook" to sign in via OAuth. After signing in, pick which of that account's calendars to import, and whether it goes into <strong className="text-gray-800 dark:text-gray-200">Plan</strong> or <strong className="text-gray-800 dark:text-gray-200">Live</strong>.</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Sign-in tokens are stored on the server, not in your browser — this component only ever handles the event data itself, and connections can be disconnected at any time.</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Sign-in tokens are stored on the server, not in your browser â€” this component only ever handles the event data itself, and connections can be disconnected at any time.</p>
           </>
         ),
       },
@@ -621,7 +621,7 @@ export const TOPICS = [
         icon: <IconCalendarLink />,
         title: 'Subscribing to a live URL',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Paste a secret ICS address (e.g. Google Calendar → Settings → "Secret address in iCal format", or any <code>webcal:</code>/<code>.ics</code> URL) to subscribe — it auto-refreshes roughly every 30 minutes so changes on the source calendar keep showing up here.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Paste a secret ICS address (e.g. Google Calendar â†’ Settings â†’ "Secret address in iCal format", or any <code>webcal:</code>/<code>.ics</code> URL) to subscribe â€” it auto-refreshes roughly every 30 minutes so changes on the source calendar keep showing up here.</p>
         ),
       },
       {
@@ -644,7 +644,7 @@ export const TOPICS = [
         intro: true,
         icon: <IconDiff />,
         title: 'See Your Life & Exporting',
-        body: <p>This is the "reality check" — and the data behind it is yours to take with you.</p>,
+        body: <p>This is the "reality check" â€” and the data behind it is yours to take with you.</p>,
       },
       {
         icon: <IconDiff />,
@@ -663,11 +663,11 @@ export const TOPICS = [
         title: 'Downloading your data',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Go to <strong className="text-gray-800 dark:text-gray-200">Settings → Export Data</strong>, pick a format, and click Download:</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Go to <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Export Data</strong>, pick a format, and click Download:</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><strong className="text-gray-800 dark:text-gray-200">CSV</strong> — raw rows for spreadsheets</li>
-              <li><strong className="text-gray-800 dark:text-gray-200">JSON</strong> — structured data for your own scripts/tools</li>
-              <li><strong className="text-gray-800 dark:text-gray-200">PDF</strong> — a formatted report you can save or share</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">CSV</strong> â€” raw rows for spreadsheets</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">JSON</strong> â€” structured data for your own scripts/tools</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">PDF</strong> â€” a formatted report you can save or share</li>
             </ul>
             <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">The export covers the same date range currently selected in See Your Life.</p>
           </>
@@ -686,13 +686,13 @@ export const TOPICS = [
         intro: true,
         icon: <IconHabit />,
         title: 'Habits',
-        body: <p>Habits track recurring routines — things you do on a schedule rather than at a specific calendar time.</p>,
+        body: <p>Habits track recurring routines â€” things you do on a schedule rather than at a specific calendar time.</p>,
       },
       {
         icon: <IconHabit />,
         title: 'Creating a habit',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">Give it a label and a color, then choose which days it applies to — daily, weekdays only, weekends only, or any custom combination of days.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Give it a label and a color, then choose which days it applies to â€” daily, weekdays only, weekends only, or any custom combination of days.</p>
         ),
       },
       {
@@ -715,13 +715,13 @@ export const TOPICS = [
         intro: true,
         icon: <IconGlobe />,
         title: 'Time Zones',
-        body: <p>If you coordinate across time zones — remote teams, travel, family abroad — you can track several at once.</p>,
+        body: <p>If you coordinate across time zones â€” remote teams, travel, family abroad â€” you can track several at once.</p>,
       },
       {
         icon: <IconGlobe />,
         title: 'Adding & removing zones',
         body: (
-          <p className="text-sm text-gray-600 dark:text-gray-400">In <strong className="text-gray-800 dark:text-gray-200">Settings → Time Zones</strong>, your primary zone is detected automatically. Add up to four more by searching for a city or IANA zone name (e.g. "Tokyo" or "Asia/Tokyo").</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">In <strong className="text-gray-800 dark:text-gray-200">Settings â†’ Time Zones</strong>, your primary zone is detected automatically. Add up to four more by searching for a city or IANA zone name (e.g. "Tokyo" or "Asia/Tokyo").</p>
         ),
       },
       {
@@ -744,18 +744,18 @@ export const TOPICS = [
         intro: true,
         icon: <IconFont />,
         title: 'Appearance, Fonts & Text',
-        body: <p>Everything about how the app looks lives in one place: Settings → Appearance.</p>,
+        body: <p>Everything about how the app looks lives in one place: Settings â†’ Appearance.</p>,
       },
       {
         icon: <IconFont />,
         title: 'The font picker',
         body: (
           <>
-            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Search across grouped font presets — each with a live "Abc" preview:</p>
+            <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Search across grouped font presets â€” each with a live "Abc" preview:</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li><strong className="text-gray-800 dark:text-gray-200">Default</strong> — your system font</li>
-              <li><strong className="text-gray-800 dark:text-gray-200">Accessibility</strong> — OpenDyslexic, Atkinson Hyperlegible, Lexend</li>
-              <li><strong className="text-gray-800 dark:text-gray-200">Sans-serif / Serif / Monospace</strong> — Inter, Nunito, Open Sans, Merriweather, Lora, JetBrains Mono</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Default</strong> â€” your system font</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Accessibility</strong> â€” OpenDyslexic, Atkinson Hyperlegible, Lexend</li>
+              <li><strong className="text-gray-800 dark:text-gray-200">Sans-serif / Serif / Monospace</strong> â€” Inter, Nunito, Open Sans, Merriweather, Lora, JetBrains Mono</li>
             </ul>
           </>
         ),
@@ -817,7 +817,7 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
               onClick={onBack}
               className="text-xs font-semibold text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 uppercase tracking-wider transition-colors"
             >
-              ← All topics
+              â† All topics
             </button>
           ) : (
             <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
@@ -830,7 +830,7 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
             className="w-6 h-6 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-base leading-none"
             aria-label="Close tutorial"
           >
-            ✕
+            âœ•
           </button>
         </div>
 
@@ -854,7 +854,7 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
 
         {/* Footer */}
         {current.intro && !onBack ? (
-          /* First-run welcome only (no hub to return to) — Skip / Let's go.
+          /* First-run welcome only (no hub to return to) â€” Skip / Let's go.
              When opened from the topic hub the choice was already made there,
              so we fall through to the standard Back/Next nav instead. */
           <div className="flex items-center justify-center gap-3 px-5 pb-6">
@@ -874,7 +874,7 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
             </button>
           </div>
         ) : (
-          /* Standard nav — dots + Back / Next / Done. Used for every slide when
+          /* Standard nav â€” dots + Back / Next / Done. Used for every slide when
              opened from the hub, and every non-intro slide otherwise. */
           <div className="flex items-center justify-between px-5 pb-5">
             {/* Step dots */}
@@ -894,8 +894,8 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
               ))}
             </div>
 
-            {/* Back / Next / Done. On the first slide there's no prior step —
-               the header's "← All topics" handles going back to the hub. */}
+            {/* Back / Next / Done. On the first slide there's no prior step â€”
+               the header's "â† All topics" handles going back to the hub. */}
             <div className="flex items-center gap-2">
               {step > 0 && (
                 <button
@@ -930,3 +930,4 @@ export default function TutorialModal({ topicId = 'basics', onClose, onBack }) {
     </div>
   );
 }
+

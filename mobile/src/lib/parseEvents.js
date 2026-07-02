@@ -23,6 +23,7 @@ const TRAILING_FILLER_RE = /(\s*\b(?:for|at|on|from|about|regarding|re:|months f
 // thanksgiving dinner" → "thanksgiving dinner"). Deliberately excludes
 // "from" -- it's also legitimately part of titles like "invite from Sarah".
 const LEADING_FILLER_RE = /^.*?\b(?:for|about|regarding|re:|hi\s+\w+[\s,]+we(?:'re|are)?\s+\w+)\b\s*/i;
+const URL_RE = /\bhttps?:\/\/[^\s<>"')]+/i;
 
 function toDateStr(d) {
   const y = d.getFullYear();
@@ -65,6 +66,7 @@ function extractLabel(precedingText) {
  */
 export function parseEvents(rawText, referenceDate = new Date()) {
   const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const meetingUrl = rawText.match(URL_RE)?.[0] ?? '';
 
   // Pass 1: structured HHMM shift format
   const shiftResults = [];
@@ -89,7 +91,7 @@ export function parseEvents(rawText, referenceDate = new Date()) {
       ? addDayStr(startDate)
       : startDate;
 
-    shiftResults.push({ label, startDate, startTime, endDate, endTime, confidence: 'high' });
+    shiftResults.push({ label, startDate, startTime, endDate, endTime, confidence: 'high', ...(meetingUrl ? { meeting_url: meetingUrl } : {}) });
   }
 
   if (shiftResults.length > 0) return shiftResults;
@@ -121,7 +123,7 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     const label = extractLabel(precedingText) || r.text;
 
     const confidence = r.start.isCertain('hour') ? 'medium' : 'low';
-    nlResults.push({ label, startDate, startTime, endDate, endTime, confidence });
+    nlResults.push({ label, startDate, startTime, endDate, endTime, confidence, ...(meetingUrl ? { meeting_url: meetingUrl } : {}) });
   }
 
   return nlResults;

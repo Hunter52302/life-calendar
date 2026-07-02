@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, Modal, ScrollView,
-  StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
+  StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { AppContext } from '../context/AppContext.js';
 import { parseEventText } from '../lib/parserRouter.js';
@@ -39,7 +39,6 @@ const badge = StyleSheet.create({
 
 function DraftCard({ draft, allCategories, onChange, onToggle }) {
   const isMultiDay = draft.endDate !== draft.startDate;
-  const cat = allCategories.find(c => c.id === draft.catId) || allCategories[0];
 
   return (
     <View style={[card.wrap, !draft.enabled && card.disabled]}>
@@ -66,6 +65,11 @@ function DraftCard({ draft, allCategories, onChange, onToggle }) {
             )}
             {isMultiDay && (
               <Text style={card.multiDay}> · 2 segments</Text>
+            )}
+            {draft.meeting_url && (
+              <View style={[badge.wrap, { backgroundColor: '#DBEAFE', marginLeft: 4 }]}>
+                <Text style={[badge.txt, { color: '#1D4ED8' }]}>Meeting link detected</Text>
+              </View>
             )}
           </View>
           <Text style={card.dateText}>
@@ -197,6 +201,7 @@ export default function ParseModal({ visible, initialText = '', onClose }) {
           calendar:      d.calendar,
           source:        'paste',
           is_all_day:    false,
+          ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
         });
       }
     }

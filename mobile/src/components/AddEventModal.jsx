@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { DAYS_SHORT, slotToTime } from '../lib/utils.js';
 import { AppContext } from '../context/AppContext.js';
+import { isLikelyUrl, openExternalUrl, openMapProviderPicker } from '../lib/handoffActions.js';
 
 const DURATION_OPTIONS = [
   { label: '30m', slots: 1 },
@@ -26,6 +27,9 @@ export default function AddEventModal({
   const [slot,     setSlot]     = useState(14);
   const [duration, setDuration] = useState(2);
   const [allDay,   setAllDay]   = useState(false);
+  const [location, setLocation] = useState('');
+  const [meetingUrl, setMeetingUrl] = useState('');
+  const [travelBufferMinutes, setTravelBufferMinutes] = useState(0);
 
   useEffect(() => {
     if (!visible) return;
@@ -36,6 +40,9 @@ export default function AddEventModal({
       setSlot(event.slot_start ?? 14);
       setDuration(event.slot_duration ?? 2);
       setAllDay(event.is_all_day ?? false);
+      setLocation(event.location || '');
+      setMeetingUrl(event.meeting_url || '');
+      setTravelBufferMinutes(event.travel_buffer_minutes || 0);
     } else {
       setLabel('');
       setCatId(allCategories[0]?.id || 'personal');
@@ -43,6 +50,9 @@ export default function AddEventModal({
       setSlot(defaultSlot ?? 14);
       setDuration(2);
       setAllDay(false);
+      setLocation('');
+      setMeetingUrl('');
+      setTravelBufferMinutes(0);
     }
   }, [visible, event]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -63,6 +73,9 @@ export default function AddEventModal({
       week_start:    weekStart,
       calendar:      calendar || event?.calendar || 'plan',
       source:        'manual',
+      ...(location.trim() ? { location: location.trim() } : {}),
+      ...(meetingUrl.trim() ? { meeting_url: meetingUrl.trim() } : {}),
+      ...(Number(travelBufferMinutes) > 0 ? { travel_buffer_minutes: Number(travelBufferMinutes) } : {}),
     };
     onSave(data);
   }
@@ -195,6 +208,58 @@ export default function AddEventModal({
               </>
             )}
 
+            <Text style={[styles.sectionLabel, { color: labelColor }]}>Location</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[styles.input, styles.inputFlex, { borderColor: inputBorder, backgroundColor: inputBg, color: titleColor }]}
+                placeholder="Address or place name"
+                placeholderTextColor={T?.placeholder ?? '#9CA3AF'}
+                value={location}
+                onChangeText={setLocation}
+              />
+              {!!location.trim() && (
+                <Pressable onPress={() => openMapProviderPicker(location)} style={[styles.smallBtn, { backgroundColor: stepBg }]}>
+                  <Text style={[styles.smallBtnText, { color: stepColor }]}>Open in Maps</Text>
+                </Pressable>
+              )}
+            </View>
+            <Text style={[styles.helperText, { color: labelColor }]}>Maps opens only after you choose a provider.</Text>
+
+            <Text style={[styles.sectionLabel, { color: labelColor }]}>Meeting link</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[styles.input, styles.inputFlex, { borderColor: inputBorder, backgroundColor: inputBg, color: titleColor }]}
+                placeholder="https://zoom.us/j/..."
+                placeholderTextColor={T?.placeholder ?? '#9CA3AF'}
+                value={meetingUrl}
+                onChangeText={setMeetingUrl}
+                autoCapitalize="none"
+                keyboardType="url"
+              />
+              {isLikelyUrl(meetingUrl) && (
+                <Pressable onPress={() => openExternalUrl(meetingUrl.trim())} style={[styles.smallBtn, { backgroundColor: stepBg }]}>
+                  <Text style={[styles.smallBtnText, { color: stepColor }]}>Open</Text>
+                </Pressable>
+              )}
+            </View>
+            <Text style={[styles.helperText, { color: labelColor }]}>Links open only after you tap.</Text>
+
+            <Text style={[styles.sectionLabel, { color: labelColor }]}>Travel buffer</Text>
+            <View style={styles.durationRow}>
+              {[0, 15, 30, 45, 60].map(minutes => (
+                <Pressable
+                  key={minutes}
+                  onPress={() => setTravelBufferMinutes(minutes)}
+                  style={[styles.durationChip, { backgroundColor: Number(travelBufferMinutes) === minutes ? dayActiveColor : dayInactiveBg }]}
+                >
+                  <Text style={[styles.durationChipText, { color: Number(travelBufferMinutes) === minutes ? '#fff' : dayInactiveText }]}>
+                    {minutes === 0 ? 'None' : `${minutes} min`}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={[styles.helperText, { color: labelColor }]}>Manual time blocked before event. No route lookup.</Text>
+
             {/* Action buttons */}
             <View style={styles.actions}>
               {event && onDelete && (
@@ -226,6 +291,11 @@ const styles = StyleSheet.create({
   closeBtn:         { padding: 4 },
   closeTxt:         { fontSize: 16 },
   input:            { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16, marginBottom: 16 },
+  inputRow:         { flexDirection: 'row', gap: 8, alignItems: 'flex-start', marginBottom: 4 },
+  inputFlex:        { flex: 1, marginBottom: 0 },
+  smallBtn:         { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  smallBtnText:     { fontSize: 12, fontWeight: '700' },
+  helperText:       { fontSize: 11, marginBottom: 16 },
   sectionLabel:     { fontSize: 13, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   catScroll:        { marginBottom: 16 },
   catChip:          { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8 },

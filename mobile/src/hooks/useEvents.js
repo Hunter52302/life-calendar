@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { generateId, DEFAULT_CATEGORIES, getEventEndDateTime } from '../lib/utils.js';
 import { api } from '../lib/api.js';
-import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
+import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 
 const EVENTS_KEY  = 'lc-m-events';
 const CATS_KEY    = 'lc-m-categories';
 const OVRS_KEY    = 'lc-m-overrides';
 const DISMISSED_AUTO_KEY = 'lc-m-dismissed-auto-complete';
 const LINKED_KEY  = 'lc-m-linked';
+const EVENT_TEXT_FIELDS = ['label', 'notes', 'location', 'meeting_url'];
+const EVENT_JSON_FIELDS = ['people', 'actions'];
 
 // Trailing window for auto-completing past-due plan events, so turning the
 // setting on doesn't retroactively backfill someone's entire plan history.
@@ -63,7 +65,21 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   const zkActive = isZkEnabled && masterKey;
 
   async function encryptEventForApi(event) {
-    return zkActive ? encryptRecord(masterKey, event, ['label', 'notes']) : event;
+    if (!zkActive) return event;
+    const out = await encryptRecord(masterKey, event, EVENT_TEXT_FIELDS);
+    for (const field of EVENT_JSON_FIELDS) {
+      out[field] = await encryptJsonField(masterKey, event[field] ?? []);
+    }
+    return out;
+  }
+
+  async function decryptEventFromApi(event) {
+    const out = await decryptRecord(masterKey, event, EVENT_TEXT_FIELDS);
+    for (const field of EVENT_JSON_FIELDS) {
+      out[field] = await decryptJsonField(masterKey, event[field]);
+      if (!Array.isArray(out[field])) out[field] = [];
+    }
+    return out;
   }
 
   async function encryptCategoryForApi(cat) {
@@ -101,7 +117,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     api.sync()
       .then(async data => {
         const evs = zkActive
-          ? await Promise.all(data.events.map(e => decryptRecord(masterKey, e, ['label', 'notes'])))
+          ? await Promise.all(data.events.map(decryptEventFromApi))
           : data.events;
         setEvents(evs);
         setCustomCats(await decryptCategories(data.customCategories));

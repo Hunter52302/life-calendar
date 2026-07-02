@@ -3,14 +3,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 
-// ── Route modules ────────────────────────────────────────────────────────────
+// â”€â”€ Route modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import authRoute            from './routes/auth.js';
 import eventsRoute          from './routes/events.js';
 import categoriesRoute      from './routes/categories.js';
 import linkedCalendarsRoute from './routes/linkedCalendars.js';
-import driveTimeRoute       from './routes/driveTime.js';
-import geocodeGoogleRoute   from './routes/geocodeGoogle.js';
-import geocodeNominatimRoute from './routes/geocodeNominatim.js';
 import habitsRoute          from './routes/habits.js';
 import budgetsRoute         from './routes/budgets.js';
 import integrationsRoute    from './routes/integrations.js';
@@ -31,13 +28,13 @@ import { pocketbaseHabitCompletions, pocketbaseHabits } from './lib/pocketbaseHa
 import { pocketbaseNotificationSchedules, pocketbaseUserIntegrations } from './lib/pocketbaseNotifications.js';
 import { pbCategoryKeywords, pbCategoryOverrides, pbCustomCategories, pbDeletedDefaults, pbLinkedCalendars, pbTimeBudgets, pbUserLlmSettings, pbUserProfile } from './lib/pocketbaseSupport.js';
 
-// ── Auth middleware (for the /sync convenience endpoint) ─────────────────────
+// â”€â”€ Auth middleware (for the /sync convenience endpoint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// This server only ever returns JSON, never HTML — disable the CSP/COEP
+// This server only ever returns JSON, never HTML â€” disable the CSP/COEP
 // headers meant for HTML responses so they don't add noise to API clients.
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
@@ -68,9 +65,6 @@ app.use('/api/auth',            authRoute);
 app.use('/api/events',          eventsRoute);
 app.use('/api/categories',      categoriesRoute);
 app.use('/api/linked-calendars', linkedCalendarsRoute);
-app.use('/api/drive-time',      driveTimeRoute);
-app.use('/api/geocode/google',  geocodeGoogleRoute);
-app.use('/api/geocode/nominatim', geocodeNominatimRoute);
 app.use('/api/habits',          habitsRoute);
 app.use('/api/budgets',         budgetsRoute);
 app.use('/api/integrations',    integrationsRoute);
@@ -149,10 +143,12 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 // Start
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`PLS Calendar API  →  http://localhost:${PORT}`);
-  console.log(`Drive times       →  OSRM (open-source)${process.env.GOOGLE_MAPS_API_KEY ? ' + Google fallback' : ''}`);
-  console.log(`VAPID push        →  ${process.env.VAPID_PUBLIC_KEY ? '✓ configured' : '✗ not set (push notifications disabled)'}`);
-  console.log(`Google Calendar   →  ${process.env.GOOGLE_OAUTH_CLIENT_ID ? '✓ OAuth configured' : '✗ not configured'}`);
-  console.log(`Microsoft Calendar→  ${process.env.MS_OAUTH_CLIENT_ID ? '✓ OAuth configured' : '✗ not configured'}`);
+  console.log(`PLS Calendar API  ->  http://localhost:${PORT}`);
+  console.log('Location handoffs -> user-triggered only');
+  console.log(VAPID push        ->  );
+  console.log(Google Calendar   ->  );
+  console.log(Microsoft Calendar->  );
   startScheduler();
 });
+
+

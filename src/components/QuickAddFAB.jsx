@@ -1,27 +1,26 @@
 /**
- * QuickAddFAB — Floating Action Button
+ * QuickAddFAB - Floating Action Button
  *
- * Three quick-add actions:
- *   • Add Event → Plan
- *   • Add Event → Live
- *   • Drive Time → Live
+ * Quick-add actions:
+ * - Add Event -> Plan
+ * - Add Event -> Live
+ * - Travel Buffer -> Live
  *
- * Supports multi-day events (start date ≠ end date — stored as day segments).
+ * Supports multi-day events stored as day segments.
  * Respects militaryTime prop for consistent time display.
  */
 
 import { useState, useRef, useEffect } from 'react';
 import { todayStr } from '../lib/utils';
-import { api } from '../lib/api.js';
 import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
 import ParseEventsModal from './ParseEventsModal.jsx';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const FAB_SIZE    = 56;
 const DRAG_THRESH = 5;
 const LS_POS_KEY  = 'lc-fab-pos';
 
-// ── Time helpers ──────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Time helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function nextHourStr() {
   const h = (new Date().getHours() + 1) % 24;
   return `${String(h).padStart(2, '0')}:00`;
@@ -45,7 +44,7 @@ function calcDurLabel(sd, st, ed, et) {
   const start = new Date(`${sd}T${st}:00`);
   const end   = new Date(`${ed}T${et}:00`);
   const ms = end - start;
-  if (ms <= 0) return '—';
+  if (ms <= 0) return '-';
   const totalMins = Math.round(ms / 60000);
   const h = Math.floor(totalMins / 60);
   const m = totalMins % 60;
@@ -54,7 +53,7 @@ function calcDurLabel(sd, st, ed, et) {
   return `${h}h ${m}m`;
 }
 
-// ── Shared UI primitives ──────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Shared UI primitives Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const inputCls =
   'w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 ' +
   'dark:placeholder-gray-400 rounded-lg px-3 py-2 text-sm focus:outline-none ' +
@@ -89,7 +88,7 @@ function FormShell({ title, accent, onClose, children }) {
           <button
             type="button" onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
-          >×</button>
+          >x</button>
         </div>
         <div className="px-5 py-4 space-y-4 max-h-[80vh] overflow-y-auto">{children}</div>
       </div>
@@ -134,7 +133,7 @@ function CategoryPills({ allCategories, value, onChange }) {
   );
 }
 
-// ── Time row: time picker + formatted hint ────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Time row: time picker + formatted hint Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function TimeRow({ startDate, startTime, endDate, endTime, onStartChange, onEndChange, militaryTime }) {
   const durLabel = calcDurLabel(startDate, startTime, endDate, endTime);
   return (
@@ -160,7 +159,7 @@ function TimeRow({ startDate, startTime, endDate, endTime, onStartChange, onEndC
   );
 }
 
-// ── Multi-day date row ────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Multi-day date row Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function DateRow({ startDate, endDate, onStartChange, onEndChange }) {
   const isMultiDay = endDate > startDate;
   const segCount   = isMultiDay ? buildSegments(startDate, '00:00', endDate, '01:00').length : 1;
@@ -181,17 +180,17 @@ function DateRow({ startDate, endDate, onStartChange, onEndChange }) {
       </div>
       {isMultiDay && (
         <p className="text-[11px] text-amber-500 dark:text-amber-400 -mt-1 px-0.5">
-          Spans {segCount} day{segCount !== 1 ? 's' : ''} — saved as {segCount} calendar segment{segCount !== 1 ? 's' : ''}
+          Spans {segCount} day{segCount !== 1 ? 's' : ''}; saved as {segCount} calendar segment{segCount !== 1 ? 's' : ''}
         </p>
       )}
     </>
   );
 }
 
-// ── Event form (Plan or Live) ─────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Event form (Plan or Live) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const EVENT_CONFIG = {
-  plan:   { title: 'Quick Add Event — Plan', accent: '#3B82F6', btnLabel: 'Add to Plan' },
-  actual: { title: 'Quick Add Event — Live', accent: '#10B981', btnLabel: 'Add to Live' },
+  plan:   { title: 'Quick Add Event - Plan', accent: '#3B82F6', btnLabel: 'Add to Plan' },
+  actual: { title: 'Quick Add Event - Live', accent: '#10B981', btnLabel: 'Add to Live' },
 };
 
 function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onSave, onClose }) {
@@ -221,7 +220,6 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
     }
   }
   function handleEndTimeChange(val) { setAllDay(false); setEndTime(val); }
-  // "All day" spans the full day: midnight → 11:59 PM.
   function toggleAllDay(checked) {
     setAllDay(checked);
     if (checked) { setStartTime('00:00'); setEndTime('23:59'); }
@@ -250,7 +248,7 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
           ref={inputRef} type="text" value={label}
           onChange={e => setLabel(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSave()}
-          placeholder="e.g. Team meeting, Dentist…" className={inputCls}
+          placeholder="e.g. Team meeting, Dentist..." className={inputCls}
         />
       </Field>
       <DateRow
@@ -284,53 +282,29 @@ function EventForm({ allCategories, calendar = 'plan', militaryTime = false, onS
   );
 }
 
-// ── Drive Time form ───────────────────────────────────────────────────────────
-const DRIVE_CAT_ID    = 'drive-time';
-const DRIVE_CAT_COLOR = '#F97316';
+// Travel Buffer form
+const BUFFER_CAT_ID = 'drive-time';
+const BUFFER_CAT_COLOR = '#F97316';
+const BUFFER_OPTIONS = [15, 30, 45, 60];
 
-function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
+function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
   const start = nextHourStr();
 
-  const [label,     setLabel]     = useState('🚗 Drive Time');
-  const [from,      setFrom]      = useState(homeAddress || '');
-  const [to,        setTo]        = useState('');
+  const [label, setLabel] = useState('Travel Buffer');
   const [startDate, setStartDate] = useState(todayStr());
-  const [endDate,   setEndDate]   = useState(todayStr());
+  const [endDate, setEndDate] = useState(todayStr());
   const [startTime, setStartTime] = useState(start);
-  const [endTime,   setEndTime]   = useState(addOneHour(start));
-  const [estimate,  setEstimate]  = useState(null);  // null | 'loading' | 'error' | { durationMinutes, distanceMiles, durationText }
-  const toRef = useRef(null);
-  useEffect(() => { toRef.current?.focus(); }, []);
+  const [minutes, setMinutes] = useState(30);
+  const [customMinutes, setCustomMinutes] = useState('');
+  const inputRef = useRef(null);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Auto-calculate the drive time (open-source OSRM routing) once both
-  // addresses are filled, debounced so we don't fire on every keystroke.
-  useEffect(() => {
-    if (!from.trim() || !to.trim()) { setEstimate(null); return; }
-    setEstimate('loading');
-    const timer = setTimeout(async () => {
-      try {
-        const result = await api.driveTime.calc(from.trim(), to.trim());
-        setEstimate(result);
-        // Set the end time from the route duration (rounded up to 30-min slots)
-        const slots = Math.max(1, Math.ceil(result.durationMinutes / 30));
-        const endSlot = timeToSlot(startTime) + slots;
-        if (endSlot <= 47) setEndTime(slotToTimeStr(endSlot));
-      } catch {
-        setEstimate('error');
-      }
-    }, 900);
-    return () => clearTimeout(timer);
-  }, [from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const effectiveMinutes = customMinutes === '' ? minutes : Math.max(1, Number(customMinutes) || 1);
+  const endTime = slotToTimeStr(timeToSlot(startTime) + Math.max(1, Math.ceil(effectiveMinutes / 30)));
 
   function handleStartDateChange(val) {
     setStartDate(val);
     if (endDate < val) setEndDate(val);
-  }
-  function handleStartTimeChange(val) {
-    setStartTime(val);
-    if (endDate === startDate && timeToSlot(endTime) <= timeToSlot(val)) {
-      setEndTime(slotToTimeStr(timeToSlot(val) + 2));
-    }
   }
 
   function handleSave() {
@@ -340,45 +314,46 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
       const { week_start, day_of_week } = dateToWeekData(seg.date);
       onSave({
         label: label.trim(),
-        category: DRIVE_CAT_ID, color: DRIVE_CAT_COLOR,
+        category: BUFFER_CAT_ID, color: BUFFER_CAT_COLOR,
         week_start, day_of_week,
         slot_start: seg.slotStart, slot_duration: seg.slotDuration,
         precision: 0.5, calendar: 'actual', source: 'manual', is_all_day: false,
-        _driveFrom: from.trim(), _driveTo: to.trim(),
+        travel_buffer_minutes: effectiveMinutes,
       });
     }
     onClose();
   }
 
   return (
-    <FormShell title="Quick Add Drive Time" accent={DRIVE_CAT_COLOR} onClose={onClose}>
+    <FormShell title="Quick Add Travel Buffer" accent={BUFFER_CAT_COLOR} onClose={onClose}>
       <Field label="Event label">
-        <input type="text" value={label} onChange={e => setLabel(e.target.value)}
-          placeholder="🚗 Drive Time" className={inputCls} />
+        <input ref={inputRef} type="text" value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="Travel Buffer" className={inputCls} />
       </Field>
-      <div className="flex gap-2">
-        <Field label="From" className="flex-1">
-          <input type="text" value={from} onChange={e => setFrom(e.target.value)}
-            placeholder="Start location" className={inputCls} />
-        </Field>
-        <Field label="To" className="flex-1">
-          <input ref={toRef} type="text" value={to} onChange={e => setTo(e.target.value)}
-            placeholder="Destination" className={inputCls} />
-        </Field>
-      </div>
-      {estimate && (
-        <p className="text-xs px-1 -mt-1">
-          {estimate === 'loading' ? (
-            <span className="text-gray-400 dark:text-gray-500">Calculating route…</span>
-          ) : estimate === 'error' ? (
-            <span className="text-amber-500">Couldn't calculate the route — check the addresses.</span>
-          ) : (
-            <span className="text-gray-500 dark:text-gray-400">
-              ≈ {estimate.durationText} · {estimate.distanceText} — end time set automatically
-            </span>
-          )}
-        </p>
-      )}
+      <Field label="Duration">
+        <div className="flex flex-wrap gap-1.5">
+          {BUFFER_OPTIONS.map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => { setMinutes(opt); setCustomMinutes(''); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${customMinutes === '' && minutes === opt ? 'text-white border-transparent' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'}`}
+              style={customMinutes === '' && minutes === opt ? { backgroundColor: BUFFER_CAT_COLOR } : {}}
+            >
+              {opt === 60 ? '1h' : `${opt}m`}
+            </button>
+          ))}
+          <input
+            type="number"
+            min="1"
+            value={customMinutes}
+            onChange={e => setCustomMinutes(e.target.value)}
+            placeholder="Custom"
+            className="w-24 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Manual time before event. No route lookup.</p>
+      </Field>
       <DateRow
         startDate={startDate} endDate={endDate}
         onStartChange={handleStartDateChange}
@@ -387,19 +362,19 @@ function DriveForm({ homeAddress, militaryTime = false, onSave, onClose }) {
       <TimeRow
         startDate={startDate} startTime={startTime}
         endDate={endDate}    endTime={endTime}
-        onStartChange={handleStartTimeChange}
-        onEndChange={setEndTime}
+        onStartChange={setStartTime}
+        onEndChange={() => {}}
         militaryTime={militaryTime}
       />
       <SaveRow
         onClose={onClose} onSave={handleSave}
-        disabled={!label.trim()} label="Add to Live" color={DRIVE_CAT_COLOR}
+        disabled={!label.trim()} label="Add to Live" color={BUFFER_CAT_COLOR}
       />
     </FormShell>
   );
 }
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Icons Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function CalIcon() {
   return (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -431,7 +406,7 @@ function MicIcon() {
   );
 }
 
-// ── Quick-add option row (centered popup menu) ─────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Quick-add option row (centered popup menu) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function OptionRow({ icon, label, sublabel, color, onClick }) {
   return (
     <button
@@ -455,7 +430,7 @@ function OptionRow({ icon, label, sublabel, color, onClick }) {
   );
 }
 
-// ── Centered quick-add menu (action sheet) ─────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Centered quick-add menu (action sheet) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function QuickAddMenu({ onClose, onSelect }) {
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose(); }
@@ -478,12 +453,12 @@ function QuickAddMenu({ onClose, onSelect }) {
             type="button" onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
             aria-label="Close"
-          >×</button>
+          >x</button>
         </div>
         <div className="p-2 sm:p-2.5">
           <OptionRow icon={<CalIcon />}       color="#3B82F6" label="Add Event"   sublabel="to your Plan"        onClick={() => onSelect('event-plan')} />
           <OptionRow icon={<CalIcon />}       color="#10B981" label="Add Event"   sublabel="to your Live log"    onClick={() => onSelect('event-live')} />
-          <OptionRow icon={<CarIcon />}       color="#F97316" label="Drive Time"  sublabel="auto-calculate route" onClick={() => onSelect('drive')} />
+          <OptionRow icon={<CarIcon />}       color="#F97316" label="Travel Buffer"  sublabel="manual time before event" onClick={() => onSelect('buffer')} />
           <OptionRow icon={<ClipboardIcon />} color="#8B5CF6" label="From Text"   sublabel="paste & parse events" onClick={() => onSelect('text')} />
           <OptionRow icon={<MicIcon />}       color="#EF4444" label="Record Voice" sublabel="speak to add events" onClick={() => onSelect('voice')} />
         </div>
@@ -492,7 +467,7 @@ function QuickAddMenu({ onClose, onSelect }) {
   );
 }
 
-// ── Clamp helper ──────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Clamp helper Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 function clampToViewport(p) {
   if (!p) return null;
   return {
@@ -501,10 +476,9 @@ function clampToViewport(p) {
   };
 }
 
-// ── Main FAB ──────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Main FAB Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 export default function QuickAddFAB({
   allCategories    = [],
-  homeAddress      = '',
   militaryTime     = false,
   draggable        = false,
   posResetKey      = 0,
@@ -527,7 +501,7 @@ export default function QuickAddFAB({
     return null;
   });
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'drive' | 'parse'
+  const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'buffer' | 'parse'
   const [parseAutoVoice, setParseAutoVoice] = useState(false);
 
   const isDragging   = useRef(false);
@@ -538,13 +512,15 @@ export default function QuickAddFAB({
 
   useEffect(() => {
     if (posResetKey === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPos(null); posRef.current = null;
     localStorage.removeItem(LS_POS_KEY);
-  }, [posResetKey]); // eslint-disable-line
+  }, [posResetKey]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialParseText) { setMode('parse'); setOpen(false); }
-  }, [initialParseText]); // eslint-disable-line
+  }, [initialParseText]);
 
   useEffect(() => {
     function getClient(e) {
@@ -624,14 +600,14 @@ export default function QuickAddFAB({
 
   function handleAddPlanEvent(event)  { onAddEvent(event);  onSwitchTab('plan');   }
   function handleAddLiveEvent(event)  { onAddActual(event); onSwitchTab('actual'); }
-  function handleAddDrive(event)      { onAddActual(event); onSwitchTab('actual'); }
+  function handleAddBuffer(event)      { onAddActual(event); onSwitchTab('actual'); }
 
   const wrapperStyle = pos
     ? { position: 'fixed', left: pos.x, top: pos.y, bottom: 'auto', right: 'auto' }
     : {};
   const wrapperStyle2 = pos ? {} : { bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))', right: 'max(1.5rem, env(safe-area-inset-right, 0px))' };
   const wrapperCls = pos ? 'z-[120]' : 'fixed z-[120]';
-  const cursorCls  = draggable ? (isDragging.current ? 'cursor-grabbing' : 'cursor-grab') : '';
+  const cursorCls  = draggable ? 'cursor-grab' : '';
 
   function handleMenuSelect(choice) {
     if (choice === 'voice') openVoiceMode();
@@ -652,7 +628,7 @@ export default function QuickAddFAB({
           className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white transition-all duration-200 hover:scale-105 active:scale-95 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 select-none ${cursorCls}`}
           style={{ background: 'linear-gradient(135deg, #3B82F6, #6366F1)' }}
           aria-label="Quick add"
-          title={draggable ? 'Drag to move · Click to open' : 'Quick add'}
+          title={draggable ? 'Drag to move - Click to open' : 'Quick add'}
         >
           <svg className={`w-6 h-6 transition-transform duration-200 ${open ? 'rotate-45' : ''}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -679,9 +655,9 @@ export default function QuickAddFAB({
         <EventForm allCategories={allCategories} calendar="actual" militaryTime={militaryTime}
           onSave={handleAddLiveEvent} onClose={() => setMode(null)} />
       )}
-      {mode === 'drive' && (
-        <DriveForm homeAddress={homeAddress} militaryTime={militaryTime}
-          onSave={handleAddDrive} onClose={() => setMode(null)} />
+      {mode === 'buffer' && (
+        <TravelBufferForm militaryTime={militaryTime}
+          onSave={handleAddBuffer} onClose={() => setMode(null)} />
       )}
       {mode === 'parse' && (
         <ParseEventsModal
@@ -701,3 +677,5 @@ export default function QuickAddFAB({
     </>
   );
 }
+
+

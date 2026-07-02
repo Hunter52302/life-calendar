@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { generateId, getEventEndDateTime } from '../lib/utils';
 import { api } from '../lib/api.js';
-import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
+import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
 import { tick, observe } from '../lib/clock.js';
 import { mergeRecordSets, visible, recordsToPush, pruneExpiredTombstones, TOMBSTONE_RETENTION_MS } from '../lib/syncMerge.js';
@@ -18,6 +18,8 @@ const LINKED_KEY       = 'life-calendar-linked';
 const DELETED_DEFAULTS_KEY = 'lc-deleted-defaults';
 const DISMISSED_AUTO_KEY = 'lc-dismissed-auto-complete';
 const MIGRATED_KEY     = 'lc-migrated-to-backend';
+const EVENT_TEXT_FIELDS = ['label', 'notes', 'location', 'meeting_url'];
+const EVENT_JSON_FIELDS = ['people', 'actions'];
 
 /** Colors auto-assigned to imported calendars in order. */
 export const IMPORT_COLORS = [
@@ -94,13 +96,26 @@ export function useEvents(authState, assumeCompleted = true) {
   const zkActive = isZkEnabled && masterKey;
 
   async function encryptEventForApi(event) {
-    return zkActive ? encryptRecord(masterKey, event, ['label', 'notes']) : event;
+    if (!zkActive) return event;
+    const out = await encryptRecord(masterKey, event, EVENT_TEXT_FIELDS);
+    for (const field of EVENT_JSON_FIELDS) {
+      out[field] = await encryptJsonField(masterKey, event[field] ?? []);
+    }
+    return out;
   }
 
   async function decryptServerEvents(serverEvents) {
-    return zkActive
-      ? Promise.all(serverEvents.map(e => decryptRecord(masterKey, e, ['label', 'notes'])))
-      : serverEvents;
+    if (!zkActive) return serverEvents;
+    return Promise.all(serverEvents.map(decryptEventFromApi));
+  }
+
+  async function decryptEventFromApi(event) {
+    const out = await decryptRecord(masterKey, event, EVENT_TEXT_FIELDS);
+    for (const field of EVENT_JSON_FIELDS) {
+      out[field] = await decryptJsonField(masterKey, event[field]);
+      if (!Array.isArray(out[field])) out[field] = [];
+    }
+    return out;
   }
 
   async function encryptCategoryForApi(cat) {

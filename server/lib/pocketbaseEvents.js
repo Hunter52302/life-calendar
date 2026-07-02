@@ -83,6 +83,11 @@ function fromRecord(record) {
     source_calendar_id: record.source_calendar_id ?? null,
     plan_event_id: record.plan_event_id ?? null,
     notes: record.notes ?? null,
+    location: record.location ?? '',
+    meeting_url: record.meeting_url ?? '',
+    travel_buffer_minutes: record.travel_buffer_minutes ?? 0,
+    people: record.people ?? [],
+    actions: record.actions ?? [],
     updatedAt: record.updated_hlc ?? null,
     deleted: !!record.deleted,
   };
@@ -110,6 +115,11 @@ function toRecord(userId, event) {
     source_calendar_id: asString(event.source_calendar_id),
     plan_event_id: asString(event.plan_event_id),
     notes: asString(event.notes),
+    location: asString(event.location),
+    meeting_url: asString(event.meeting_url),
+    travel_buffer_minutes: asNumber(event.travel_buffer_minutes, 0),
+    people: Array.isArray(event.people) ? event.people : [],
+    actions: Array.isArray(event.actions) ? event.actions : [],
     updated_hlc: asString(event.updatedAt),
     deleted: event.deleted === true,
   };

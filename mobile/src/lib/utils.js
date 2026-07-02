@@ -6,7 +6,7 @@ export const DEFAULT_CATEGORIES = [
   { id: 'school',     label: 'School',     color: '#22C55E' },
   { id: 'personal',   label: 'Personal',   color: '#A855F7' },
   { id: 'free-time',  label: 'Free Time',  color: '#6B7280' },
-  { id: 'drive-time', label: 'Drive Time', color: '#F97316' },
+  { id: 'drive-time', label: 'Travel Buffer', color: '#F97316' },
 ];
 
 export function generateId() {
@@ -54,9 +54,9 @@ export function formatWeekRange(weekStart) {
   end.setDate(end.getDate() + 6);
   const opts = { month: 'short', day: 'numeric' };
   if (start.getMonth() === end.getMonth()) {
-    return `${start.toLocaleDateString('en-US', { month: 'short' })} ${start.getDate()}–${end.getDate()}`;
+    return `${start.toLocaleDateString('en-US', { month: 'short' })} ${start.getDate()}â€“${end.getDate()}`;
   }
-  return `${start.toLocaleDateString('en-US', opts)} – ${end.toLocaleDateString('en-US', opts)}`;
+  return `${start.toLocaleDateString('en-US', opts)} â€“ ${end.toLocaleDateString('en-US', opts)}`;
 }
 
 /** Convert event slot coords to pixels in a 30-min (SLOT_H px per slot) grid. */
@@ -85,3 +85,4 @@ export function getEventEndDateTime(event) {
 export function isEventPastDue(event, now = new Date()) {
   return getEventEndDateTime(event) <= now;
 }
+
