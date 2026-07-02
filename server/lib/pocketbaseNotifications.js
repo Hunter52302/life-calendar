@@ -1,3 +1,5 @@
+import { pbAuthedFetch } from './pbClient.js';
+
 const PB_BASE = (process.env.POCKETBASE_URL ?? 'http://127.0.0.1:8090').replace(/\/$/, '');
 
 const INTEGRATIONS_PATH = `${PB_BASE}/api/collections/user_integrations/records`;
@@ -31,10 +33,7 @@ function asJsonArray(value, fallback = []) {
 }
 
 async function pbFetch(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
-    ...options,
-  });
+  const res = await pbAuthedFetch(path, options);
 
   if (!res.ok) {
     let detail = `${res.status}`;

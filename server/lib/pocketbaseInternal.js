@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto';
+import { pbAuthedFetch } from './pbClient.js';
 
 const PB_BASE = (process.env.POCKETBASE_URL ?? 'http://127.0.0.1:8090').replace(/\/$/, '');
 const USERS_PATH = `${PB_BASE}/api/collections/users/records`;
@@ -58,10 +59,7 @@ function epochFromIso(value, fallback = 0) {
 }
 
 async function pbFetch(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
-    ...options,
-  });
+  const res = await pbAuthedFetch(path, options);
 
   if (!res.ok) {
     let detail = `${res.status}`;

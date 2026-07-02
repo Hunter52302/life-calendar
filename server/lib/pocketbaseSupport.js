@@ -1,3 +1,5 @@
+import { pbAuthedFetch } from './pbClient.js';
+
 const PB_BASE = (process.env.POCKETBASE_URL ?? 'http://127.0.0.1:8090').replace(/\/$/, '');
 
 const DEFAULT_CATEGORY_KEYWORDS = {
@@ -40,10 +42,7 @@ function asJsonValue(value, fallback) {
 }
 
 async function pbFetch(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
-    ...options,
-  });
+  const res = await pbAuthedFetch(path, options);
 
   if (!res.ok) {
     let detail = `${res.status}`;

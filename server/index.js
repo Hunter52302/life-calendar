@@ -34,6 +34,12 @@ import { requireAuth } from './middleware/auth.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Behind one reverse proxy (nginx) in production: trust exactly the first hop so
+// req.ip and express-rate-limit see the real client IP (used for login/register
+// rate limiting and signup-IP clustering) without trusting a spoofable, fully
+// client-controlled X-Forwarded-For chain.
+app.set('trust proxy', 1);
+
 // This server only ever returns JSON, never HTML â€” disable the CSP/COEP
 // headers meant for HTML responses so they don't add noise to API clients.
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
@@ -145,9 +151,9 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.listen(PORT, () => {
   console.log(`PLS Calendar API  ->  http://localhost:${PORT}`);
   console.log('Location handoffs -> user-triggered only');
-  console.log(VAPID push        ->  );
-  console.log(Google Calendar   ->  );
-  console.log(Microsoft Calendar->  );
+  console.log(`VAPID push        ->  ${process.env.VAPID_PUBLIC_KEY ? 'configured' : 'not configured'}`);
+  console.log(`Google Calendar   ->  ${process.env.GOOGLE_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
+  console.log(`Microsoft Calendar->  ${process.env.MS_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
   startScheduler();
 });
 
