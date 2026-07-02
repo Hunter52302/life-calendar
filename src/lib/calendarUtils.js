@@ -30,6 +30,12 @@ export function dateToWeekData(dateStr) {
  * Each segment: { date: "YYYY-MM-DD", slotStart, slotDuration }
  */
 export function buildSegments(startDate, startTime, endDate, endTime) {
+  // End time is optional. When omitted, fall back to a 1-hour block starting
+  // at the start time so the event still has a sensible duration.
+  if (!endTime) {
+    return [{ date: startDate, slotStart: timeToSlot(startTime), slotDuration: 2 }];
+  }
+
   const startDt = new Date(`${startDate}T${startTime}:00`);
   const endDt   = new Date(`${endDate}T${endTime}:00`);
 
