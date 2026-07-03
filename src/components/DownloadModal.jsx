@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 
 const GITHUB_REPO   = 'Hunter52302/life-calendar';
-const GITHUB_API    = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+// List endpoint (not /releases/latest): the latest-endpoint 404s when the newest
+// releases are drafts or pre-releases, which is why the modal showed "no releases".
+// The list includes pre-releases and is sorted newest-first.
+const GITHUB_API    = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
 
 const PLATFORMS = [
@@ -60,9 +63,17 @@ export default function DownloadModal({ onClose }) {
   useEffect(() => {
     fetch(GITHUB_API, { headers: { Accept: 'application/vnd.github+json' } })
       .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {
-        setRelease(data);
-        setAssets(data.assets ?? []);
+      .then(list => {
+        // Newest-first; skip drafts and prefer the newest release that actually
+        // ships downloadable assets, falling back to the newest published release.
+        const published = (Array.isArray(list) ? list : []).filter(r => !r.draft);
+        const chosen = published.find(r => (r.assets?.length ?? 0) > 0) ?? published[0];
+        if (chosen) {
+          setRelease(chosen);
+          setAssets(chosen.assets ?? []);
+        } else {
+          setRelease(false);
+        }
       })
       .catch(() => setRelease(false));
   }, []);

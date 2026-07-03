@@ -69,7 +69,6 @@ import DiffView from './views/DiffView';
 import SearchModal from './components/SearchModal';
 import TutorialModal from './components/TutorialModal';
 import TutorialHub from './components/TutorialHub';
-import AdminSecrets from './components/AdminSecrets';
 import DownloadModal from './components/DownloadModal';
 import ConnectCalendarModal from './components/ConnectCalendarModal';
 import { providerEventToAppEvent, providerLabel } from './lib/calendarProviders';
@@ -156,7 +155,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, isAdmin, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
+  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -173,7 +172,6 @@ export default function App() {
   const [connectedOpen, setConnectedOpen] = useState(false);
   const [accountOpen,    setAccountOpen]    = useState(false);
   const [aboutOpen,      setAboutOpen]      = useState(false);
-  const [noTouchyOpen,   setNoTouchyOpen]   = useState(false);
   const [downloadOpen,   setDownloadOpen]   = useState(false);
   const [showDownload,   setShowDownload]   = useState(false);
   const desktopUpdater = useDesktopUpdater();
@@ -195,14 +193,6 @@ export default function App() {
   const [newIntLabel, setNewIntLabel] = useState('');
   const [newIntUrl, setNewIntUrl] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
-  // ── Admin panel ──────────────────────────────────────────────────────────
-  const [adminOpen, setAdminOpen] = useState(false);
-  const [adminUsers, setAdminUsers] = useState(null);   // null until first load
-  const [adminError, setAdminError] = useState('');
-  const [adminPwdDrafts, setAdminPwdDrafts] = useState({}); // { [userId]: newPassword }
-  const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
-  const [adminAuditLog, setAdminAuditLog] = useState(null); // null until first load
-  const [adminSignupClusters, setAdminSignupClusters] = useState(null);
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
   // ── Calendar subscriptions (ICS URLs) + outbound feed ────────────────────
@@ -270,7 +260,7 @@ export default function App() {
   const settingsOpenCount = [
     appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
     habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
-    searchOptionsOpen, timezonesOpen, downloadOpen, noTouchyOpen,
+    searchOptionsOpen, timezonesOpen, downloadOpen,
   ].filter(Boolean).length;
 
   function collapseAllSettings() {
@@ -286,7 +276,6 @@ export default function App() {
     setSearchOptionsOpen(false);
     setTimezonesOpen(false);
     setDownloadOpen(false);
-    setNoTouchyOpen(false);
     setShowCalUrlForm(false);
     setAddingHabit(false);
   }
@@ -447,42 +436,6 @@ export default function App() {
     });
     await setDek(key, keepUnlocked);
     markUnlocked();
-  }
-
-  // ── Admin panel actions ───────────────────────────────────────────────────
-  async function loadAdminUsers() {
-    setAdminError('');
-    try {
-      const [list, auditLog, clusters] = await Promise.all([
-        api.admin.listUsers(),
-        api.admin.auditLog(),
-        api.admin.signupClusters(),
-      ]);
-      setAdminUsers(list);
-      setAdminAuditLog(auditLog);
-      setAdminSignupClusters(clusters);
-    } catch (err) { setAdminError(err.message); }
-  }
-
-  async function handleAdminBlock(userId, blocked) {
-    try { await api.admin.setBlocked(userId, blocked); await loadAdminUsers(); }
-    catch (err) { setAdminError(err.message); }
-  }
-
-  async function handleAdminResetPassword(userId) {
-    const pwd = adminPwdDrafts[userId];
-    if (!pwd || pwd.length < 8) { setAdminError('New password must be at least 8 characters.'); return; }
-    try {
-      await api.admin.resetPassword(userId, pwd);
-      setAdminPwdDrafts(d => { const n = { ...d }; delete n[userId]; return n; });
-      setAdminError('');
-      await loadAdminUsers();
-    } catch (err) { setAdminError(err.message); }
-  }
-
-  async function handleAdminDelete(userId) {
-    try { await api.admin.deleteUser(userId); setPendingDeleteUser(null); await loadAdminUsers(); }
-    catch (err) { setAdminError(err.message); }
   }
 
   async function handleSetAccountEmail() {
@@ -810,8 +763,6 @@ export default function App() {
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
-    admin:         ['admin', 'administrator', 'users', 'accounts', 'manage users', 'block', 'ban', 'reset password', 'moderation'],
-    noTouchy:      ['no touchy', 'admin', 'api key', 'api keys', 'secrets', 'key', 'infisical', 'vault', 'credentials', 'token', 'expiry', 'expiration', 'rotate'],
   };
   // sv: is this section visible given the current search query?
   function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
@@ -2143,108 +2094,6 @@ export default function App() {
                       </div>
                       )}
 
-                      {/* ── Admin Panel (collapsible, admins only) ── */}
-                      {isAdmin && sv(SECTION_KWS.admin) && (
-                      <div className="rounded-lg overflow-hidden">
-                        <button type="button"
-                          onClick={() => { setAdminOpen(v => !v); if (!adminUsers) loadAdminUsers(); }}
-                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Admin · Manage Users</span>
-                            <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>
-                          </div>
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(adminOpen, SECTION_KWS.admin) ? '▲' : '▼'}</span>
-                        </button>
-                        {so(adminOpen, SECTION_KWS.admin) && (
-                          <div className="px-2 pb-3 space-y-2">
-                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                              Zero-trust: you can only see account emails — never anyone's calendar, profile, or encrypted data.
-                            </p>
-                            {adminError && <p className="text-xs text-red-500">{adminError}</p>}
-                            {adminUsers === null ? (
-                              <p className="text-xs text-gray-400">Loading…</p>
-                            ) : adminUsers.map(u => (
-                              <div key={u.id} className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1.5">
-                                <div className="flex items-center justify-between gap-2 min-w-0">
-                                  <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{u.email ?? '(no email — legacy account)'}</span>
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    {u.role === 'admin' && <span className="text-[9px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 px-1.5 py-0.5 rounded-full font-semibold">ADMIN</span>}
-                                    {u.zk_enabled && <span className="text-[9px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">ZK</span>}
-                                    {u.is_blocked && <span className="text-[9px] bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded-full font-semibold">BLOCKED</span>}
-                                  </div>
-                                </div>
-                                <p className="text-[10px] text-gray-400 dark:text-gray-500">Joined {new Date(u.created_at * 1000).toLocaleDateString()}</p>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <input
-                                    type="password"
-                                    value={adminPwdDrafts[u.id] ?? ''}
-                                    onChange={e => setAdminPwdDrafts(d => ({ ...d, [u.id]: e.target.value }))}
-                                    placeholder="New password"
-                                    className="flex-1 min-w-[120px] text-xs bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400"
-                                  />
-                                  <button type="button" onClick={() => handleAdminResetPassword(u.id)}
-                                    disabled={!(adminPwdDrafts[u.id]?.length >= 8)}
-                                    className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 disabled:opacity-40 text-gray-700 dark:text-gray-200 font-medium transition-colors">
-                                    Reset
-                                  </button>
-                                  <button type="button" onClick={() => handleAdminBlock(u.id, !u.is_blocked)}
-                                    className="text-xs px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-medium transition-colors">
-                                    {u.is_blocked ? 'Unblock' : 'Block'}
-                                  </button>
-                                  {pendingDeleteUser === u.id ? (
-                                    <>
-                                      <button type="button" onClick={() => handleAdminDelete(u.id)}
-                                        className="text-xs px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">
-                                        Confirm delete
-                                      </button>
-                                      <button type="button" onClick={() => setPendingDeleteUser(null)}
-                                        className="text-xs px-2 py-1 rounded-lg bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors">
-                                        Cancel
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button type="button" onClick={() => setPendingDeleteUser(u.id)}
-                                      className="text-xs px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 font-medium transition-colors">
-                                      Delete
-                                    </button>
-                                  )}
-                                </div>
-                                {u.zk_enabled && (adminPwdDrafts[u.id]?.length > 0) && (
-                                  <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-snug">
-                                    ZK account: after a reset they'll need their previous password to unlock their encrypted data.
-                                  </p>
-                                )}
-                              </div>
-                            ))}
-
-                            {adminSignupClusters?.length > 0 && (
-                              <div className="rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
-                                <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">⚠️ Bot-farm signal: shared signup IPs</p>
-                                {adminSignupClusters.map(c => (
-                                  <p key={c.signup_ip} className="text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
-                                    {c.signup_ip} → {c.count} accounts ({c.emails})
-                                  </p>
-                                ))}
-                              </div>
-                            )}
-
-                            {adminAuditLog?.length > 0 && (
-                              <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 space-y-1">
-                                <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Audit log</p>
-                                <div className="max-h-40 overflow-y-auto space-y-1">
-                                  {adminAuditLog.map(a => (
-                                    <p key={a.id} className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
-                                      {new Date(a.created_at * 1000).toLocaleString()} — {a.admin_email} {a.action.replace('_', ' ')} {a.target_email ?? '(deleted account)'}
-                                    </p>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      )}
-
                       {/* ── Connected Calendars (collapsible) ── */}
                       {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden">
@@ -2926,25 +2775,6 @@ export default function App() {
                                   <span>{label}</span>
                                 </button>
                               ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* ── No Touchy (Admin Secrets) ── */}
-                      {sv(SECTION_KWS.noTouchy) && (
-                        <div className="rounded-lg overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setNoTouchyOpen(v => !v)}
-                            className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                          >
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">🔑 No Touchy</span>
-                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(noTouchyOpen, SECTION_KWS.noTouchy) ? '▲' : '▼'}</span>
-                          </button>
-                          {so(noTouchyOpen, SECTION_KWS.noTouchy) && (
-                            <div className="mt-1">
-                              <AdminSecrets />
                             </div>
                           )}
                         </div>
