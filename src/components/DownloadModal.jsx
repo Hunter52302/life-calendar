@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 
 const GITHUB_REPO   = 'Hunter52302/life-calendar';
-// List endpoint (not /releases/latest): the latest-endpoint 404s when the newest
-// releases are drafts or pre-releases, which is why the modal showed "no releases".
-// The list includes pre-releases and is sorted newest-first.
-const GITHUB_API    = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=10`;
 const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases`;
+
+// Releases are relayed through our own backend rather than fetched from
+// api.github.com directly: the repo is private, so anonymous GitHub calls 404.
+// The backend holds the token and returns assets with a proxied download URL.
+const API_BASE      = import.meta.env.VITE_API_URL ?? '/api';
+const RELEASES_API  = `${API_BASE}/releases`;
+const assetUrl      = (asset) => `${RELEASES_API}/assets/${asset.id}`;
 
 const PLATFORMS = [
   {
@@ -50,7 +53,7 @@ const PLATFORMS = [
 function matchAsset(assets, patterns) {
   for (const pattern of patterns) {
     const found = assets.find(a => pattern.test(a.name));
-    if (found) return found.browser_download_url;
+    if (found) return assetUrl(found);
   }
   return null;
 }
@@ -61,12 +64,12 @@ export default function DownloadModal({ onClose }) {
   const [assets,   setAssets]  = useState([]);
 
   useEffect(() => {
-    fetch(GITHUB_API, { headers: { Accept: 'application/vnd.github+json' } })
+    fetch(RELEASES_API, { headers: { Accept: 'application/json' } })
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(list => {
-        // Newest-first; skip drafts and prefer the newest release that actually
-        // ships downloadable assets, falling back to the newest published release.
-        const published = (Array.isArray(list) ? list : []).filter(r => !r.draft);
+        // Backend returns published releases newest-first (drafts already
+        // stripped); prefer the newest one that actually ships assets.
+        const published = Array.isArray(list) ? list : [];
         const chosen = published.find(r => (r.assets?.length ?? 0) > 0) ?? published[0];
         if (chosen) {
           setRelease(chosen);

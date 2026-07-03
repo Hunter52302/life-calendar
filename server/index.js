@@ -21,6 +21,7 @@ import feedRoute            from './routes/feed.js';
 import oauthGoogleRoute     from './routes/oauthGoogle.js';
 import oauthMicrosoftRoute  from './routes/oauthMicrosoft.js';
 import calendarConnectionsRoute from './routes/calendarConnections.js';
+import releasesRoute         from './routes/releases.js';
 import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 import { pocketbaseEvents } from './lib/pocketbaseEvents.js';
@@ -84,6 +85,8 @@ app.use('/api/feed',            feedRoute);
 app.use('/api/oauth/google',    oauthGoogleRoute);
 app.use('/api/oauth/microsoft', oauthMicrosoftRoute);
 app.use('/api/calendar-connections', calendarConnectionsRoute);
+// Public: relays GitHub releases for the (private) repo so desktop downloads work.
+app.use('/api/releases',        releasesRoute);
 
 await initializeInfisical();
 
