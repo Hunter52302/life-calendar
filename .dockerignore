@@ -1,0 +1,31 @@
+# Dependencies & build output — reinstalled/rebuilt inside the image
+node_modules
+**/node_modules
+dist
+dist-ssr
+*.local
+
+# Local secrets — injected as env vars by Coolify, never baked into the image
+.env
+.env.*
+!.env.example
+
+# PocketBase local binary + data (the pocketbase image builds its own)
+pocketbase/pocketbase
+pocketbase/pocketbase.exe
+pocketbase/pb_data
+
+# Native / mobile / desktop build artifacts not needed by the server image
+mobile
+src-tauri/target
+android
+ios
+
+# VCS / editor / OS noise
+.git
+.gitignore
+.vscode
+.idea
+*.log
+.DS_Store
+Thumbs.db

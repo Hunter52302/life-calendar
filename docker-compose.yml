@@ -1,0 +1,86 @@
+# PLS Calendar backend stack for Coolify.
+#
+#   browser ──▶ Coolify proxy ──▶ server (Express API, :3001)
+#                                    └──▶ pocketbase (DB + auth, :8090)  ── pb_data volume
+#
+# The frontend is deployed separately as a static site; point its VITE_API_URL
+# at the public URL Coolify assigns to the `server` service.
+#
+# Set the environment variables below in Coolify's UI (Environment Variables
+# tab), NOT in this file. Required: JWT_SECRET, POCKETBASE_ADMIN_EMAIL,
+# POCKETBASE_ADMIN_PASSWORD, FRONTEND_URL.
+
+services:
+  pocketbase:
+    build:
+      context: ./pocketbase
+      args:
+        # Match the version you run locally (./pocketbase/pocketbase --version).
+        PB_VERSION: ${PB_VERSION:-0.39.5}
+    restart: unless-stopped
+    environment:
+      # Used once by the entrypoint to auto-create the superuser.
+      POCKETBASE_ADMIN_EMAIL: ${POCKETBASE_ADMIN_EMAIL}
+      POCKETBASE_ADMIN_PASSWORD: ${POCKETBASE_ADMIN_PASSWORD}
+    volumes:
+      # Persistent database — WITHOUT this, every redeploy wipes all user data.
+      - pb_data:/pb/pb_data
+    # Reachable only on the internal compose network. Do NOT add `ports:` or a
+    # domain — the data layer must never be exposed to the internet.
+    expose:
+      - "8090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8090/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      pocketbase:
+        condition: service_healthy
+    environment:
+      PORT: 3001
+      # Internal service name — the server reaches PocketBase over the private network.
+      POCKETBASE_URL: http://pocketbase:8090
+      POCKETBASE_ADMIN_EMAIL: ${POCKETBASE_ADMIN_EMAIL}
+      POCKETBASE_ADMIN_PASSWORD: ${POCKETBASE_ADMIN_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      # Comma-separated allowed frontend origins. Defaults to the production site;
+      # override to add more (e.g. a staging origin).
+      FRONTEND_URL: ${FRONTEND_URL:-https://cal.zrieger.xyz}
+      # Public base URL of THIS server (used to build OAuth callback URLs).
+      OAUTH_CALLBACK_BASE_URL: ${OAUTH_CALLBACK_BASE_URL:-}
+      # ── Optional integrations (leave unset to disable) ──────────────────────
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
+      MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # ── Infisical (optional secrets vault) ──────────────────────────────────
+      INFISICAL_CLIENT_ID: ${INFISICAL_CLIENT_ID:-}
+      INFISICAL_CLIENT_SECRET: ${INFISICAL_CLIENT_SECRET:-}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
+      INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-}
+      INFISICAL_URL: ${INFISICAL_URL:-}
+    # Coolify assigns a public domain to this service and routes to port 3001.
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  pb_data:

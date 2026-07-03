@@ -1,0 +1,6 @@
+# The container downloads its own official Linux binary and stores data in a
+# volume — never copy the local platform binary or database into the image.
+pocketbase
+pocketbase.exe
+pb_data
+README.md
