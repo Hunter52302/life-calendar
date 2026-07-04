@@ -1,16 +1,62 @@
-# React + Vite
+# PLS Calendar
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+PLS Calendar is a local-first life calendar application built with React, Vite, and Tauri.
 
-Currently, two official plugins are available:
+## Download
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Desktop builds are published through GitHub Releases.
 
-## React Compiler
+1. Open the latest release.
+2. Download the installer for your system.
+3. Install and run the app.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Release assets
 
-## Expanding the ESLint configuration
+| Platform | Asset |
+| --- | --- |
+| Windows | `PLS-Calendar-vX.X.X-setup.exe` |
+| Windows | `PLS-Calendar-vX.X.X.msi` |
+| macOS | `PLS-Calendar-vX.X.X-macos-ARCH.dmg` |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## macOS unsigned build note
+
+The macOS `.dmg` build is distributed through GitHub Releases. It is not a Mac App Store build.
+
+If the app is unsigned or not notarized, macOS may block it on first launch.
+
+To open it:
+
+1. Try to open PLS Calendar once.
+2. Open **System Settings**.
+3. Go to **Privacy & Security**.
+4. Click **Open Anyway** for PLS Calendar.
+5. Confirm **Open**.
+
+A paid Apple Developer account is only needed later for Developer ID signing, notarization, or Mac App Store distribution.
+
+## Development
+
+```bash
+npm ci
+npm run dev
+```
+
+## Desktop build
+
+```bash
+npm run tauri:build
+```
+
+## Release build
+
+GitHub Actions builds release assets from `.github/workflows/release.yml`.
+
+Manual release flow:
+
+1. Go to **Actions**.
+2. Open **Build Desktop Release**.
+3. Click **Run workflow**.
+4. Enter a tag, such as `v1.0.12`.
+5. Run the workflow.
+
+The workflow uploads Windows and macOS assets to the matching GitHub Release.
