@@ -1,7 +1,7 @@
 {
   "name": "pls-calendar-root",
   "private": true,
-  "version": "1.0.12",
+  "version": "1.0.13",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
