@@ -21,9 +21,10 @@ export function useAuth() {
       .catch(() => setAuthState('offline'));
   }, []);
 
-  function applyStatus({ isSetup, tokenValid, kdf_salt, wrapped_dek_password }) {
+  function applyStatus({ isSetup, tokenValid, auth_salt, kdf_salt, wrapped_dek_password }) {
     if (tokenValid) {
       setZkInfo({
+        authSalt: auth_salt ?? null,
         kdfSalt: kdf_salt ?? null,
         wrappedDekPassword: wrapped_dek_password ?? null,
       });
@@ -59,6 +60,7 @@ export function useAuth() {
     await storage.setToken(res.token);
 
     const nextInfo = {
+      authSalt: salts.auth_salt,
       kdfSalt: res.kdf_salt,
       wrappedDekPassword: res.wrapped_dek_password,
     };
@@ -89,6 +91,7 @@ export function useAuth() {
 
     await storage.setToken(res.token);
     setZkInfo({
+      authSalt: envelope.authSalt,
       kdfSalt: envelope.kdfSalt,
       wrappedDekPassword: envelope.wrappedDekPassword,
     });
@@ -110,6 +113,16 @@ export function useAuth() {
     setAuthState('login');
   }
 
+  async function deleteAccount(authVerifier) {
+    const res = await api.auth.deleteAccount(authVerifier);
+    await storage.removeToken();
+    setMasterKey(null);
+    setZkInfo(null);
+    setRecoveryCode(null);
+    setAuthState(res.isSetup ? 'login' : 'setup');
+    return res;
+  }
+
   function continueOffline() {
     setAuthState('offline-ok');
   }
@@ -125,6 +138,7 @@ export function useAuth() {
 
   return {
     authState,
+    zkInfo,
     masterKey,
     isZkEnabled: true,
     recoveryCode,
@@ -132,6 +146,7 @@ export function useAuth() {
     login,
     unlock,
     logout,
+    deleteAccount,
     continueOffline,
     retry,
     acknowledgeRecoveryCode,

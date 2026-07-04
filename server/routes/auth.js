@@ -48,6 +48,7 @@ function authPayload(user) {
     token:                makeToken(user.id),
     role:                 user.role ?? 'user',
     email:                user.email ?? null,
+    auth_salt:            user.auth_salt ?? null,
     kdf_salt:             user.kdf_salt ?? null,
     wrapped_dek_password: user.wrapped_dek_password ?? null,
   };
@@ -91,6 +92,7 @@ router.get('/status', asyncHandler(async (req, res) => {
         extra = {
           role:                 user.role ?? 'user',
           email:                user.email ?? null,
+          auth_salt:            user.auth_salt ?? null,
           kdf_salt:             user.kdf_salt ?? null,
           wrapped_dek_password: user.wrapped_dek_password ?? null,
           user_timezone:        user.user_timezone ?? 'UTC',
@@ -291,6 +293,27 @@ router.put('/timezone', requireAuth, asyncHandler(async (req, res) => {
   if (!timezone) return res.status(400).json({ error: 'timezone required' });
   await pocketbaseUserZk.setTimezone(req.userId, timezone);
   res.json({ ok: true });
+}));
+
+/**
+ * DELETE /api/auth/account
+ * Body: { authVerifier }
+ * Permanently removes the current account and all owned data after password proof.
+ */
+router.delete('/account', authLimiter, requireAuth, asyncHandler(async (req, res) => {
+  const { authVerifier } = req.body ?? {};
+  if (!VERIFIER_RE.test(authVerifier ?? '')) {
+    return res.status(400).json({ error: 'Password confirmation is required.' });
+  }
+
+  const user = await pocketbaseUsers.getById(req.userId);
+  const ok = await bcrypt.compare(authVerifier, user?.password_hash ?? '');
+  if (!user || !ok) {
+    return res.status(401).json({ error: 'Incorrect password.' });
+  }
+
+  await pocketbaseUsers.deleteUser(user.id);
+  res.json({ ok: true, isSetup: (await pocketbaseUsers.count()) > 0 });
 }));
 
 export default router;

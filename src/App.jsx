@@ -79,6 +79,7 @@ import { useProfile } from './hooks/useProfile';
 import { useCategoryKeywords } from './hooks/useCategoryKeywords';
 import { useLlmSettings } from './hooks/useLlmSettings';
 import ListFieldEditor from './components/ListFieldEditor';
+import AddressFieldEditor, { SingleAddressEditor } from './components/AddressFieldEditor';
 import { usePersistentState } from './hooks/usePersistentState';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
@@ -155,7 +156,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail } = useAuth();
+  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -208,10 +209,12 @@ export default function App() {
   const { profile, setProfile } = useProfile(authState);
   // Drafts for the settings form (so edits don't commit until the user saves)
   const [birthdayDraft,    setBirthdayDraft]    = useState(profile.birthday    || '');
-  const [homeAddrDraft,    setHomeAddrDraft]    = useState(profile.homeAddress || '');
-  const [usernameDraft,    setUsernameDraft]    = useState(profile.username    || '');
-  const [displayNameDraft, setDisplayNameDraft] = useState(profile.displayName || '');
+  const [usernameDraft,    setUsernameDraft]    = useState('');
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
   const [emailDraft,       setEmailDraft]       = useState(profile.email       || '');
+  const [deletePasswordDraft, setDeletePasswordDraft] = useState('');
+  const [deleteAccountMsg, setDeleteAccountMsg] = useState('');
+  const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // ── PWA share target ──────────────────────────────────────────────────────
   const [shareText, setShareText] = useState(() => {
@@ -446,6 +449,24 @@ export default function App() {
       setAccountEmailMsg('Login email saved.');
       setAccountEmailDraft('');
     } catch (err) { setAccountEmailMsg(err.message); }
+  }
+
+  async function handleDeleteAccount() {
+    if (!deletePasswordDraft || !zkInfo?.authSalt) return;
+    setDeleteAccountBusy(true);
+    setDeleteAccountMsg('');
+    try {
+      const authVerifier = await deriveAuthVerifier(deletePasswordDraft, zkInfo.authSalt);
+      await deleteAccount(authVerifier);
+      lock();
+      localStorage.removeItem('lc-profile');
+      setDeletePasswordDraft('');
+      setShowSettings(false);
+    } catch (err) {
+      setDeleteAccountMsg(err.message || 'Account deletion failed.');
+    } finally {
+      setDeleteAccountBusy(false);
+    }
   }
 
   async function handleTestIntegration(id) {
@@ -755,7 +776,7 @@ export default function App() {
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
-    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'username', 'display', 'name', 'email', 'phone', 'phones'],
+    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
@@ -2419,6 +2440,31 @@ export default function App() {
                             </div>
 
                             {/* ── User Profile (nested collapsible) ── */}
+                            {sv(['delete', 'account', 'password']) && (
+                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Delete Account</p>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                Permanently deletes this account and synced data. Enter password to confirm.
+                              </p>
+                              <input
+                                type="password"
+                                value={deletePasswordDraft}
+                                onChange={e => setDeletePasswordDraft(e.target.value)}
+                                placeholder="Password"
+                                className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={!deletePasswordDraft || deleteAccountBusy || !zkInfo?.authSalt}
+                                onClick={handleDeleteAccount}
+                                className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
+                              >
+                                {deleteAccountBusy ? 'Deleting...' : 'Delete account permanently'}
+                              </button>
+                              {deleteAccountMsg && <p className="text-[11px] text-red-500 dark:text-red-400">{deleteAccountMsg}</p>}
+                            </div>
+                            )}
+
                             <div className="rounded-lg overflow-hidden">
                               <button
                                 type="button"
@@ -2433,7 +2479,7 @@ export default function App() {
                               <div className="px-2 pb-2 space-y-4">
 
                             {/* ── Username ── */}
-                            {sv(['username', 'handle', 'user']) && (
+                            {sq === '__removed_profile_name_fields__' && sv(['username', 'handle', 'user']) && (
                             <div className="space-y-1.5">
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Username</p>
                               <div className="flex gap-1.5 items-center">
@@ -2455,7 +2501,7 @@ export default function App() {
                             )}
 
                             {/* ── Display Name ── */}
-                            {sv(['display', 'name', 'profile']) && (
+                            {sq === '__removed_profile_name_fields__' && sv(['display', 'name', 'profile']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Display Name</p>
                               <div className="flex gap-1.5 items-center">
@@ -2531,19 +2577,10 @@ export default function App() {
                             {sv(['home', 'address']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Home Address</p>
-                              <input
-                                type="text"
-                                value={homeAddrDraft}
-                                onChange={e => setHomeAddrDraft(e.target.value)}
-                                placeholder="123 Main St, City, State 12345"
-                                className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                              <SingleAddressEditor
+                                value={profile.homeAddress}
+                                onSave={homeAddress => setProfile(p => ({ ...p, homeAddress }))}
                               />
-                              <button
-                                type="button"
-                                disabled={homeAddrDraft.trim() === profile.homeAddress}
-                                onClick={() => setProfile(p => ({ ...p, homeAddress: homeAddrDraft.trim() }))}
-                                className="text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
-                              >Save</button>
                             </div>
                             )}
 
@@ -2551,14 +2588,9 @@ export default function App() {
                             {sv(['address', 'addresses', 'other']) && (
                             <div className={`space-y-1.5 pt-1${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-1">Other Addresses</p>
-                              <ListFieldEditor
+                              <AddressFieldEditor
                                 items={profile.otherAddresses}
-                                valueKey="address"
-                                labelPlaceholder="Label (e.g. Work, Gym, School)"
-                                valuePlaceholder="Full address"
-                                emptyText="No saved addresses yet."
-                                addButtonText="+ Add address"
-                                onAdd={(label, address) => setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, { id: generateId(), label, address }] }))}
+                                onAdd={address => setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, address] }))}
                                 onEdit={(id, label, address) => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.map(a => a.id === id ? { ...a, label, address } : a) }))}
                                 onDelete={id => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== id) }))}
                               />

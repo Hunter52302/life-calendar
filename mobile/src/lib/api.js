@@ -38,6 +38,7 @@ export const api = {
                         request('POST', '/auth/reset-password', { email, recoveryVerifier, envelope }),
     setEmail:         (email)                     => request('PUT',  '/auth/email',    { email }),
     setTimezone:      (timezone)                  => request('PUT',  '/auth/timezone', { timezone }),
+    deleteAccount:    (authVerifier)              => request('DELETE', '/auth/account', { authVerifier }),
   },
 
   sync: () => request('GET', '/sync'),

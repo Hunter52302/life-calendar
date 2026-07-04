@@ -26,11 +26,11 @@ export function useAuth() {
 
   useEffect(() => {
     api.auth.status()
-      .then(({ isSetup, tokenValid, role, email, kdf_salt, wrapped_dek_password }) => {
+      .then(({ isSetup, tokenValid, role, email, auth_salt, kdf_salt, wrapped_dek_password }) => {
         if (tokenValid) {
           setAccountRole(role ?? null);
           setAccountEmail(email ?? null);
-          setZkInfo({ kdfSalt: kdf_salt, wrappedDekPassword: wrapped_dek_password });
+          setZkInfo({ authSalt: auth_salt, kdfSalt: kdf_salt, wrappedDekPassword: wrapped_dek_password });
           setAuthState('unlock');   // App will auto-unlock if a session DEK was restored
         } else if (!isSetup) {
           setAuthState('setup');
@@ -45,7 +45,7 @@ export function useAuth() {
     storage.setToken(res.token);
     setAccountRole(res.role ?? null);
     setAccountEmail(res.email ?? null);
-    setZkInfo({ kdfSalt: res.kdf_salt, wrappedDekPassword: res.wrapped_dek_password });
+    setZkInfo({ authSalt: res.auth_salt, kdfSalt: res.kdf_salt, wrappedDekPassword: res.wrapped_dek_password });
     return res; // App sets the DEK then calls markUnlocked()
   }
 
@@ -87,6 +87,17 @@ export function useAuth() {
     return res;
   }
 
+  async function deleteAccount(authVerifier) {
+    const res = await api.auth.deleteAccount(authVerifier);
+    storage.removeToken();
+    api.admin.clearAdminToken();
+    setZkInfo(null);
+    setAccountRole(null);
+    setAccountEmail(null);
+    setAuthState(res.isSetup ? 'login' : 'setup');
+    return res;
+  }
+
   return {
     authState, zkInfo,
     isAdmin: accountRole === 'admin',
@@ -94,5 +105,6 @@ export function useAuth() {
     prelogin, register, login, recoveryEnvelope, resetPassword,
     markUnlocked, logout, continueOffline,
     setAccountEmail: setAccountEmailOnServer,
+    deleteAccount,
   };
 }

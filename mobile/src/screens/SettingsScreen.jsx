@@ -9,6 +9,7 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { AppContext } from '../context/AppContext.js';
 import { generateId } from '../lib/utils.js';
+import { deriveAuthVerifier } from '../lib/zkEnvelope.js';
 
 const UPDATE_STATUS_LABEL = {
   checking: 'Checking…',
@@ -291,6 +292,80 @@ function ProfileField({ label, value, onSave, placeholder, T, last, secureTextEn
 
 // ── Tutorial Modal ─────────────────────────────────────────────────────────────
 
+const EMPTY_ADDRESS = { line1: '', line2: '', city: '', region: '', postalCode: '', country: '' };
+
+function normalizeAddress(value) {
+  if (!value) return { ...EMPTY_ADDRESS };
+  if (typeof value === 'string') return { ...EMPTY_ADDRESS, line1: value };
+  return {
+    line1: value.line1 ?? value.primary ?? value.address ?? '',
+    line2: value.line2 ?? value.secondary ?? '',
+    city: value.city ?? value.locality ?? '',
+    region: value.region ?? value.stateProvince ?? value.state ?? value.province ?? '',
+    postalCode: value.postalCode ?? value.zipCode ?? value.zip ?? '',
+    country: value.country ?? '',
+  };
+}
+
+function cleanAddress(value) {
+  const a = normalizeAddress(value);
+  return {
+    line1: a.line1.trim(),
+    line2: a.line2.trim(),
+    city: a.city.trim(),
+    region: a.region.trim(),
+    postalCode: a.postalCode.trim(),
+    country: a.country.trim(),
+  };
+}
+
+function hasAddress(value) {
+  return Object.values(cleanAddress(value)).some(Boolean);
+}
+
+function formatAddress(value) {
+  const a = cleanAddress(value);
+  const cityLine = [a.city, [a.region, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [a.line1, a.line2, cityLine, a.country].filter(Boolean).join(', ');
+}
+
+function AddressInputs({ value, onChange, T }) {
+  const draft = normalizeAddress(value);
+  const set = (field, next) => onChange({ ...draft, [field]: next });
+  const inputStyle = [s.integInput, { backgroundColor: T.inputBg, borderColor: T.inputBorder, color: T.text }];
+  return (
+    <View style={{ gap: 8 }}>
+      <TextInput style={inputStyle} placeholder="Primary address" placeholderTextColor={T.placeholder} value={draft.line1} onChangeText={v => set('line1', v)} />
+      <TextInput style={inputStyle} placeholder="Address line 2 (unit, apartment, suite)" placeholderTextColor={T.placeholder} value={draft.line2} onChangeText={v => set('line2', v)} />
+      <TextInput style={inputStyle} placeholder="City / locality" placeholderTextColor={T.placeholder} value={draft.city} onChangeText={v => set('city', v)} />
+      <TextInput style={inputStyle} placeholder="State / province / region" placeholderTextColor={T.placeholder} value={draft.region} onChangeText={v => set('region', v)} />
+      <TextInput style={inputStyle} placeholder="ZIP / postal code" placeholderTextColor={T.placeholder} value={draft.postalCode} onChangeText={v => set('postalCode', v)} />
+      <TextInput style={inputStyle} placeholder="Country" placeholderTextColor={T.placeholder} value={draft.country} onChangeText={v => set('country', v)} />
+    </View>
+  );
+}
+
+function AddressField({ label, value, onSave, T }) {
+  const [draft, setDraft] = useState(normalizeAddress(value));
+  const changed = JSON.stringify(cleanAddress(draft)) !== JSON.stringify(cleanAddress(value));
+  return (
+    <>
+      <View style={s.profileField}>
+        <Text style={[s.profileLabel, { color: T.textFaint }]}>{label}</Text>
+        <AddressInputs value={draft} onChange={setDraft} T={T} />
+        <Pressable
+          style={[s.saveBtn, { backgroundColor: changed ? '#3B82F6' : T.inputBg, opacity: changed ? 1 : 0.4, alignSelf: 'flex-start', marginTop: 8 }]}
+          onPress={() => { if (changed) onSave(cleanAddress(draft)); }}
+          disabled={!changed}
+        >
+          <Text style={[s.saveBtnText, { color: changed ? '#fff' : T.textFaint }]}>Save</Text>
+        </Pressable>
+      </View>
+      <Divider T={T} />
+    </>
+  );
+}
+
 function TutorialModal({ visible, onClose, steps = TUTORIAL_STEPS, T }) {
   const [step, setStep] = useState(0);
   const total = steps.length;
@@ -517,6 +592,54 @@ function AddItemModal({ visible, onClose, onAdd, titleStr, label1, label2, ph1, 
 
 // ── Add Calendar Modal ────────────────────────────────────────────────────────
 
+function AddAddressModal({ visible, onClose, onAdd, T }) {
+  const [label, setLabel] = useState('');
+  const [address, setAddress] = useState({ ...EMPTY_ADDRESS });
+
+  function close() {
+    setLabel('');
+    setAddress({ ...EMPTY_ADDRESS });
+    onClose();
+  }
+
+  function handle() {
+    if (!label.trim() || !hasAddress(address)) return;
+    onAdd({ id: generateId(), label: label.trim(), address: cleanAddress(address) });
+    close();
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
+      <View style={s.tutOverlay}>
+        <View style={[s.tzCard, { backgroundColor: T.surface }]}>
+          <Text style={[s.tzCardTitle, { color: T.text }]}>Add Address</Text>
+          <TextInput
+            style={[s.integInput, { backgroundColor: T.inputBg, borderColor: T.inputBorder, color: T.text, marginBottom: 8 }]}
+            placeholder="Label (work, school, doctor)"
+            placeholderTextColor={T.placeholder}
+            value={label}
+            onChangeText={setLabel}
+            autoFocus
+          />
+          <AddressInputs value={address} onChange={setAddress} T={T} />
+          <View style={s.integBtns}>
+            <Pressable style={[s.cancelBtn, { borderColor: T.border, flex: 1, marginRight: 6 }]} onPress={close}>
+              <Text style={[s.cancelBtnText, { color: T.textMuted }]}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[s.integAddBtn, { backgroundColor: (!label.trim() || !hasAddress(address)) ? T.inputBg : '#3B82F6', flex: 1 }]}
+              onPress={handle}
+              disabled={!label.trim() || !hasAddress(address)}
+            >
+              <Text style={[s.integAddBtnText, { color: (!label.trim() || !hasAddress(address)) ? T.textFaint : '#fff' }]}>Add</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function AddCalendarModal({ visible, onClose, onAdd, T }) {
   const [name,     setName]     = useState('');
   const [url,      setUrl]      = useState('');
@@ -622,6 +745,9 @@ export default function SettingsScreen() {
   const [addPhoneOpen,    setAddPhoneOpen]    = useState(false);
   const [addCalOpen,      setAddCalOpen]      = useState(false);
   const [pendingDelCal,   setPendingDelCal]   = useState(null);
+  const [deletePwDraft,   setDeletePwDraft]   = useState('');
+  const [deleteBusy,      setDeleteBusy]      = useState(false);
+  const [deleteErr,       setDeleteErr]       = useState('');
 
   // Habit add form state
   const HABIT_COLORS = ['#7C3AED','#3B82F6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#F97316'];
@@ -736,6 +862,21 @@ export default function SettingsScreen() {
         { text: 'Log Out', style: 'destructive', onPress: () => auth.logout() },
       ]
     );
+  }
+
+  async function handleDeleteAccount() {
+    if (!deletePwDraft || !auth.zkInfo?.authSalt) return;
+    setDeleteBusy(true);
+    setDeleteErr('');
+    try {
+      const authVerifier = await deriveAuthVerifier(deletePwDraft, auth.zkInfo.authSalt);
+      await auth.deleteAccount(authVerifier);
+      setDeletePwDraft('');
+    } catch (e) {
+      setDeleteErr(e.message || 'Account deletion failed.');
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   function getTzLabel(id) {
@@ -1438,20 +1579,20 @@ export default function SettingsScreen() {
             <View style={s.accountSection}>
               <Text style={[s.sectionSubTitle, { color: T.textMuted }]}>User Profile</Text>
 
-              <ProfileField
+              {q === '__removed_profile_name_fields__' && <ProfileField
                 label="USERNAME"
                 value={profile.username}
                 onSave={v => setProfile(p => ({ ...p, username: v }))}
                 placeholder="@handle"
                 T={T}
-              />
-              <ProfileField
+              />}
+              {q === '__removed_profile_name_fields__' && <ProfileField
                 label="DISPLAY NAME"
                 value={profile.displayName}
                 onSave={v => setProfile(p => ({ ...p, displayName: v }))}
                 placeholder="Your preferred name"
                 T={T}
-              />
+              />}
               <ProfileField
                 label="EMAIL"
                 value={profile.email}
@@ -1466,11 +1607,10 @@ export default function SettingsScreen() {
                 placeholder="YYYY-MM-DD"
                 T={T}
               />
-              <ProfileField
+              <AddressField
                 label="HOME ADDRESS"
                 value={profile.homeAddress}
                 onSave={v => setProfile(p => ({ ...p, homeAddress: v }))}
-                placeholder="123 Main St, City, State"
                 T={T}
               />
 
@@ -1484,7 +1624,7 @@ export default function SettingsScreen() {
                     <View key={addr.id} style={s.addrRow}>
                       <View style={{ flex: 1 }}>
                         <Text style={[s.addrLabel, { color: T.textSub }]}>{addr.label}</Text>
-                        <Text style={[s.addrValue, { color: T.textFaint }]}>{addr.address}</Text>
+                        <Text style={[s.addrValue, { color: T.textFaint }]}>{formatAddress(addr.address ?? addr)}</Text>
                       </View>
                       <Pressable hitSlop={8} onPress={() => setProfile(p => ({ ...p, otherAddresses: p.otherAddresses.filter(a => a.id !== addr.id) }))}>
                         <Ionicons name="close-circle-outline" size={18} color={T.danger} />
@@ -1531,6 +1671,33 @@ export default function SettingsScreen() {
                 <Ionicons name="log-out-outline" size={18} color={T.danger} />
                 <Text style={[s.logoutText, { color: T.danger }]}>Log Out</Text>
               </Pressable>
+
+              <Divider T={T} />
+
+              <View style={s.profileField}>
+                <Text style={[s.profileLabel, { color: T.danger }]}>DELETE ACCOUNT</Text>
+                <Text style={[s.rowSub, { color: T.textFaint, marginBottom: 8 }]}>
+                  Permanently deletes this account and synced data. Enter password to confirm.
+                </Text>
+                <TextInput
+                  style={[s.profileInput, { backgroundColor: T.inputBg, borderColor: T.inputBorder, color: T.text }]}
+                  value={deletePwDraft}
+                  onChangeText={setDeletePwDraft}
+                  placeholder="Password"
+                  placeholderTextColor={T.placeholder}
+                  secureTextEntry
+                />
+                <Pressable
+                  style={[s.integAddBtn, { backgroundColor: (!deletePwDraft || deleteBusy || !auth.zkInfo?.authSalt) ? T.inputBg : T.danger, marginTop: 8 }]}
+                  onPress={handleDeleteAccount}
+                  disabled={!deletePwDraft || deleteBusy || !auth.zkInfo?.authSalt}
+                >
+                  <Text style={[s.integAddBtnText, { color: (!deletePwDraft || deleteBusy || !auth.zkInfo?.authSalt) ? T.textFaint : '#fff' }]}>
+                    {deleteBusy ? 'Deleting...' : 'Delete account permanently'}
+                  </Text>
+                </Pressable>
+                {!!deleteErr && <Text style={[s.rowSub, { color: T.danger, marginTop: 6 }]}>{deleteErr}</Text>}
+              </View>
             </View>
           </Section>
         )}
@@ -1688,16 +1855,10 @@ export default function SettingsScreen() {
         T={T}
       />
 
-      <AddItemModal
+      <AddAddressModal
         visible={addAddrOpen}
         onClose={() => setAddAddrOpen(false)}
-        onAdd={data => setProfile(p => ({
-          ...p,
-          otherAddresses: [...p.otherAddresses, { id: generateId(), label: data.label, address: data.address }],
-        }))}
-        titleStr="Add Address"
-        label1="label" label2="address"
-        ph1="Label (e.g. Work, Gym)" ph2="Full address"
+        onAdd={address => setProfile(p => ({ ...p, otherAddresses: [...p.otherAddresses, address] }))}
         T={T}
       />
 
