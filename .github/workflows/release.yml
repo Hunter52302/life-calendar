@@ -1,12 +1,15 @@
-name: Build Windows Release
+name: Build Desktop Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build and publish, e.g. v1.0.11"
+        description: "Release tag to build and publish, e.g. v1.0.12"
         required: true
-        default: "v1.0.11"
+        default: "v1.0.12"
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -21,13 +24,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Set up Rust
@@ -64,11 +65,79 @@ jobs:
             throw "No Windows installer assets were found in Tauri bundle output."
           }
 
-      - name: Upload assets to GitHub Release
+      - name: Upload Windows assets to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: PLS Calendar ${{ env.RELEASE_TAG }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          make_latest: true
+
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        run: npm run tauri:build
+
+      - name: Stage macOS release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${RELEASE_TAG#v}"
+          out_dir="release-assets"
+          mkdir -p "$out_dir"
+
+          runner_arch="$(uname -m)"
+          case "$runner_arch" in
+            arm64) mac_arch="arm64" ;;
+            x86_64) mac_arch="x64" ;;
+            *) mac_arch="$runner_arch" ;;
+          esac
+
+          shopt -s nullglob
+          dmg_files=(src-tauri/target/release/bundle/dmg/*.dmg)
+
+          for file in "${dmg_files[@]}"; do
+            cp "$file" "$out_dir/PLS-Calendar-v${version}-macos-${mac_arch}.dmg"
+          done
+
+          if ! compgen -G "$out_dir/*" > /dev/null; then
+            echo "Bundle output:"
+            find src-tauri/target/release/bundle -maxdepth 3 -type f || true
+            echo "No macOS DMG assets were found in Tauri bundle output."
+            exit 1
+          fi
+
+      - name: Upload macOS assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           name: PLS Calendar ${{ env.RELEASE_TAG }}
           files: release-assets/*
           fail_on_unmatched_files: true
