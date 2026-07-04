@@ -1,16 +1,66 @@
-# React + Vite
+# Life Calendar
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Desktop builds ship through GitHub Releases.
 
-Currently, two official plugins are available:
+## Download
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Open [Releases](https://github.com/Hunter52302/life-calendar/releases/latest), then download file for your OS.
 
-## React Compiler
+Windows:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- `PLS-Calendar-vX.X.X-setup.exe`
+- `PLS-Calendar-vX.X.X.msi`
 
-## Expanding the ESLint configuration
+macOS:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `PLS-Calendar-vX.X.X-macos-arm64.dmg` for Apple Silicon Macs.
+- `PLS-Calendar-vX.X.X-macos-x64.dmg` for Intel Macs.
+
+## macOS unsigned app warning
+
+macOS builds use unsigned `.dmg` files. No paid Apple Developer account is required for this release path.
+
+First launch may require:
+
+1. Open downloaded `.dmg`.
+2. Drag PLS Calendar into Applications.
+3. Try opening PLS Calendar.
+4. If macOS blocks it, open System Settings -> Privacy & Security.
+5. Click Open Anyway for PLS Calendar.
+
+Apple Developer account is only needed later for code signing, notarization, or Mac App Store release.
+
+## Build Release
+
+Manual release:
+
+1. Open GitHub -> Actions -> Build Desktop Release.
+2. Click Run workflow.
+3. Enter tag, for example `v1.0.12`.
+
+Tag release:
+
+```sh
+git tag v1.0.12
+git push origin v1.0.12
+```
+
+After workflow finishes, release assets should include:
+
+- `PLS-Calendar-v1.0.12-setup.exe`
+- `PLS-Calendar-v1.0.12.msi`
+- `PLS-Calendar-v1.0.12-macos-arm64.dmg`
+- `PLS-Calendar-v1.0.12-macos-x64.dmg`
+
+## Development
+
+```sh
+npm ci
+npm run dev
+```
+
+Desktop build:
+
+```sh
+npm run tauri:build
+```
