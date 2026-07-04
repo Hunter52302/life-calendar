@@ -21,6 +21,13 @@ const MIGRATED_KEY     = 'lc-migrated-to-backend';
 const EVENT_TEXT_FIELDS = ['label', 'notes', 'location', 'meeting_url'];
 const EVENT_JSON_FIELDS = ['people', 'actions'];
 
+/** Absolute calendar date (ms) an occurrence falls on, from its week + weekday. */
+function eventAbsMs(e) {
+  const d = new Date(e.week_start + 'T00:00:00');
+  d.setDate(d.getDate() + (e.day_of_week ?? 0));
+  return d.getTime();
+}
+
 /** Colors auto-assigned to imported calendars in order. */
 export const IMPORT_COLORS = [
   '#3B82F6', '#22C55E', '#F59E0B', '#EF4444',
@@ -269,6 +276,44 @@ export function useEvents(authState, assumeCompleted = true) {
     if (isOnline) api.events.update(id, { deleted: true, updatedAt: ts }).catch(console.warn);
   }
 
+  // ── Recurring-series scoped edits ──────────────────────────────────────────
+  // Resolve which occurrences a scoped action applies to, relative to the
+  // clicked (anchor) occurrence. Scopes: 'this' (anchor only), 'future'
+  // (anchor + later), 'previous' (anchor + earlier), 'all' (whole series).
+  function seriesTargets(anchor, scope) {
+    const sid = anchor?.series_id;
+    if (!sid) return anchor ? [anchor] : [];
+    const anchorMs = eventAbsMs(anchor);
+    return liveEvents.filter(e =>
+      e.series_id === sid && !e.deleted && (
+        scope === 'all' ||
+        (scope === 'future'   && eventAbsMs(e) >= anchorMs) ||
+        (scope === 'previous' && eventAbsMs(e) <= anchorMs)
+      )
+    );
+  }
+
+  // Apply an edit across a series. 'this' edits only the anchor (including its
+  // own date). Multi-occurrence scopes change shared content and time-of-day
+  // but never each occurrence's own date (week_start / day_of_week), so the
+  // series stays spread across the calendar instead of collapsing onto one day.
+  function updateSeries(anchor, updates, scope) {
+    if (!anchor?.series_id || scope === 'this') {
+      updateEvent(anchor.id, updates);
+      return;
+    }
+    const { id, week_start, day_of_week, series_id, ...shared } = updates;
+    seriesTargets(anchor, scope).forEach(e => updateEvent(e.id, shared));
+  }
+
+  function deleteSeries(anchor, scope) {
+    if (!anchor?.series_id || scope === 'this') {
+      deleteEvent(anchor.id);
+      return;
+    }
+    seriesTargets(anchor, scope).forEach(e => deleteEvent(e.id));
+  }
+
   function getWeekEvents(weekStart, calendar) {
     return liveEvents.filter(e => e.week_start === weekStart && e.calendar === calendar);
   }
@@ -433,6 +478,7 @@ export function useEvents(authState, assumeCompleted = true) {
     events: liveEvents, syncing,
     customCategories, categoryOverrides,
     addEvent, addEvents, updateEvent, deleteEvent,
+    updateSeries, deleteSeries,
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds, replaceEventsBySource, replaceEventsBySourceCalendar,

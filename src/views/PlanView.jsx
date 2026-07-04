@@ -15,7 +15,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 export default function PlanView({
   events, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
-  onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateCategory, onAddCategory, onNavigateToDate,
+  onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
@@ -237,6 +237,7 @@ export default function PlanView({
           allCategories={allCategories} militaryTime={militaryTime}
           eventTitleSuggestions={eventTitleSuggestions}
           onSave={handleSave} onAddEvents={onAddEvents} onDelete={onDeleteEvent}
+          onUpdateSeries={onUpdateSeries} onDeleteSeries={onDeleteSeries}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
           homeAddress={homeAddress} savedAddresses={savedAddresses}
           onClose={() => setFormState(null)}

@@ -108,7 +108,7 @@ export function generateRepeatInstances(baseEvent, repeat) {
   const step = { daily: 1, weekly: 7, biweekly: 14, monthly: 28, yearly: 364 }[repeat];
   const total = { daily: 365, weekly: 52, biweekly: 26, monthly: 12, yearly: 3 }[repeat];
 
-  const { slot_start, slot_duration, precision, calendar, label, category, color, is_all_day, source } = baseEvent;
+  const { slot_start, slot_duration, precision, calendar, label, category, color, is_all_day, source, series_id } = baseEvent;
 
   return Array.from({ length: total }, (_, i) => {
     const d = new Date(baseDate);
@@ -120,6 +120,7 @@ export function generateRepeatInstances(baseEvent, repeat) {
       slot_start, slot_duration, precision, calendar,
       ...(is_all_day && { is_all_day: true }),
       ...(source && { source }),
+      ...(series_id && { series_id }),
     };
   });
 }

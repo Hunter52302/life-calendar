@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DAYS_FULL } from '../lib/constants';
-import { hoursToLabel, generateRepeatInstances } from '../lib/utils';
+import { hoursToLabel, generateRepeatInstances, generateId } from '../lib/utils';
 import MapProviderPicker from './MapProviderPicker.jsx';
 import EventActionButtons from './EventActionButtons.jsx';
 import { isLikelyUrl, openExternalUrl } from '../lib/handoffActions.js';
@@ -55,6 +55,8 @@ export default function AddEventForm({
   onSave,
   onAddEvents,
   onDelete,
+  onUpdateSeries,
+  onDeleteSeries,
   onUpdateCategory,
   onAddCategory,
   onClose,
@@ -74,6 +76,9 @@ export default function AddEventForm({
   const initStart    = source?.slot_start ?? defaultSlot ?? 8;
   const [slotEnd, setSlotEnd]   = useState(Math.min(initStart + initDuration, slotCount * 2));
   const [repeat, setRepeat]     = useState('none');
+  // When editing/deleting an occurrence that belongs to a series, ask the user
+  // which occurrences the action applies to before committing.
+  const [scopePrompt, setScopePrompt] = useState(null); // null | { mode:'save'|'delete', payload? }
 
   // User-triggered handoff fields
   const [location, setLocation] = useState(source?.location ?? '');
@@ -111,8 +116,7 @@ export default function AddEventForm({
     );
   }
 
-  function handleSave() {
-    if (!label.trim()) return;
+  const makeBase = (dayIndex) => {
     const people = personName.trim() || personPhone.trim() || personEmail.trim()
       ? [{
           displayName: personName.trim(),
@@ -121,7 +125,7 @@ export default function AddEventForm({
           source: 'manual',
         }]
       : [];
-    const makeBase = (dayIndex) => ({
+    return {
       label: label.trim(),
       category,
       color: selectedCategory?.color ?? '#6B7280',
@@ -138,16 +142,45 @@ export default function AddEventForm({
         ? { is_all_day: true, slot_start: 0, slot_duration: 1 }
         : { slot_start: slotStart, slot_duration: slotDuration }
       ),
-    });
+    };
+  };
+
+  function handleSave() {
+    if (!label.trim()) return;
     if (isEditing) {
-      onSave({ id: event.id, ...makeBase(days[0]) });
+      const payload = { id: event.id, ...makeBase(days[0]) };
+      // Part of a series → let the user pick which occurrences to update.
+      if (event.series_id && onUpdateSeries) {
+        setScopePrompt({ mode: 'save', payload });
+        return;
+      }
+      onSave(payload);
     } else if (repeat !== 'none') {
-      onAddEvents(days.flatMap(d => generateRepeatInstances(makeBase(d), repeat)));
+      // Link every generated instance under one shared series id.
+      const seriesId = generateId();
+      onAddEvents(days.flatMap(d => generateRepeatInstances({ ...makeBase(d), series_id: seriesId }, repeat)));
     } else if (days.length > 1) {
-      onAddEvents(days.map(d => makeBase(d)));
+      const seriesId = generateId();
+      onAddEvents(days.map(d => ({ ...makeBase(d), series_id: seriesId })));
     } else {
       onSave(makeBase(days[0]));
     }
+    onClose();
+  }
+
+  function handleDelete() {
+    if (event?.series_id && onDeleteSeries) {
+      setScopePrompt({ mode: 'delete' });
+      return;
+    }
+    onDelete(event.id);
+    onClose();
+  }
+
+  function applySeriesScope(scope) {
+    if (scopePrompt?.mode === 'save') onUpdateSeries(event, scopePrompt.payload, scope);
+    else if (scopePrompt?.mode === 'delete') onDeleteSeries(event, scope);
+    setScopePrompt(null);
     onClose();
   }
 
@@ -176,6 +209,7 @@ export default function AddEventForm({
   // startOptions / sameDayEndOptions / nextDayEndOptions removed; inputs handle time.
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4 pb-safe-4 sm:pb-4"
       onClick={onClose}
@@ -497,7 +531,7 @@ export default function AddEventForm({
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-800">
           {isEditing ? (
-            <button type="button" onClick={() => { onDelete(event.id); onClose(); }}
+            <button type="button" onClick={handleDelete}
               className="text-sm text-red-500 hover:text-red-600 font-medium transition-colors">
               {event?.plan_event_id ? 'Remove actual' : 'Delete'}
             </button>
@@ -515,6 +549,55 @@ export default function AddEventForm({
         </div>
       </div>
     </div>
+
+    {/* Recurring-series scope picker (edit / delete) */}
+    {scopePrompt && (
+      <div
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+        onClick={() => setScopePrompt(null)}
+      >
+        <div
+          className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-xs p-4"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {scopePrompt.mode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'}
+          </h3>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 mb-3">
+            This event is part of a series. Apply to:
+          </p>
+          <div className="space-y-1.5">
+            {[
+              { scope: 'this',     label: 'This event only' },
+              { scope: 'future',   label: 'This and following events' },
+              { scope: 'previous', label: 'This and previous events' },
+              { scope: 'all',      label: 'All events in the series' },
+            ].map(opt => (
+              <button
+                key={opt.scope}
+                type="button"
+                onClick={() => applySeriesScope(opt.scope)}
+                className={`w-full text-left text-sm px-3 py-2 rounded-lg border transition-colors ${
+                  scopePrompt.mode === 'delete'
+                    ? 'border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20'
+                    : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setScopePrompt(null)}
+            className="w-full text-center text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 pt-3"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

@@ -515,6 +515,7 @@ export default function App() {
     events = [],
     customCategories, categoryOverrides,
     addEvent, addEvents, updateEvent, deleteEvent,
+    updateSeries, deleteSeries,
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds = [], replaceEventsBySource = () => {},
@@ -2826,6 +2827,8 @@ export default function App() {
               onAddEvents={addEvents}
               onUpdateEvent={updateEvent}
               onDeleteEvent={deleteEvent}
+              onUpdateSeries={updateSeries}
+              onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
@@ -2856,6 +2859,8 @@ export default function App() {
               onAddEvents={addEvents}
               onUpdateEvent={updateEvent}
               onDeleteEvent={deleteEvent}
+              onUpdateSeries={updateSeries}
+              onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
               onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
