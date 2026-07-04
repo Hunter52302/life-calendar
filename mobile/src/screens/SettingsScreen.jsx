@@ -748,6 +748,10 @@ export default function SettingsScreen() {
   const [deletePwDraft,   setDeletePwDraft]   = useState('');
   const [deleteBusy,      setDeleteBusy]      = useState(false);
   const [deleteErr,       setDeleteErr]       = useState('');
+  const [clearPwDraft,    setClearPwDraft]    = useState('');
+  const [clearBusy,       setClearBusy]       = useState(false);
+  const [clearErr,        setClearErr]        = useState('');
+  const [clearMsg,        setClearMsg]        = useState('');
 
   // Habit add form state
   const HABIT_COLORS = ['#7C3AED','#3B82F6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#F97316'];
@@ -876,6 +880,23 @@ export default function SettingsScreen() {
       setDeleteErr(e.message || 'Account deletion failed.');
     } finally {
       setDeleteBusy(false);
+    }
+  }
+
+  async function handleClearCalendar() {
+    if (!clearPwDraft || !auth.zkInfo?.authSalt) return;
+    setClearBusy(true);
+    setClearErr('');
+    setClearMsg('');
+    try {
+      const authVerifier = await deriveAuthVerifier(clearPwDraft, auth.zkInfo.authSalt);
+      await events.clearAllEvents(authVerifier);
+      setClearPwDraft('');
+      setClearMsg('Calendar cleared.');
+    } catch (e) {
+      setClearErr(e.message || 'Calendar clear failed.');
+    } finally {
+      setClearBusy(false);
     }
   }
 
@@ -1574,7 +1595,7 @@ export default function SettingsScreen() {
         )}
 
         {/* ── Account Settings ── */}
-        {matches('account', 'username', 'email', 'name', 'birthday', 'address', 'phone', 'profile') && (
+        {matches('account', 'username', 'email', 'name', 'birthday', 'address', 'phone', 'profile', 'clear', 'calendar', 'events', 'testing') && (
           <Section title="Account Settings" icon="person-outline" forceOpen={!!q} collapseKey={collapseKey} onToggle={handleSectionToggle} T={T}>
             <View style={s.accountSection}>
               <Text style={[s.sectionSubTitle, { color: T.textMuted }]}>User Profile</Text>
@@ -1671,6 +1692,34 @@ export default function SettingsScreen() {
                 <Ionicons name="log-out-outline" size={18} color={T.danger} />
                 <Text style={[s.logoutText, { color: T.danger }]}>Log Out</Text>
               </Pressable>
+
+              <Divider T={T} />
+
+              <View style={s.profileField}>
+                <Text style={[s.profileLabel, { color: T.danger }]}>CLEAR CALENDAR</Text>
+                <Text style={[s.rowSub, { color: T.textFaint, marginBottom: 8 }]}>
+                  Permanently deletes every calendar event. Enter password to confirm.
+                </Text>
+                <TextInput
+                  style={[s.profileInput, { backgroundColor: T.inputBg, borderColor: T.inputBorder, color: T.text }]}
+                  value={clearPwDraft}
+                  onChangeText={t => { setClearPwDraft(t); setClearErr(''); setClearMsg(''); }}
+                  placeholder="Password"
+                  placeholderTextColor={T.placeholder}
+                  secureTextEntry
+                />
+                <Pressable
+                  style={[s.integAddBtn, { backgroundColor: (!clearPwDraft || clearBusy || !auth.zkInfo?.authSalt) ? T.inputBg : T.danger, marginTop: 8 }]}
+                  onPress={handleClearCalendar}
+                  disabled={!clearPwDraft || clearBusy || !auth.zkInfo?.authSalt}
+                >
+                  <Text style={[s.integAddBtnText, { color: (!clearPwDraft || clearBusy || !auth.zkInfo?.authSalt) ? T.textFaint : '#fff' }]}>
+                    {clearBusy ? 'Clearing...' : 'Clear all calendar events'}
+                  </Text>
+                </Pressable>
+                {!!clearErr && <Text style={[s.rowSub, { color: T.danger, marginTop: 6 }]}>{clearErr}</Text>}
+                {!!clearMsg && <Text style={[s.rowSub, { color: '#16A34A', marginTop: 6 }]}>{clearMsg}</Text>}
+              </View>
 
               <Divider T={T} />
 

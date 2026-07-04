@@ -201,6 +201,10 @@ export const pocketbaseEvents = {
     await pbFetch(`${EVENTS_PATH}/${existing.id}`, { method: 'DELETE' });
   },
 
+  async deleteAll(userId) {
+    await deleteMatching(`user = '${encodeFilter(userId)}'`);
+  },
+
   async deleteBySource(userId, source) {
     const items = await listAll(`user = '${encodeFilter(userId)}'`);
     await Promise.all(

@@ -1,11 +1,15 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { requireAuth } from '../middleware/auth.js';
+import { authLimiter } from '../middleware/rateLimit.js';
 import { pocketbaseEvents as events } from '../lib/pocketbaseEvents.js';
+import { pocketbaseUsers } from '../lib/pocketbaseInternal.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const VERIFIER_RE = /^[0-9a-f]{64}$/;
 
 // GET /api/events — all events for the authenticated user
 router.get('/', asyncHandler(async (req, res) => {
@@ -26,6 +30,23 @@ router.post('/batch', asyncHandler(async (req, res) => {
   }
   await events.batchCreate(req.userId, eventsArray);
   res.json({ imported: eventsArray.length });
+}));
+
+// DELETE /api/events - clear all calendar events after password proof
+router.delete('/', authLimiter, asyncHandler(async (req, res) => {
+  const { authVerifier } = req.body ?? {};
+  if (!VERIFIER_RE.test(authVerifier ?? '')) {
+    return res.status(400).json({ error: 'Password confirmation is required.' });
+  }
+
+  const user = await pocketbaseUsers.getById(req.userId);
+  const ok = await bcrypt.compare(authVerifier, user?.password_hash ?? '');
+  if (!user || !ok) {
+    return res.status(401).json({ error: 'Incorrect password.' });
+  }
+
+  await events.deleteAll(req.userId);
+  res.json({ ok: true });
 }));
 
 // PUT /api/events/:id — update an event

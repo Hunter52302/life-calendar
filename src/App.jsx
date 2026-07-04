@@ -215,6 +215,9 @@ export default function App() {
   const [deletePasswordDraft, setDeletePasswordDraft] = useState('');
   const [deleteAccountMsg, setDeleteAccountMsg] = useState('');
   const [deleteAccountBusy, setDeleteAccountBusy] = useState(false);
+  const [clearCalendarPasswordDraft, setClearCalendarPasswordDraft] = useState('');
+  const [clearCalendarMsg, setClearCalendarMsg] = useState('');
+  const [clearCalendarBusy, setClearCalendarBusy] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   // ── PWA share target ──────────────────────────────────────────────────────
   const [shareText, setShareText] = useState(() => {
@@ -469,6 +472,22 @@ export default function App() {
     }
   }
 
+  async function handleClearCalendar() {
+    if (!clearCalendarPasswordDraft || !zkInfo?.authSalt) return;
+    setClearCalendarBusy(true);
+    setClearCalendarMsg('');
+    try {
+      const authVerifier = await deriveAuthVerifier(clearCalendarPasswordDraft, zkInfo.authSalt);
+      await clearAllEvents(authVerifier);
+      setClearCalendarPasswordDraft('');
+      setClearCalendarMsg('Calendar cleared.');
+    } catch (err) {
+      setClearCalendarMsg(err.message || 'Calendar clear failed.');
+    } finally {
+      setClearCalendarBusy(false);
+    }
+  }
+
   async function handleTestIntegration(id) {
     setIntTestState(s => ({ ...s, [id]: 'testing' }));
     try {
@@ -548,6 +567,7 @@ export default function App() {
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
+    clearAllEvents = async () => {},
     syncing = false,
   } = useEvents(authState, assumeCompleted);
 
@@ -776,7 +796,7 @@ export default function App() {
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
-    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete'],
+    account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete', 'clear', 'calendar', 'events', 'testing'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
@@ -2439,7 +2459,32 @@ export default function App() {
                               </button>
                             </div>
 
-                            {/* ── User Profile (nested collapsible) ── */}
+                            {/* ── Danger Zone ── */}
+                            {sv(['clear', 'calendar', 'events', 'password', 'testing']) && (
+                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Clear Calendar</p>
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                Permanently deletes every calendar event. Enter password to confirm.
+                              </p>
+                              <input
+                                type="password"
+                                value={clearCalendarPasswordDraft}
+                                onChange={e => setClearCalendarPasswordDraft(e.target.value)}
+                                placeholder="Password"
+                                className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={!clearCalendarPasswordDraft || clearCalendarBusy || !zkInfo?.authSalt}
+                                onClick={handleClearCalendar}
+                                className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
+                              >
+                                {clearCalendarBusy ? 'Clearing...' : 'Clear all calendar events'}
+                              </button>
+                              {clearCalendarMsg && <p className={`text-[11px] ${clearCalendarMsg === 'Calendar cleared.' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>{clearCalendarMsg}</p>}
+                            </div>
+                            )}
+
                             {sv(['delete', 'account', 'password']) && (
                             <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
                               <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Delete Account</p>

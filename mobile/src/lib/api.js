@@ -46,6 +46,7 @@ export const api = {
   events: {
     create:          (event)             => request('POST',   '/events',                   event),
     update:          (id, updates)       => request('PUT',    `/events/${id}`,             updates),
+    clearAll:        (authVerifier)      => request('DELETE', '/events',                   { authVerifier }),
     delete:          (id)                => request('DELETE', `/events/${id}`),
     batch:           (eventsArr)         => request('POST',   '/events/batch',             { events: eventsArr }),
     replaceBySource: (source, eventsArr) => request('POST',   '/events/replace-by-source', { source, events: eventsArr }),

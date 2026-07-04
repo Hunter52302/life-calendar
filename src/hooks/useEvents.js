@@ -280,6 +280,14 @@ export function useEvents(authState, assumeCompleted = true) {
   // Resolve which occurrences a scoped action applies to, relative to the
   // clicked (anchor) occurrence. Scopes: 'this' (anchor only), 'future'
   // (anchor + later), 'previous' (anchor + earlier), 'all' (whole series).
+  async function clearAllEvents(authVerifier) {
+    if (!isOnline) throw new Error('Sign in before clearing calendar events.');
+    await api.events.clearAll(authVerifier);
+    eventsRef.current = [];
+    setEvents([]);
+    setDismissedAutoIds([]);
+  }
+
   function seriesTargets(anchor, scope) {
     const sid = anchor?.series_id;
     if (!sid) return anchor ? [anchor] : [];
@@ -302,7 +310,11 @@ export function useEvents(authState, assumeCompleted = true) {
       updateEvent(anchor.id, updates);
       return;
     }
-    const { id, week_start, day_of_week, series_id, ...shared } = updates;
+    const shared = { ...updates };
+    delete shared.id;
+    delete shared.week_start;
+    delete shared.day_of_week;
+    delete shared.series_id;
     seriesTargets(anchor, scope).forEach(e => updateEvent(e.id, shared));
   }
 
@@ -477,7 +489,7 @@ export function useEvents(authState, assumeCompleted = true) {
   return {
     events: liveEvents, syncing,
     customCategories, categoryOverrides,
-    addEvent, addEvents, updateEvent, deleteEvent,
+    addEvent, addEvents, updateEvent, deleteEvent, clearAllEvents,
     updateSeries, deleteSeries,
     getWeekEvents, getEvents,
     addCategory, deleteCategory, updateCategory,
