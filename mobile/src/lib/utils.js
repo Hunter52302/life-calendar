@@ -33,6 +33,39 @@ export function addDays(dateStr, days) {
   return toDateStr(d);
 }
 
+// Expand a base event into a linked recurring series. Mirrors the web app so
+// both platforms produce identical instances (and the same shared series_id).
+export function generateRepeatInstances(baseEvent, repeat) {
+  const baseDate = new Date(baseEvent.week_start + 'T00:00:00');
+  baseDate.setDate(baseDate.getDate() + baseEvent.day_of_week);
+
+  const step = { daily: 1, weekly: 7, biweekly: 14, monthly: 28, yearly: 364 }[repeat];
+  const total = { daily: 365, weekly: 52, biweekly: 26, monthly: 12, yearly: 3 }[repeat];
+
+  const { slot_start, slot_duration, precision, calendar, label, category, color, is_all_day, source, series_id } = baseEvent;
+
+  return Array.from({ length: total }, (_, i) => {
+    const d = new Date(baseDate);
+    d.setDate(d.getDate() + i * step);
+    const ws = getWeekStart(d);
+    return {
+      label, category, color,
+      week_start: ws, day_of_week: d.getDay(),
+      slot_start, slot_duration, precision, calendar,
+      ...(is_all_day && { is_all_day: true }),
+      ...(source && { source }),
+      ...(series_id && { series_id }),
+    };
+  });
+}
+
+/** Absolute calendar date (ms) an occurrence falls on, from its week + weekday. */
+export function eventAbsMs(e) {
+  const d = new Date(e.week_start + 'T00:00:00');
+  d.setDate(d.getDate() + (e.day_of_week ?? 0));
+  return d.getTime();
+}
+
 export function todayStr() {
   return toDateStr(new Date());
 }

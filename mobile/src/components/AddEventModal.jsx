@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, Pressable, Modal, ScrollView,
   StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { DAYS_SHORT, slotToTime } from '../lib/utils.js';
+import { DAYS_SHORT, slotToTime, generateRepeatInstances, generateId } from '../lib/utils.js';
 import { AppContext } from '../context/AppContext.js';
 import { isLikelyUrl, openExternalUrl, openMapProviderPicker } from '../lib/handoffActions.js';
 
@@ -16,9 +16,26 @@ const DURATION_OPTIONS = [
   { label: '8h',  slots: 16 },
 ];
 
+const REPEAT_OPTIONS = [
+  { value: 'none',     label: 'Once' },
+  { value: 'daily',    label: 'Daily' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Biweekly' },
+  { value: 'monthly',  label: 'Monthly' },
+  { value: 'yearly',   label: 'Yearly' },
+];
+
+const SERIES_SCOPES = [
+  { scope: 'this',     label: 'This event only' },
+  { scope: 'future',   label: 'This and following events' },
+  { scope: 'previous', label: 'This and previous events' },
+  { scope: 'all',      label: 'All events in the series' },
+];
+
 export default function AddEventModal({
   visible, event, defaultDay, defaultSlot, allCategories,
-  weekStart, calendar, precision: precisionProp, onSave, onDelete, onClose,
+  weekStart, calendar, precision: precisionProp,
+  onSave, onDelete, onAddEvents, onUpdateSeries, onDeleteSeries, onClose,
 }) {
   const { T } = useContext(AppContext);
   const [label,    setLabel]    = useState('');
@@ -30,9 +47,13 @@ export default function AddEventModal({
   const [location, setLocation] = useState('');
   const [meetingUrl, setMeetingUrl] = useState('');
   const [travelBufferMinutes, setTravelBufferMinutes] = useState(0);
+  const [repeat,   setRepeat]   = useState('none');
+  const [scopePrompt, setScopePrompt] = useState(null); // null | { mode:'save'|'delete', payload? }
 
   useEffect(() => {
     if (!visible) return;
+    setRepeat('none');
+    setScopePrompt(null);
     if (event) {
       setLabel(event.label || '');
       setCatId(event.category || allCategories[0]?.id || 'personal');
@@ -77,7 +98,35 @@ export default function AddEventModal({
       ...(meetingUrl.trim() ? { meeting_url: meetingUrl.trim() } : {}),
       ...(Number(travelBufferMinutes) > 0 ? { travel_buffer_minutes: Number(travelBufferMinutes) } : {}),
     };
-    onSave(data);
+    if (event) {
+      // Part of a series → ask which occurrences the edit applies to.
+      if (event.series_id && onUpdateSeries) {
+        setScopePrompt({ mode: 'save', payload: data });
+        return;
+      }
+      onSave(data);
+    } else if (repeat !== 'none' && onAddEvents) {
+      const seriesId = generateId();
+      onAddEvents(generateRepeatInstances({ ...data, series_id: seriesId }, repeat));
+      onClose();
+    } else {
+      onSave(data);
+    }
+  }
+
+  function handleDelete() {
+    if (event?.series_id && onDeleteSeries) {
+      setScopePrompt({ mode: 'delete' });
+      return;
+    }
+    onDelete(event.id);
+  }
+
+  function applySeriesScope(scope) {
+    if (scopePrompt?.mode === 'save') onUpdateSeries(event, scopePrompt.payload, scope);
+    else if (scopePrompt?.mode === 'delete') onDeleteSeries(event, scope);
+    setScopePrompt(null);
+    onClose();
   }
 
   function adjustSlot(delta) {
@@ -260,10 +309,30 @@ export default function AddEventModal({
             </View>
             <Text style={[styles.helperText, { color: labelColor }]}>Manual time blocked before event. No route lookup.</Text>
 
+            {/* Repeat (only when creating a new event) */}
+            {!event && onAddEvents && (
+              <>
+                <Text style={[styles.sectionLabel, { color: labelColor }]}>Repeat</Text>
+                <View style={styles.durationRow}>
+                  {REPEAT_OPTIONS.map(opt => (
+                    <Pressable
+                      key={opt.value}
+                      onPress={() => setRepeat(opt.value)}
+                      style={[styles.durationChip, { backgroundColor: repeat === opt.value ? dayActiveColor : dayInactiveBg }]}
+                    >
+                      <Text style={[styles.durationChipText, { color: repeat === opt.value ? '#fff' : dayInactiveText }]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+
             {/* Action buttons */}
             <View style={styles.actions}>
               {event && onDelete && (
-                <Pressable onPress={() => onDelete(event.id)} style={[styles.btnDelete, { backgroundColor: T?.dangerLight ?? '#FEE2E2' }]}>
+                <Pressable onPress={handleDelete} style={[styles.btnDelete, { backgroundColor: T?.dangerLight ?? '#FEE2E2' }]}>
                   <Text style={[styles.btnDeleteText, { color: T?.danger ?? '#DC2626' }]}>Delete</Text>
                 </Pressable>
               )}
@@ -277,6 +346,38 @@ export default function AddEventModal({
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Recurring-series scope picker (edit / delete) */}
+      {scopePrompt && (
+        <View style={styles.scopeOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setScopePrompt(null)} />
+          <View style={[styles.scopeCard, { backgroundColor: sheetBg }]}>
+            <Text style={[styles.scopeTitle, { color: titleColor }]}>
+              {scopePrompt.mode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'}
+            </Text>
+            <Text style={[styles.scopeSub, { color: labelColor }]}>
+              This event is part of a series. Apply to:
+            </Text>
+            {SERIES_SCOPES.map(opt => {
+              const danger = scopePrompt.mode === 'delete';
+              return (
+                <Pressable
+                  key={opt.scope}
+                  onPress={() => applySeriesScope(opt.scope)}
+                  style={[styles.scopeBtn, { borderColor: danger ? (T?.danger ?? '#DC2626') : inputBorder }]}
+                >
+                  <Text style={[styles.scopeBtnText, { color: danger ? (T?.danger ?? '#DC2626') : titleColor }]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable onPress={() => setScopePrompt(null)} style={styles.scopeCancel}>
+              <Text style={[styles.scopeCancelText, { color: labelColor }]}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
     </Modal>
   );
 }
@@ -322,4 +423,12 @@ const styles = StyleSheet.create({
   btnCancelText:    { fontWeight: '600', fontSize: 15 },
   btnSave:          { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
   btnSaveText:      { color: '#fff', fontWeight: '700', fontSize: 15 },
+  scopeOverlay:     { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  scopeCard:        { width: '100%', maxWidth: 340, borderRadius: 18, padding: 18 },
+  scopeTitle:       { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  scopeSub:         { fontSize: 12, marginBottom: 14 },
+  scopeBtn:         { borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginBottom: 8 },
+  scopeBtnText:     { fontSize: 14, fontWeight: '600' },
+  scopeCancel:      { alignItems: 'center', paddingVertical: 8, marginTop: 2 },
+  scopeCancelText:  { fontSize: 13, fontWeight: '600' },
 });

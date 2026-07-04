@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { generateId, DEFAULT_CATEGORIES, getEventEndDateTime } from '../lib/utils.js';
+import { generateId, DEFAULT_CATEGORIES, getEventEndDateTime, eventAbsMs } from '../lib/utils.js';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 
@@ -208,6 +208,41 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     if (isOnline) api.events.delete(id).catch(console.warn);
   }
 
+  // ── Recurring-series scoped edits (mirrors the web app) ────────────────────
+  // Resolve which occurrences a scoped action applies to, relative to the
+  // clicked (anchor) occurrence: 'this' / 'future' / 'previous' / 'all'.
+  function seriesTargets(anchor, scope) {
+    const sid = anchor?.series_id;
+    if (!sid) return anchor ? [anchor] : [];
+    const anchorMs = eventAbsMs(anchor);
+    return events.filter(e =>
+      e.series_id === sid && (
+        scope === 'all' ||
+        (scope === 'future'   && eventAbsMs(e) >= anchorMs) ||
+        (scope === 'previous' && eventAbsMs(e) <= anchorMs)
+      )
+    );
+  }
+
+  // Multi-occurrence edits change shared content/time-of-day but never each
+  // occurrence's own date, so the series stays spread across the calendar.
+  function updateSeries(anchor, updates, scope) {
+    if (!anchor?.series_id || scope === 'this') {
+      updateEvent(anchor.id, updates);
+      return;
+    }
+    const { id, week_start, day_of_week, series_id, ...shared } = updates;
+    seriesTargets(anchor, scope).forEach(e => updateEvent(e.id, shared));
+  }
+
+  function deleteSeries(anchor, scope) {
+    if (!anchor?.series_id || scope === 'this') {
+      deleteEvent(anchor.id);
+      return;
+    }
+    seriesTargets(anchor, scope).forEach(e => deleteEvent(e.id));
+  }
+
   // ── Categories ─────────────────────────────────────────────────────────────
   function addCategory(cat) {
     const newCat = { ...cat, id: generateId() };
@@ -249,6 +284,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   return {
     ready, events, allCategories, linkedCalendars,
     addEvent, addEvents, updateEvent, deleteEvent,
+    updateSeries, deleteSeries,
     addCategory, updateCategory, deleteCategory,
     addLinkedCalendar, deleteLinkedCalendar,
   };

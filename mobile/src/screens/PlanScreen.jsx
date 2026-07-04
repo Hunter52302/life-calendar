@@ -275,6 +275,9 @@ export default function PlanScreen() {
         precision={precision}
         onSave={handleSave}
         onDelete={(id) => { events.deleteEvent(id); setFormState(null); }}
+        onAddEvents={events.addEvents}
+        onUpdateSeries={events.updateSeries}
+        onDeleteSeries={events.deleteSeries}
         onClose={() => setFormState(null)}
       />
     </SafeAreaView>
