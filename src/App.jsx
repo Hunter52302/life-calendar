@@ -172,6 +172,7 @@ export default function App() {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
   const [accountOpen,    setAccountOpen]    = useState(false);
+  const [dangerOpen,     setDangerOpen]     = useState(false);
   const [aboutOpen,      setAboutOpen]      = useState(false);
   const [downloadOpen,   setDownloadOpen]   = useState(false);
   const [showDownload,   setShowDownload]   = useState(false);
@@ -274,6 +275,7 @@ export default function App() {
     setCategoriesOpen(false);
     setConnectedOpen(false);
     setAccountOpen(false);
+    setDangerOpen(false);
     setAboutOpen(false);
     setHabitsOpen(false);
     setBudgetsOpen(false);
@@ -884,6 +886,14 @@ export default function App() {
             {/* App title */}
             <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
               PLS Calendar
+            </span>
+            {/* Running build version — surfaced here so the deployed version is
+                always visible at a glance (helps spot a stale PWA cache). */}
+            <span
+              title="App version"
+              className="hidden sm:inline text-[10px] font-mono text-gray-400 dark:text-gray-500 leading-none whitespace-nowrap"
+            >
+              v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
             </span>
             {syncing && (
               <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
@@ -2459,54 +2469,83 @@ export default function App() {
                               </button>
                             </div>
 
-                            {/* ── Danger Zone ── */}
-                            {sv(['clear', 'calendar', 'events', 'password', 'testing']) && (
-                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
-                              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Clear Calendar</p>
-                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                                Permanently deletes every calendar event. Enter password to confirm.
-                              </p>
-                              <input
-                                type="password"
-                                value={clearCalendarPasswordDraft}
-                                onChange={e => setClearCalendarPasswordDraft(e.target.value)}
-                                placeholder="Password"
-                                className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
-                              />
+                            {/* ── Danger Zone (destructive actions, boxed + collapsed by
+                                   default so Clear Calendar / Delete Account can't be
+                                   clicked by accident) ── */}
+                            {sv(['clear', 'calendar', 'events', 'password', 'testing', 'delete', 'account', 'danger', 'destructive']) && (
+                            <div className={`rounded-lg border border-red-200 dark:border-red-900/50 overflow-hidden${!sq ? ' mt-3' : ''}`}>
                               <button
                                 type="button"
-                                disabled={!clearCalendarPasswordDraft || clearCalendarBusy || !zkInfo?.authSalt}
-                                onClick={handleClearCalendar}
-                                className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
+                                onClick={() => setDangerOpen(v => !v)}
+                                className="flex items-center justify-between w-full px-2.5 py-2 bg-red-50/70 dark:bg-red-950/20 hover:bg-red-100/70 dark:hover:bg-red-950/40 transition-colors"
                               >
-                                {clearCalendarBusy ? 'Clearing...' : 'Clear all calendar events'}
+                                <span className="flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                  </svg>
+                                  Danger Zone
+                                </span>
+                                <span className="text-[10px] text-red-400 dark:text-red-500">{dangerOpen || sq ? '▲' : '▼'}</span>
                               </button>
-                              {clearCalendarMsg && <p className={`text-[11px] ${clearCalendarMsg === 'Calendar cleared.' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>{clearCalendarMsg}</p>}
-                            </div>
-                            )}
+                              {(dangerOpen || sq) && (
+                                <div className="px-2.5 pt-2 pb-3 space-y-4">
+                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    These actions are permanent and cannot be undone. Each requires your password to confirm.
+                                  </p>
 
-                            {sv(['delete', 'account', 'password']) && (
-                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
-                              <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Delete Account</p>
-                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                                Permanently deletes this account and synced data. Enter password to confirm.
-                              </p>
-                              <input
-                                type="password"
-                                value={deletePasswordDraft}
-                                onChange={e => setDeletePasswordDraft(e.target.value)}
-                                placeholder="Password"
-                                className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
-                              />
-                              <button
-                                type="button"
-                                disabled={!deletePasswordDraft || deleteAccountBusy || !zkInfo?.authSalt}
-                                onClick={handleDeleteAccount}
-                                className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
-                              >
-                                {deleteAccountBusy ? 'Deleting...' : 'Delete account permanently'}
-                              </button>
-                              {deleteAccountMsg && <p className="text-[11px] text-red-500 dark:text-red-400">{deleteAccountMsg}</p>}
+                                  {/* Clear all events */}
+                                  {sv(['clear', 'calendar', 'events', 'password', 'testing']) && (
+                                  <div className="space-y-1.5">
+                                    <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Clear Calendar</p>
+                                    <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                      Permanently deletes every calendar event. Enter password to confirm.
+                                    </p>
+                                    <input
+                                      type="password"
+                                      value={clearCalendarPasswordDraft}
+                                      onChange={e => setClearCalendarPasswordDraft(e.target.value)}
+                                      placeholder="Password"
+                                      className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={!clearCalendarPasswordDraft || clearCalendarBusy || !zkInfo?.authSalt}
+                                      onClick={handleClearCalendar}
+                                      className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
+                                    >
+                                      {clearCalendarBusy ? 'Clearing...' : 'Clear all calendar events'}
+                                    </button>
+                                    {clearCalendarMsg && <p className={`text-[11px] ${clearCalendarMsg === 'Calendar cleared.' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>{clearCalendarMsg}</p>}
+                                  </div>
+                                  )}
+
+                                  {/* Delete account */}
+                                  {sv(['delete', 'account', 'password']) && (
+                                  <div className="space-y-1.5 border-t border-red-100 dark:border-red-900/40 pt-3">
+                                    <p className="text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">Delete Account</p>
+                                    <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                      Permanently deletes this account and synced data. Enter password to confirm.
+                                    </p>
+                                    <input
+                                      type="password"
+                                      value={deletePasswordDraft}
+                                      onChange={e => setDeletePasswordDraft(e.target.value)}
+                                      placeholder="Password"
+                                      className="w-full text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-red-400 dark:focus:border-red-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={!deletePasswordDraft || deleteAccountBusy || !zkInfo?.authSalt}
+                                      onClick={handleDeleteAccount}
+                                      className="w-full flex items-center justify-center text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-default text-white font-semibold transition-colors"
+                                    >
+                                      {deleteAccountBusy ? 'Deleting...' : 'Delete account permanently'}
+                                    </button>
+                                    {deleteAccountMsg && <p className="text-[11px] text-red-500 dark:text-red-400">{deleteAccountMsg}</p>}
+                                  </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             )}
 
