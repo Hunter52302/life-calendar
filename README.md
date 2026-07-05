@@ -52,6 +52,13 @@ After workflow finishes, release assets should include:
 - `PLS-Calendar-v1.0.12-macos-arm64.dmg`
 - `PLS-Calendar-v1.0.12-macos-x64.dmg`
 
+## Self-hosting
+
+PLS Calendar can run entirely on your own infrastructure — from account-free
+local-only use (no server at all) to a full self-hosted sync backend. See the
+[self-hosting guide](docs/SELF_HOSTING.md) for the breakdown of options and the
+required configuration.
+
 ## Development
 
 ```sh
