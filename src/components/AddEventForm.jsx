@@ -5,6 +5,7 @@ import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
 import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
 import MapProviderPicker from './MapProviderPicker.jsx';
+import RouteAttribution from './RouteAttribution.jsx';
 import EventActionButtons from './EventActionButtons.jsx';
 import { isLikelyUrl, openExternalUrl } from '../lib/handoffActions.js';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
@@ -492,6 +493,8 @@ export default function AddEventForm({
                 )}
                 {estimateInfo && <p className="text-[11px] text-green-600 dark:text-green-400">{estimateInfo}</p>}
                 {estimateError && <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>}
+                {location.trim() && <p className="text-[10px] text-gray-400 dark:text-gray-500">Estimating sends this address to the routing service.</p>}
+                <RouteAttribution />
               </div>
             )}
 

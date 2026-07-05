@@ -16,6 +16,7 @@ import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib
 import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
 import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
+import RouteAttribution from './RouteAttribution.jsx';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions.js';
@@ -431,8 +432,9 @@ function TravelBufferForm({ militaryTime = false, homeAddress = '', allEvents = 
           <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>
         )}
         <p className="text-[11px] text-gray-400 dark:text-gray-500">
-          Routing via OpenStreetMap + OpenRouteService, with approximate rush-hour padding. Not live traffic.
+          Approximate rush-hour padding, not live traffic. Estimating sends these addresses to the routing service.
         </p>
+        <RouteAttribution />
       </div>
 
       <Field label="Duration">
