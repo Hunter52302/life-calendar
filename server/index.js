@@ -54,10 +54,18 @@ const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:5173')
   .split(',')
   .map(s => s.trim());
 
+// The desktop (Tauri) build loads the frontend from a fixed local origin, not
+// from FRONTEND_URL. These are constant, app-controlled origins — allow them
+// unconditionally so the desktop app can reach the API without per-deploy env
+// changes. Windows/WebView2 uses http://tauri.localhost; macOS/Linux use tauri://localhost.
+const tauriOrigins = ['tauri://localhost', 'http://tauri.localhost'];
+
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      if (!origin || allowedOrigins.includes(origin) || tauriOrigins.includes(origin)) {
+        return cb(null, true);
+      }
       cb(new Error(`Origin ${origin} not allowed by CORS`));
     },
   })
