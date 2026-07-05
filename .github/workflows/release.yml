@@ -1,4 +1,16 @@
-name: Build Desktop Release
+name: Release
+
+# One tag → everything ships. Pushing a `vX.Y.Z` tag (or running this manually
+# with a tag input) is the SINGLE release trigger for all four targets:
+#
+#   • build-windows / build-macos → desktop installers
+#   • publish                     → GitHub Release with those installers
+#   • mobile-ota                  → Expo EAS over-the-air update
+#   • deploy-coolify              → web frontend + API backend redeploy (Coolify)
+#
+# Nothing keys off a plain `master` push anymore, so the web app can no longer
+# drift a version behind the desktop/mobile builds. Bump the version, tag, push
+# the tag — done.
 
 on:
   push:
@@ -7,9 +19,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build and publish, e.g. v1.0.12"
+        description: "Release tag to build and publish, e.g. v1.0.13"
         required: true
-        default: "v1.0.12"
+        default: "v1.0.13"
 
 permissions:
   contents: write
@@ -77,6 +89,37 @@ jobs:
           path: release-assets/*
           if-no-files-found: error
 
+      - name: Collect Windows updater metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "$env:RELEASE_TAG" -replace '^v', ''
+          New-Item -ItemType Directory -Force -Path updater-metadata | Out-Null
+
+          # createUpdaterArtifacts produced a minisign .sig next to the NSIS
+          # installer. The signature is over the file BYTES, so it stays valid
+          # for the renamed copy we uploaded to the release.
+          $sig = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe.sig" -File -ErrorAction SilentlyContinue |
+            Sort-Object FullName |
+            Select-Object -First 1
+          if (-not $sig) {
+            throw "No Windows updater signature (.sig) was produced — is TAURI_SIGNING_PRIVATE_KEY set?"
+          }
+
+          $meta = [ordered]@{
+            platform  = "windows-x86_64"
+            assetName = "PLS-Calendar-v$version-setup.exe"   # matches the installer uploaded above
+            signature = (Get-Content -Raw $sig.FullName).Trim()
+          }
+          $meta | ConvertTo-Json -Depth 4 | Set-Content -Path "updater-metadata/windows.json"
+
+      - name: Upload Windows updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-metadata-windows
+          path: updater-metadata/*.json
+          if-no-files-found: error
+
   build-macos:
     name: Build macOS DMG (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -108,6 +151,12 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
+        env:
+          # --no-sign skips *Apple* code-signing (no cert in CI). The minisign
+          # UPDATER key is separate: providing it makes createUpdaterArtifacts
+          # emit the signed .app.tar.gz used for in-app auto-update.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: npm run tauri:build -- --no-sign
 
       - name: Stage macOS release assets
@@ -127,12 +176,63 @@ jobs:
 
           cp "${dmg_files[0]}" "$out_dir/PLS-Calendar-v${version}-macos-${{ matrix.arch }}.dmg"
 
+      - name: Collect macOS updater artifact + metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          out_dir="release-assets"
+          meta_dir="updater-metadata"
+          mkdir -p "$out_dir" "$meta_dir"
+
+          shopt -s nullglob
+          # macOS auto-update ships the .app.tar.gz (NOT the DMG). Its .sig may be
+          # absent if the build could not sign — keep macOS updater support
+          # best-effort so a signing hiccup never blocks the whole release.
+          sigs=(src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)
+          if [ "${#sigs[@]}" -eq 0 ]; then
+            echo "::warning::No macOS updater signature for ${{ matrix.arch }} — skipping auto-update metadata (fresh DMG install still ships)."
+            exit 0
+          fi
+
+          sig="${sigs[0]}"
+          bundle="${sig%.sig}"
+          if [ ! -f "$bundle" ]; then
+            echo "::warning::macOS updater bundle missing for ${{ matrix.arch }} — skipping."
+            exit 0
+          fi
+
+          case "${{ matrix.arch }}" in
+            arm64) platform="darwin-aarch64" ;;
+            x64)   platform="darwin-x86_64" ;;
+            *)     echo "::error::Unknown arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+
+          asset_name="PLS-Calendar-v${version}-macos-${{ matrix.arch }}.app.tar.gz"
+          cp "$bundle" "$out_dir/$asset_name"
+
+          SIG_FILE="$sig" ASSET_NAME="$asset_name" PLATFORM="$platform" node -e "
+            const fs = require('fs');
+            fs.writeFileSync('$meta_dir/macos-${{ matrix.arch }}.json', JSON.stringify({
+              platform:  process.env.PLATFORM,
+              assetName: process.env.ASSET_NAME,
+              signature: fs.readFileSync(process.env.SIG_FILE, 'utf8').trim(),
+            }, null, 2));
+          "
+
       - name: Upload macOS release assets
         uses: actions/upload-artifact@v4
         with:
           name: release-assets-macos-${{ matrix.arch }}
           path: release-assets/*
           if-no-files-found: error
+
+      - name: Upload macOS updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-metadata-macos-${{ matrix.arch }}
+          path: updater-metadata/*.json
+          if-no-files-found: ignore
 
   publish:
     name: Publish GitHub Release
@@ -149,6 +249,61 @@ jobs:
           merge-multiple: true
           path: release-assets
 
+      - name: Download updater metadata
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-metadata-*
+          merge-multiple: true
+          path: updater-metadata
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate latest.json (desktop auto-update manifest)
+        env:
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const tag = process.env.TAG;
+          const version = tag.replace(/^v/, '');
+          const base = `https://github.com/Hunter52302/life-calendar/releases/download/${tag}`;
+
+          // One entry per platform whose build produced a signed updater artifact.
+          const platforms = {};
+          const dir = 'updater-metadata';
+          const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => f.endsWith('.json')) : [];
+          for (const file of files) {
+            const meta = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+            platforms[meta.platform] = {
+              url: `${base}/${encodeURIComponent(meta.assetName)}`,
+              signature: meta.signature,
+            };
+          }
+
+          // Windows is the primary desktop target and is reliably signed — if it
+          // is missing something broke, so fail loudly rather than ship a
+          // manifest that silently can't update Windows users.
+          if (!platforms['windows-x86_64']) {
+            throw new Error('latest.json is missing windows-x86_64 — desktop auto-update would break for the primary platform.');
+          }
+
+          const latest = {
+            version,
+            notes: `See the GitHub release for changes: https://github.com/Hunter52302/life-calendar/releases/tag/${tag}`,
+            pub_date: new Date().toISOString(),
+            platforms,
+          };
+
+          fs.mkdirSync('release-assets', { recursive: true });
+          fs.writeFileSync('release-assets/latest.json', JSON.stringify(latest, null, 2) + '\n');
+          console.log('Generated latest.json for platforms:', Object.keys(platforms).join(', ') || '(none)');
+          NODE
+
       - name: Publish assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -157,3 +312,62 @@ jobs:
           files: release-assets/*
           fail_on_unmatched_files: true
           make_latest: true
+
+  mobile-ota:
+    name: Publish mobile OTA update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish EAS Update
+        working-directory: mobile
+        run: eas update --branch production --message "${RELEASE_TAG}" --non-interactive
+
+  deploy-coolify:
+    name: Deploy web + API (Coolify)
+    runs-on: ubuntu-latest
+    # No `needs:` — the web/API deploy is independent of the (slow) desktop
+    # builds so the live site updates promptly and isn't blocked by a macOS/
+    # Windows build hiccup. Coolify rebuilds the frontend + backend resources
+    # from their configured branch (master), which is where the tag lives.
+    steps:
+      - name: Trigger Coolify deployments
+        # COOLIFY_RESOURCE_UUIDS is a comma-separated list of the frontend and
+        # backend resource UUIDs (from each resource's Coolify URL/settings).
+        # One API call deploys them both.
+        run: |
+          set -euo pipefail
+          if [ -z "${COOLIFY_URL}" ] || [ -z "${COOLIFY_TOKEN}" ] || [ -z "${COOLIFY_RESOURCE_UUIDS}" ]; then
+            echo "::warning::Coolify deploy secrets not set (COOLIFY_URL / COOLIFY_TOKEN / COOLIFY_RESOURCE_UUIDS) — skipping API deploy. Add the secrets to enable tag-triggered web/API deploys."
+            exit 0
+          fi
+          # force=false: each release is a new commit, so Coolify rebuilds anyway
+          # (Vite's build layer busts on changed source → fresh __APP_VERSION__),
+          # while reusing safe layer cache. force=true would no-cache-rebuild every
+          # time and pile disk onto the host — a common cause of Coolify falling
+          # over. Trigger a clean rebuild from the Coolify UI on the rare cache issue.
+          curl --fail-with-body -sS -X GET \
+            "${COOLIFY_URL%/}/api/v1/deploy?uuid=${COOLIFY_RESOURCE_UUIDS}&force=false" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}"
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_RESOURCE_UUIDS: ${{ secrets.COOLIFY_RESOURCE_UUIDS }}
