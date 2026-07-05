@@ -93,6 +93,7 @@ function integrationFromRecord(record) {
     label: asNullableString(record.label),
     endpoint_url: asNullableString(record.endpoint_url),
     push_token: asNullableString(record.push_token),
+    email_address: asNullableString(record.email_address),
     include_hints: asBool(record.include_hints, false),
     enabled: asBool(record.enabled, true),
   };
@@ -106,6 +107,7 @@ function integrationToRecord(userId, integration) {
     label: integration.label ?? null,
     endpoint_url: integration.endpoint_url ?? null,
     push_token: integration.push_token ?? null,
+    email_address: integration.email_address ?? null,
     include_hints: integration.include_hints === true,
     enabled: integration.enabled !== false,
   };
