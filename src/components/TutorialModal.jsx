@@ -409,7 +409,7 @@ export const TOPICS = [
           <>
             <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">Open the FAB and choose <strong className="text-gray-800 dark:text-gray-200">Travel Buffer</strong>. Enter a <strong>From</strong> and <strong>To</strong> address (your saved home address pre-fills "From").</p>
             <ul className="space-y-1 text-left text-sm text-gray-600 dark:text-gray-400">
-              <li>The app calculates the route using open-source routing (OSRM) based on the two addresses you give it</li>
+              <li>The app calculates the route using open-source routing (OpenStreetMap + OpenRouteService) based on the two addresses you give it</li>
               <li>Once both fields are filled, it automatically estimates duration and distance</li>
               <li>Your event's end time is set automatically â€” rounded up to the nearest 30-minute slot from the estimated drive duration</li>
               <li>You can still edit the time manually if the estimate is off</li>

@@ -62,6 +62,7 @@ services:
       MS_OAUTH_CLIENT_ID: ${MS_OAUTH_CLIENT_ID:-}
       MS_OAUTH_CLIENT_SECRET: ${MS_OAUTH_CLIENT_SECRET:-}
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      ORS_API_KEY: ${ORS_API_KEY:-}
       TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
       # Desktop-app release relay (lets downloads work while the repo is private).
       GITHUB_RELEASES_REPO: ${GITHUB_RELEASES_REPO:-Hunter52302/life-calendar}

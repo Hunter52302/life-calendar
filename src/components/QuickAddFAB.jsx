@@ -13,6 +13,10 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { todayStr } from '../lib/utils';
 import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
+import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
+import { applyTrafficPadding } from '../lib/trafficPadding.js';
+import { api } from '../lib/api.js';
+import RouteAttribution from './RouteAttribution.jsx';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions.js';
@@ -294,7 +298,21 @@ const BUFFER_CAT_ID = 'drive-time';
 const BUFFER_CAT_COLOR = '#F97316';
 const BUFFER_OPTIONS = [15, 30, 45, 60];
 
-function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
+/**
+ * Best-guess "From" address for a buffer starting at startDate/startTime:
+ * the location of the most recent Live event ending at or before that moment
+ * on the same day, falling back to the saved home address.
+ */
+function suggestOrigin(allEvents, startDate, startTime, homeAddress) {
+  const { week_start, day_of_week } = dateToWeekData(startDate);
+  return suggestOriginFromEvents(
+    allEvents.filter(e => e.calendar === 'actual'),
+    { week_start, day_of_week, startMinutes: timeToSlot(startTime) * 30 },
+    homeAddress
+  );
+}
+
+function TravelBufferForm({ militaryTime = false, homeAddress = '', allEvents = [], onSave, onClose }) {
   const start = nextHourStr();
 
   const [label, setLabel] = useState('Travel Buffer');
@@ -306,6 +324,23 @@ function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
   const inputRef = useRef(null);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
+  // Automatic start/end points. "From" is seeded from the preceding event (or
+  // home) but stays editable; once the user types in it we stop auto-updating.
+  const suggestedOrigin = useMemo(
+    () => suggestOrigin(allEvents, startDate, startTime, homeAddress),
+    [allEvents, startDate, startTime, homeAddress]
+  );
+  const [fromAddr, setFromAddr] = useState(suggestedOrigin);
+  const [toAddr, setToAddr] = useState('');
+  const fromTouched = useRef(false);
+  useEffect(() => {
+    if (!fromTouched.current) setFromAddr(suggestedOrigin);
+  }, [suggestedOrigin]);
+
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState('');
+  const [estimateInfo, setEstimateInfo] = useState('');
+
   const effectiveMinutes = customMinutes === '' ? minutes : Math.max(1, Number(customMinutes) || 1);
   const endTime = slotToTimeStr(timeToSlot(startTime) + Math.max(1, Math.ceil(effectiveMinutes / 30)));
 
@@ -314,9 +349,33 @@ function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
     if (endDate < val) setEndDate(val);
   }
 
+  async function handleEstimate() {
+    const from = fromAddr.trim();
+    const to = toAddr.trim();
+    if (!from || !to || estimating) return;
+    setEstimating(true);
+    setEstimateError('');
+    setEstimateInfo('');
+    try {
+      const { minutes: mins, meters } = await api.travelTime.estimate(from, to);
+      const dow = new Date(startDate + 'T00:00:00').getDay();
+      const hour = Number(startTime.split(':')[0]) || 0;
+      const { minutes: padded, pct } = applyTrafficPadding(mins, dow, hour);
+      setCustomMinutes(String(padded));
+      const miles = meters ? ` · ${(meters / 1609.34).toFixed(1)} mi` : '';
+      const pad = pct > 0 ? ` (incl. ~${pct}% traffic)` : '';
+      setEstimateInfo(`Estimated ${padded} min drive${miles}${pad}`);
+    } catch (err) {
+      setEstimateError(err.message || 'Could not estimate drive time.');
+    } finally {
+      setEstimating(false);
+    }
+  }
+
   function handleSave() {
     if (!label.trim()) return;
     const segments = buildSegments(startDate, startTime, endDate, endTime);
+    const destination = toAddr.trim();
     for (const seg of segments) {
       const { week_start, day_of_week } = dateToWeekData(seg.date);
       onSave({
@@ -326,10 +385,13 @@ function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
         slot_start: seg.slotStart, slot_duration: seg.slotDuration,
         precision: 0.5, calendar: 'actual', source: 'manual', is_all_day: false,
         travel_buffer_minutes: effectiveMinutes,
+        ...(destination ? { location: destination } : {}),
       });
     }
     onClose();
   }
+
+  const canEstimate = !!fromAddr.trim() && !!toAddr.trim() && !estimating;
 
   return (
     <FormShell title="Quick Add Travel Buffer" accent={BUFFER_CAT_COLOR} onClose={onClose}>
@@ -337,13 +399,51 @@ function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
         <input ref={inputRef} type="text" value={label} onChange={e => setLabel(e.target.value)}
           placeholder="Travel Buffer" className={inputCls} />
       </Field>
+
+      {/* Automatic drive-time: enter a start + destination, estimate the buffer */}
+      <div className="space-y-2 rounded-xl border border-gray-100 dark:border-gray-700 p-3">
+        <Field label="From (start)">
+          <input
+            type="text" value={fromAddr}
+            onChange={e => { fromTouched.current = true; setFromAddr(e.target.value); setEstimateInfo(''); }}
+            placeholder="Starting address"
+            className={inputCls}
+          />
+        </Field>
+        <Field label="To (destination)">
+          <input
+            type="text" value={toAddr}
+            onChange={e => { setToAddr(e.target.value); setEstimateInfo(''); }}
+            placeholder="Destination address"
+            className={inputCls}
+          />
+        </Field>
+        <button
+          type="button" onClick={handleEstimate} disabled={!canEstimate}
+          className="w-full py-2 rounded-lg text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed transition-opacity hover:opacity-90"
+          style={{ backgroundColor: BUFFER_CAT_COLOR }}
+        >
+          {estimating ? 'Estimating…' : 'Estimate drive time'}
+        </button>
+        {estimateInfo && (
+          <p className="text-[11px] text-green-600 dark:text-green-400">{estimateInfo}</p>
+        )}
+        {estimateError && (
+          <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>
+        )}
+        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+          Approximate rush-hour padding, not live traffic. Estimating sends these addresses to the routing service.
+        </p>
+        <RouteAttribution />
+      </div>
+
       <Field label="Duration">
         <div className="flex flex-wrap gap-1.5">
           {BUFFER_OPTIONS.map(opt => (
             <button
               key={opt}
               type="button"
-              onClick={() => { setMinutes(opt); setCustomMinutes(''); }}
+              onClick={() => { setMinutes(opt); setCustomMinutes(''); setEstimateInfo(''); }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${customMinutes === '' && minutes === opt ? 'text-white border-transparent' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'}`}
               style={customMinutes === '' && minutes === opt ? { backgroundColor: BUFFER_CAT_COLOR } : {}}
             >
@@ -359,7 +459,7 @@ function TravelBufferForm({ militaryTime = false, onSave, onClose }) {
             className="w-24 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Manual time before event. No route lookup.</p>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Set manually, or fill it automatically with an estimate above.</p>
       </Field>
       <DateRow
         startDate={startDate} endDate={endDate}
@@ -487,6 +587,7 @@ function clampToViewport(p) {
 export default function QuickAddFAB({
   allCategories    = [],
   allEvents         = [],
+  homeAddress      = '',
   militaryTime     = false,
   draggable        = false,
   posResetKey      = 0,
@@ -665,6 +766,7 @@ export default function QuickAddFAB({
       )}
       {mode === 'buffer' && (
         <TravelBufferForm militaryTime={militaryTime}
+          homeAddress={homeAddress} allEvents={allEvents}
           onSave={handleAddBuffer} onClose={() => setMode(null)} />
       )}
       {mode === 'parse' && (

@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { DAYS_FULL } from '../lib/constants';
-import { hoursToLabel, generateRepeatInstances, generateId } from '../lib/utils';
+import { hoursToLabel, generateRepeatInstances, generateId, formatAddress } from '../lib/utils';
+import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
+import { applyTrafficPadding } from '../lib/trafficPadding.js';
+import { api } from '../lib/api.js';
 import MapProviderPicker from './MapProviderPicker.jsx';
+import RouteAttribution from './RouteAttribution.jsx';
 import EventActionButtons from './EventActionButtons.jsx';
 import { isLikelyUrl, openExternalUrl } from '../lib/handoffActions.js';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
@@ -51,6 +55,7 @@ export default function AddEventForm({
   allCategories,
   homeAddress = '',
   savedAddresses = [],
+  siblingEvents = [],
   eventTitleSuggestions = [],
   onSave,
   onAddEvents,
@@ -98,6 +103,43 @@ export default function AddEventForm({
     const newStart = Math.max(0, slotStart - slotsToSubtract);
     setSlotStart(newStart);
     setSlotEnd(newStart + duration);
+  }
+
+  // Automatic drive-time estimate: origin = the previous event on this day
+  // (else home base), destination = this event's location.
+  const [estimating, setEstimating] = useState(false);
+  const [estimateError, setEstimateError] = useState('');
+  const [estimateInfo, setEstimateInfo] = useState('');
+  const originAddress = useMemo(
+    () => suggestOriginFromEvents(
+      siblingEvents,
+      { week_start: weekStart, day_of_week: days[0], startMinutes: slotStart * formPrecision * 60 },
+      homeAddress,
+      { excludeId: event?.id }
+    ),
+    [siblingEvents, weekStart, days, slotStart, formPrecision, homeAddress, event?.id]
+  );
+
+  async function estimateTravelBuffer() {
+    const from = originAddress.trim();
+    const to = location.trim();
+    if (!from || !to || estimating) return;
+    setEstimating(true);
+    setEstimateError('');
+    setEstimateInfo('');
+    try {
+      const { minutes, meters } = await api.travelTime.estimate(from, to);
+      const hour = Math.floor(slotStart * formPrecision) % 24;
+      const { minutes: padded, pct } = applyTrafficPadding(minutes, days[0], hour);
+      setTravelBufferMinutes(padded);
+      const miles = meters ? ` · ${(meters / 1609.34).toFixed(1)} mi` : '';
+      const pad = pct > 0 ? ` (incl. ~${pct}% traffic)` : '';
+      setEstimateInfo(`Estimated ${padded} min drive${miles}${pad}`);
+    } catch (err) {
+      setEstimateError(err.message || 'Could not estimate drive time.');
+    } finally {
+      setEstimating(false);
+    }
   }
 
   // Category editing state
@@ -403,19 +445,19 @@ export default function AddEventForm({
             </div>
 
             {/* Saved address quick-fill */}
-            {(homeAddress || savedAddresses.length > 0) && (
+            {(formatAddress(homeAddress) || savedAddresses.length > 0) && (
               <div className="flex flex-wrap gap-1.5">
-                {homeAddress && (
-                  <button type="button" onClick={() => setLocation(homeAddress)}
+                {formatAddress(homeAddress) && (
+                  <button type="button" onClick={() => setLocation(formatAddress(homeAddress))}
                     className="text-[11px] px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors truncate max-w-[140px]"
-                    title={homeAddress}>
+                    title={formatAddress(homeAddress)}>
                     Saved address: Home
                   </button>
                 )}
                 {savedAddresses.map(addr => (
-                  <button key={addr.id} type="button" onClick={() => setLocation(addr.address)}
+                  <button key={addr.id} type="button" onClick={() => setLocation(formatAddress(addr.address))}
                     className="text-[11px] px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors truncate max-w-[140px]"
-                    title={addr.address}>
+                    title={formatAddress(addr.address)}>
                     Saved address: {addr.label}
                   </button>
                 ))}
@@ -428,7 +470,34 @@ export default function AddEventForm({
 
           <div className="space-y-2">
             <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Travel buffer</label>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">Manual time blocked before event. No route lookup.</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">Time blocked before the event. Set it manually, or estimate the drive automatically.</p>
+
+            {/* Automatic estimate: previous stop (or home) → this event's location */}
+            {!isAllDay && (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={estimateTravelBuffer}
+                  disabled={!originAddress.trim() || !location.trim() || estimating}
+                  className="w-full py-2 rounded-lg border border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 text-sm font-medium hover:bg-orange-100 dark:hover:bg-orange-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                  {estimating ? 'Estimating…' : 'Estimate drive time'}
+                </button>
+                {!location.trim() && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Add a location above to estimate the drive.</p>
+                )}
+                {location.trim() && !originAddress.trim() && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Set a home address in your profile (or add an earlier event with a location) to estimate.</p>
+                )}
+                {location.trim() && originAddress.trim() && !estimateInfo && !estimateError && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate" title={originAddress}>From {originAddress} → this location</p>
+                )}
+                {estimateInfo && <p className="text-[11px] text-green-600 dark:text-green-400">{estimateInfo}</p>}
+                {estimateError && <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>}
+                {location.trim() && <p className="text-[10px] text-gray-400 dark:text-gray-500">Estimating sends this address to the routing service.</p>}
+                <RouteAttribution />
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-1.5">
               {[0, 15, 30, 45, 60].map(minutes => (
                 <button
