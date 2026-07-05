@@ -22,6 +22,7 @@ import oauthGoogleRoute     from './routes/oauthGoogle.js';
 import oauthMicrosoftRoute  from './routes/oauthMicrosoft.js';
 import calendarConnectionsRoute from './routes/calendarConnections.js';
 import releasesRoute         from './routes/releases.js';
+import travelTimeRoute       from './routes/travelTime.js';
 import { initializeInfisical } from './lib/secrets.js';
 import { startScheduler }   from './services/notificationService.js';
 import { pocketbaseEvents } from './lib/pocketbaseEvents.js';
@@ -95,6 +96,7 @@ app.use('/api/oauth/microsoft', oauthMicrosoftRoute);
 app.use('/api/calendar-connections', calendarConnectionsRoute);
 // Public: relays GitHub releases for the (private) repo so desktop downloads work.
 app.use('/api/releases',        releasesRoute);
+app.use('/api/travel-time',     travelTimeRoute);
 
 await initializeInfisical();
 
@@ -165,6 +167,7 @@ app.listen(PORT, () => {
   console.log(`VAPID push        ->  ${process.env.VAPID_PUBLIC_KEY ? 'configured' : 'not configured'}`);
   console.log(`Google Calendar   ->  ${process.env.GOOGLE_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
   console.log(`Microsoft Calendar->  ${process.env.MS_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
+  console.log(`Drive-time buffer ->  ${process.env.ORS_API_KEY ? 'configured' : 'not configured'}`);
   startScheduler();
 });
 

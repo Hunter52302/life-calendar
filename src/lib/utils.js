@@ -40,6 +40,24 @@ export function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+/**
+ * Flatten an address into a single comma-separated string suitable for
+ * geocoding / a maps handoff. Accepts either a plain string or the structured
+ * address object used by the profile ({ line1, line2, city, region, ... }).
+ */
+export function formatAddress(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  const line1 = value.line1 ?? value.primary ?? value.address ?? '';
+  const line2 = value.line2 ?? value.secondary ?? '';
+  const city = value.city ?? value.locality ?? '';
+  const region = value.region ?? value.stateProvince ?? value.state ?? value.province ?? '';
+  const postalCode = value.postalCode ?? value.zipCode ?? value.zip ?? '';
+  const country = value.country ?? '';
+  const cityLine = [city, [region, postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [line1, line2, cityLine, country].map(s => String(s).trim()).filter(Boolean).join(', ');
+}
+
 export function hoursToLabel(hours) {
   if (hours === 0) return '0h';
   const sign = hours < 0 ? '-' : '';

@@ -178,5 +178,10 @@ export const api = {
     set: (data) => request('PUT', '/llm-settings', data),
   },
 
+  travelTime: {
+    /** Estimate driving minutes between two plaintext addresses. */
+    estimate: (origin, destination) => request('POST', '/travel-time', { origin, destination }),
+  },
+
 };
 
