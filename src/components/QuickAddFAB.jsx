@@ -11,8 +11,9 @@
  */
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { todayStr, formatAddress } from '../lib/utils';
+import { todayStr } from '../lib/utils';
 import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
+import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
 import { api } from '../lib/api.js';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
@@ -297,29 +298,16 @@ const BUFFER_OPTIONS = [15, 30, 45, 60];
 
 /**
  * Best-guess "From" address for a buffer starting at startDate/startTime:
- * the location of the most recent Live event that ends at or before that
- * moment on the same day, falling back to the saved home address.
+ * the location of the most recent Live event ending at or before that moment
+ * on the same day, falling back to the saved home address.
  */
 function suggestOrigin(allEvents, startDate, startTime, homeAddress) {
-  const home = formatAddress(homeAddress);
-  try {
-    const { week_start, day_of_week } = dateToWeekData(startDate);
-    const startMin = timeToSlot(startTime) * 30;
-    let best = null; // { endMin, location }
-    for (const e of allEvents) {
-      if (e.calendar !== 'actual' || e.is_all_day) continue;
-      if (e.week_start !== week_start || e.day_of_week !== day_of_week) continue;
-      const loc = (e.location || '').trim();
-      if (!loc) continue;
-      const prec = e.precision || 0.5;
-      const endMin = (e.slot_start + e.slot_duration) * prec * 60;
-      if (endMin > startMin) continue;
-      if (!best || endMin > best.endMin) best = { endMin, location: loc };
-    }
-    return best?.location ?? home;
-  } catch {
-    return home;
-  }
+  const { week_start, day_of_week } = dateToWeekData(startDate);
+  return suggestOriginFromEvents(
+    allEvents.filter(e => e.calendar === 'actual'),
+    { week_start, day_of_week, startMinutes: timeToSlot(startTime) * 30 },
+    homeAddress
+  );
 }
 
 function TravelBufferForm({ militaryTime = false, homeAddress = '', allEvents = [], onSave, onClose }) {

@@ -240,6 +240,7 @@ export default function PlanView({
           onUpdateSeries={onUpdateSeries} onDeleteSeries={onDeleteSeries}
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
           homeAddress={homeAddress} savedAddresses={savedAddresses}
+          siblingEvents={weekEvents}
           onClose={() => setFormState(null)}
         />
       )}
