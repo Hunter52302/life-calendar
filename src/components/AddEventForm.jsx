@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { DAYS_FULL } from '../lib/constants';
 import { hoursToLabel, generateRepeatInstances, generateId, formatAddress } from '../lib/utils';
 import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
+import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
 import MapProviderPicker from './MapProviderPicker.jsx';
 import EventActionButtons from './EventActionButtons.jsx';
@@ -127,9 +128,12 @@ export default function AddEventForm({
     setEstimateInfo('');
     try {
       const { minutes, meters } = await api.travelTime.estimate(from, to);
-      setTravelBufferMinutes(minutes);
+      const hour = Math.floor(slotStart * formPrecision) % 24;
+      const { minutes: padded, pct } = applyTrafficPadding(minutes, days[0], hour);
+      setTravelBufferMinutes(padded);
       const miles = meters ? ` · ${(meters / 1609.34).toFixed(1)} mi` : '';
-      setEstimateInfo(`Estimated ${minutes} min drive${miles}`);
+      const pad = pct > 0 ? ` (incl. ~${pct}% traffic)` : '';
+      setEstimateInfo(`Estimated ${padded} min drive${miles}${pad}`);
     } catch (err) {
       setEstimateError(err.message || 'Could not estimate drive time.');
     } finally {

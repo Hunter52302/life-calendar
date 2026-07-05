@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { todayStr } from '../lib/utils';
 import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib/calendarUtils.js';
 import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
+import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
@@ -356,9 +357,13 @@ function TravelBufferForm({ militaryTime = false, homeAddress = '', allEvents = 
     setEstimateInfo('');
     try {
       const { minutes: mins, meters } = await api.travelTime.estimate(from, to);
-      setCustomMinutes(String(mins));
+      const dow = new Date(startDate + 'T00:00:00').getDay();
+      const hour = Number(startTime.split(':')[0]) || 0;
+      const { minutes: padded, pct } = applyTrafficPadding(mins, dow, hour);
+      setCustomMinutes(String(padded));
       const miles = meters ? ` · ${(meters / 1609.34).toFixed(1)} mi` : '';
-      setEstimateInfo(`Estimated ${mins} min drive${miles}`);
+      const pad = pct > 0 ? ` (incl. ~${pct}% traffic)` : '';
+      setEstimateInfo(`Estimated ${padded} min drive${miles}${pad}`);
     } catch (err) {
       setEstimateError(err.message || 'Could not estimate drive time.');
     } finally {
@@ -426,7 +431,7 @@ function TravelBufferForm({ militaryTime = false, homeAddress = '', allEvents = 
           <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>
         )}
         <p className="text-[11px] text-gray-400 dark:text-gray-500">
-          Free-flow driving time via OpenStreetMap + OpenRouteService. No live traffic.
+          Routing via OpenStreetMap + OpenRouteService, with approximate rush-hour padding. Not live traffic.
         </p>
       </div>
 
