@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
-import { slotToTime, addDays, formatShortDate } from '../lib/utils';
+import { slotToTime, addDays, formatShortDate, daysBetween, getWeekStart } from '../lib/utils';
 import EventBlock from './EventBlock';
 
 const TIME_COL_WIDTH = 48;
@@ -14,17 +14,28 @@ export default function CalendarGrid({
 }) {
   const slotCount = precision === 1 ? 24 : 48;
   const totalHeight = slotCount * SLOT_HEIGHT;
+  // Columns are day *offsets* from the display weekStart (0..6), not stored day_of_week
+  // values — so the grid renders correctly whether the week starts Sunday or Monday.
   const dayIndices = view === 'week' ? [0, 1, 2, 3, 4, 5, 6] : [activeDay];
 
+  // Storage keeps events Sunday-anchored (week_start + day_of_week). Map an event to its
+  // display column, and translate a display column back to storage fields on drop.
+  const colOf = e => daysBetween(weekStart, addDays(e.week_start, e.day_of_week));
+  function storageForCol(col) {
+    const dateStr = addDays(weekStart, col);
+    const d = new Date(dateStr + 'T00:00:00');
+    return { week_start: getWeekStart(d), day_of_week: d.getDay() };
+  }
+
   const dayColRefs = useRef({});
-  const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
+  const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, col, slotStart }
   const justDraggedIdRef = useRef(null);
-  const [drag, setDrag] = useState(null); // render snapshot: { id, dayOfWeek, slotStart }
+  const [drag, setDrag] = useState(null); // render snapshot: { id, col, slotStart }
 
   function handleDragStart(event, pointerId, clientX, clientY) {
     dragRef.current = {
       event, pointerId, startX: clientX, startY: clientY, hasDragged: false,
-      dayOfWeek: event.day_of_week, slotStart: event.slot_start,
+      col: colOf(event), slotStart: event.slot_start,
     };
   }
 
@@ -40,48 +51,48 @@ export default function CalendarGrid({
   // which re-parents the EventBlock into a different day column and remounts it — never
   // loses the rest of the gesture.
   useEffect(() => {
-    function resolveDayAndSlot(clientX, clientY, fallbackDay) {
-      let targetDay = fallbackDay;
+    function resolveColAndSlot(clientX, clientY, fallbackCol) {
+      let targetCol = fallbackCol;
       for (const key of Object.keys(dayColRefs.current)) {
         const el = dayColRefs.current[key];
         if (!el) continue;
         const rect = el.getBoundingClientRect();
         if (clientX >= rect.left && clientX < rect.right) {
-          targetDay = Number(key);
+          targetCol = Number(key);
           break;
         }
       }
-      const colEl = dayColRefs.current[targetDay];
+      const colEl = dayColRefs.current[targetCol];
       let slot = 0;
       if (colEl) {
         const rect = colEl.getBoundingClientRect();
         slot = Math.max(0, Math.min(slotCount - 1, Math.floor((clientY - rect.top) / SLOT_HEIGHT)));
       }
-      return { dayOfWeek: targetDay, slot };
+      return { col: targetCol, slot };
     }
     function handlePointerMove(e) {
       const d = dragRef.current;
       if (!d || e.pointerId !== d.pointerId) return;
       if (!d.hasDragged && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) <= DRAG_THRESH) return;
       d.hasDragged = true;
-      const { dayOfWeek, slot } = resolveDayAndSlot(e.clientX, e.clientY, d.dayOfWeek);
+      const { col, slot } = resolveColAndSlot(e.clientX, e.clientY, d.col);
       // Convert from the grid's display precision back to the event's own slot units, and
       // clamp to that day's last valid slot — display/event precision can differ (e.g. a
       // 1hr-precision event dragged on a 30min grid), and an unclamped round() can land on
       // slotCount itself, which actually belongs to the next day.
       const eventSlotCount = d.event.precision <= 0.5 ? 48 : 24;
       const slotStart = Math.min(eventSlotCount - 1, Math.round((slot * precision) / d.event.precision));
-      if (dayOfWeek === d.dayOfWeek && slotStart === d.slotStart) return;
-      d.dayOfWeek = dayOfWeek;
+      if (col === d.col && slotStart === d.slotStart) return;
+      d.col = col;
       d.slotStart = slotStart;
-      setDrag({ id: d.event.id, dayOfWeek, slotStart });
+      setDrag({ id: d.event.id, col, slotStart });
     }
     function handlePointerEnd(e) {
       const d = dragRef.current;
       if (!d || e.pointerId !== d.pointerId) return;
-      if (d.hasDragged && (d.dayOfWeek !== d.event.day_of_week || d.slotStart !== d.event.slot_start)) {
+      if (d.hasDragged && (d.col !== colOf(d.event) || d.slotStart !== d.event.slot_start)) {
         justDraggedIdRef.current = d.event.id;
-        onUpdateEvent?.(d.event.id, { day_of_week: d.dayOfWeek, slot_start: d.slotStart });
+        onUpdateEvent?.(d.event.id, { ...storageForCol(d.col), slot_start: d.slotStart });
       }
       dragRef.current = null;
       setDrag(null);
@@ -94,20 +105,21 @@ export default function CalendarGrid({
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
     };
-  }, [precision, slotCount, onUpdateEvent]);
+  }, [precision, slotCount, onUpdateEvent, weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Separate all-day events from timed events
+  // Separate all-day events from timed events. `_dayCol` is the display column (offset from
+  // weekStart); it is distinct from EventBlock's `_col` (horizontal overlap lane).
   const allDayByDay = {};
   const rawTimedEvents = [];
   events.forEach(e => {
     if (e.is_all_day) {
-      const d = e.day_of_week;
-      if (!allDayByDay[d]) allDayByDay[d] = [];
-      allDayByDay[d].push(e);
+      const c = colOf(e);
+      if (!allDayByDay[c]) allDayByDay[c] = [];
+      allDayByDay[c].push(e);
     } else if (drag && e.id === drag.id) {
-      rawTimedEvents.push({ ...e, day_of_week: drag.dayOfWeek, slot_start: drag.slotStart, _isDragPreview: true });
+      rawTimedEvents.push({ ...e, _dayCol: drag.col, slot_start: drag.slotStart, _isDragPreview: true });
     } else {
-      rawTimedEvents.push(e);
+      rawTimedEvents.push({ ...e, _dayCol: colOf(e) });
     }
   });
 
@@ -126,15 +138,15 @@ export default function CalendarGrid({
         _overflowContinues: true,
         _totalHours: totalHours,
       });
-      // Continuation block: runs from midnight on the next day
-      const nextDay = event.day_of_week + 1;
-      if (nextDay <= 6 && dayIndices.includes(nextDay)) {
+      // Continuation block: runs from midnight on the next day (next display column)
+      const nextCol = event._dayCol + 1;
+      if (nextCol <= 6 && dayIndices.includes(nextCol)) {
         timedEvents.push({
           ...event,
           id: String(event.id ?? event.label) + '_cont',
           slot_start: 0,
           slot_duration: overflowSlots,
-          day_of_week: nextDay,
+          _dayCol: nextCol,
           _isContinuation: true,
           _totalHours: totalHours,
         });
@@ -147,7 +159,7 @@ export default function CalendarGrid({
   // Assign horizontal column indices so overlapping events render side-by-side instead of stacking
   const eventsByDayMap = new Map();
   timedEvents.forEach(event => {
-    const d = event.day_of_week;
+    const d = event._dayCol;
     if (!eventsByDayMap.has(d)) eventsByDayMap.set(d, []);
     eventsByDayMap.get(d).push(event);
   });
@@ -205,7 +217,7 @@ export default function CalendarGrid({
                 onClick={view === 'week' && onDayHeaderClick ? () => onDayHeaderClick(dayIndex) : undefined}
               >
                 <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide font-medium leading-tight">
-                  {DAYS_SHORT[dayIndex]}
+                  {DAYS_SHORT[new Date(addDays(weekStart, dayIndex) + 'T00:00:00').getDay()]}
                 </div>
                 <div className={`font-semibold text-gray-800 dark:text-gray-200 leading-tight ${view === 'week' ? 'text-xs' : 'text-sm'}`}>
                   {view === 'week'
@@ -277,7 +289,7 @@ export default function CalendarGrid({
 
           {/* Day columns */}
           {dayIndices.map(dayIndex => {
-            const dayEvents = timedEvents.filter(e => e.day_of_week === dayIndex);
+            const dayEvents = timedEvents.filter(e => e._dayCol === dayIndex);
             return (
               <div
                 key={dayIndex}

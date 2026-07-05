@@ -3,10 +3,11 @@ import { getMonthDays, getEventsForDate, todayStr } from '../lib/utils';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-function MiniMonth({ year, month, events, allCategories, onMonthClick }) {
-  const days = getMonthDays(year, month);
+function MiniMonth({ year, month, events, allCategories, onMonthClick, weekStartsOn = 0 }) {
+  const days = getMonthDays(year, month, weekStartsOn);
   const today = todayStr();
   const numWeeks = days.length / 7;
+  const orderedDayNames = [...DAYS_SHORT.slice(weekStartsOn), ...DAYS_SHORT.slice(0, weekStartsOn)];
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -22,7 +23,7 @@ function MiniMonth({ year, month, events, allCategories, onMonthClick }) {
 
       {/* Day-of-week initials */}
       <div className="grid grid-cols-7 flex-shrink-0 mb-0.5">
-        {DAYS_SHORT.map(d => (
+        {orderedDayNames.map(d => (
           <div key={d} className="text-center text-[10px] text-gray-400 dark:text-gray-500">
             {d[0]}
           </div>
@@ -71,7 +72,7 @@ function MiniMonth({ year, month, events, allCategories, onMonthClick }) {
   );
 }
 
-export default function MultiMonthView({ startYear, startMonth, monthCount, events, allCategories, onMonthClick }) {
+export default function MultiMonthView({ startYear, startMonth, monthCount, events, allCategories, onMonthClick, weekStartsOn = 0 }) {
   const months = [];
   for (let i = 0; i < monthCount; i++) {
     let y = startYear;
@@ -100,6 +101,7 @@ export default function MultiMonthView({ startYear, startMonth, monthCount, even
             events={events}
             allCategories={allCategories}
             onMonthClick={onMonthClick}
+            weekStartsOn={weekStartsOn}
           />
         ))}
       </div>

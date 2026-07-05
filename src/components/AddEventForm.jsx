@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DAYS_FULL } from '../lib/constants';
-import { hoursToLabel, generateRepeatInstances, generateId } from '../lib/utils';
+import { hoursToLabel, generateRepeatInstances, generateId, getWeekStart, addDays, daysBetween } from '../lib/utils';
 import MapProviderPicker from './MapProviderPicker.jsx';
 import EventActionButtons from './EventActionButtons.jsx';
 import { isLikelyUrl, openExternalUrl } from '../lib/handoffActions.js';
@@ -69,7 +69,13 @@ export default function AddEventForm({
 
   const [label, setLabel]       = useState(source?.label ?? '');
   const [category, setCategory] = useState(source?.category ?? allCategories[0]?.id ?? 'sleep');
-  const [days, setDays]         = useState([source?.day_of_week ?? defaultDay ?? 0]);
+  // `days` holds display-column offsets (0..6) from weekStart, not stored day_of_week values.
+  // Converted back to a Sunday-anchored { week_start, day_of_week } at save time (makeBase).
+  const [days, setDays]         = useState([
+    source
+      ? Math.max(0, Math.min(6, daysBetween(weekStart, addDays(source.week_start, source.day_of_week))))
+      : (defaultDay ?? 0),
+  ]);
   const [isAllDay, setIsAllDay] = useState(source?.is_all_day ?? defaultAllDay ?? false);
   const [slotStart, setSlotStart] = useState(source?.slot_start ?? defaultSlot ?? 8);
   const initDuration = source?.slot_duration ?? (formPrecision === 1 ? 1 : 2);
@@ -116,7 +122,7 @@ export default function AddEventForm({
     );
   }
 
-  const makeBase = (dayIndex) => {
+  const makeBase = (dayCol) => {
     const people = personName.trim() || personPhone.trim() || personEmail.trim()
       ? [{
           displayName: personName.trim(),
@@ -125,12 +131,15 @@ export default function AddEventForm({
           source: 'manual',
         }]
       : [];
+    // Translate the display column back to Sunday-anchored storage fields.
+    const dateStr = addDays(weekStart, dayCol);
+    const dateObj = new Date(dateStr + 'T00:00:00');
     return {
       label: label.trim(),
       category,
       color: selectedCategory?.color ?? '#6B7280',
-      day_of_week: dayIndex,
-      week_start: weekStart,
+      day_of_week: dateObj.getDay(),
+      week_start: getWeekStart(dateObj),
       precision: formPrecision,
       calendar,
       source: 'manual',
@@ -307,17 +316,20 @@ export default function AddEventForm({
           <div>
             <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-2 uppercase tracking-wider">Day</label>
             <div className="flex gap-1">
-              {DAYS_FULL.map((d, i) => (
-                <button key={i} type="button"
-                  onClick={() => (isEditing || isActualMode) ? setDays([i]) : toggleDay(i)}
-                  className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    days.includes(i)
-                      ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}>
-                  {d[0]}
-                </button>
-              ))}
+              {[0, 1, 2, 3, 4, 5, 6].map(col => {
+                const dow = new Date(addDays(weekStart, col) + 'T00:00:00').getDay();
+                return (
+                  <button key={col} type="button"
+                    onClick={() => (isEditing || isActualMode) ? setDays([col]) : toggleDay(col)}
+                    className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      days.includes(col)
+                        ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}>
+                    {DAYS_FULL[dow][0]}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

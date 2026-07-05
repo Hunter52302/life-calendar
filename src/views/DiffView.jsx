@@ -3,7 +3,7 @@ import { computeDiff } from '../lib/diffEngine';
 import DiffSummary from '../components/DiffSummary';
 import DiffDayBars from '../components/DiffDayBars';
 import HabitTracker from '../components/HabitTracker';
-import { addDays, todayStr, getWeekStart } from '../lib/utils';
+import { addDays, todayStr, getDisplayWeekStart } from '../lib/utils';
 
 // Named presets — id is what gets stored in activePreset
 const NAMED_PRESETS = [
@@ -20,15 +20,15 @@ const PAST_PRESETS = [
   { id: 365, label: 'Past 1 year' },
 ];
 
-function presetDates(id) {
+function presetDates(id, weekStartsOn = 0) {
   const today = todayStr();
   if (id === 'today') return { start: today, end: today };
-  if (id === 'week')  return { start: getWeekStart(), end: today };
+  if (id === 'week')  return { start: getDisplayWeekStart(new Date(), weekStartsOn), end: today };
   // numeric: past N days
   return { start: addDays(today, -(id - 1)), end: today };
 }
 
-export default function DiffView({ planEvents, actualEvents, allCategories, linkedCalendars = [], onDiffChange, budgets = {}, habitsWithStreaks = [], completions = [], onToggleHabit, onAddHabit, onUpdateHabit, onDeleteHabit }) {
+export default function DiffView({ planEvents, actualEvents, allCategories, linkedCalendars = [], onDiffChange, budgets = {}, weekStartsOn = 0, habitsWithStreaks = [], completions = [], onToggleHabit, onAddHabit, onUpdateHabit, onDeleteHabit }) {
   const init = presetDates(30);
   const [startDate, setStartDate] = useState(init.start);
   const [endDate, setEndDate] = useState(init.end);
@@ -36,7 +36,7 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
   const [showPastMenu, setShowPastMenu] = useState(false);
 
   function applyPreset(id) {
-    const { start, end } = presetDates(id);
+    const { start, end } = presetDates(id, weekStartsOn);
     setStartDate(start);
     setEndDate(end);
     setActivePreset(id);

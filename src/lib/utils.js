@@ -5,6 +5,29 @@ export function getWeekStart(date = new Date()) {
   return toDateStr(d);
 }
 
+/**
+ * Anchor date of the week *for display/navigation*, honouring the user's
+ * "day the week starts on" preference (0 = Sunday, 1 = Monday).
+ *
+ * Events are always *stored* Sunday-anchored (see getWeekStart); this helper is
+ * only for laying out the week grid and navigating between weeks, so we never
+ * have to migrate stored data when the preference changes.
+ */
+export function getDisplayWeekStart(date = new Date(), weekStartsOn = 0) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const diff = (d.getDay() - weekStartsOn + 7) % 7;
+  d.setDate(d.getDate() - diff);
+  return toDateStr(d);
+}
+
+/** Whole-day count from YYYY-MM-DD `a` to `b` (b − a), positive when b is later. */
+export function daysBetween(a, b) {
+  const da = new Date(a + 'T00:00:00');
+  const db = new Date(b + 'T00:00:00');
+  return Math.round((db - da) / 86400000);
+}
+
 export function addDays(dateStr, days) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + days);
@@ -51,12 +74,13 @@ export function hoursToLabel(hours) {
   return `${sign}${h}h ${m}m`;
 }
 
-export function getMonthDays(year, month) {
+export function getMonthDays(year, month, weekStartsOn = 0) {
   const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const leadPad = (firstDayOfMonth - weekStartsOn + 7) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const days = [];
-  for (let i = 0; i < firstDayOfMonth; i++) {
-    days.push({ dateStr: toDateStr(new Date(year, month, 1 - (firstDayOfMonth - i))), isCurrentMonth: false });
+  for (let i = 0; i < leadPad; i++) {
+    days.push({ dateStr: toDateStr(new Date(year, month, 1 - (leadPad - i))), isCurrentMonth: false });
   }
   for (let i = 1; i <= daysInMonth; i++) {
     days.push({ dateStr: toDateStr(new Date(year, month, i)), isCurrentMonth: true });

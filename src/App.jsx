@@ -53,7 +53,7 @@ const PRESET_COLORS = [
   '#6366F1', '#8B5CF6', '#A855F7', '#EC4899',
   '#6B7280', '#374151',
 ];
-import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
+import { getWeekStart, getDisplayWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId, hoursToLabel } from './lib/utils';
 import { api } from './lib/api.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
@@ -158,7 +158,10 @@ function Toggle({ checked, onChange }) {
 export default function App() {
   const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
-  const [weekStart, setWeekStart] = useState(() => getWeekStart());
+  // Day the week starts on for display/navigation: 0 = Sunday (default), 1 = Monday.
+  // Storage stays Sunday-anchored regardless (see getWeekStart), so this never migrates data.
+  const [weekStartsOn, setWeekStartsOn] = usePersistentState('lc-week-start', 0);
+  const [weekStart, setWeekStart] = useState(() => getDisplayWeekStart(new Date(), weekStartsOn));
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
   const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
   const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
@@ -549,8 +552,16 @@ export default function App() {
   function handleSearchNavigate(event) {
     const tab = event._calendar === 'plan' ? 'plan' : 'actual';
     setActiveTab(tab);
-    setWeekStart(getWeekStart(new Date(event.week_start + 'T00:00:00')));
+    const eventDate = addDays(event.week_start, event.day_of_week ?? 0);
+    setWeekStart(getDisplayWeekStart(new Date(eventDate + 'T00:00:00'), weekStartsOn));
     setSearchJump({ tab, dayOfWeek: event.day_of_week ?? 0, _id: Date.now() });
+  }
+
+  // Change which day the week starts on, re-anchoring the currently viewed week so
+  // the grid stays on the same calendar days rather than jumping.
+  function changeWeekStartsOn(next) {
+    setWeekStartsOn(next);
+    setWeekStart(prev => getDisplayWeekStart(new Date(prev + 'T00:00:00'), next));
   }
 
   const {
@@ -1074,6 +1085,27 @@ export default function App() {
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                               </label>
+                            )}
+                            {sv(['week', 'start', 'starts', 'first', 'day', 'monday', 'sunday']) && (
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Week starts on</span>
+                                <div className="flex rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5">
+                                  {[{ v: 0, label: 'Sun' }, { v: 1, label: 'Mon' }].map(opt => (
+                                    <button
+                                      key={opt.v}
+                                      type="button"
+                                      onClick={() => changeWeekStartsOn(opt.v)}
+                                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                                        weekStartsOn === opt.v
+                                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                             </div>
                             {/* ── Minimalist Mode ── */}
@@ -1846,6 +1878,40 @@ export default function App() {
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
                               Set weekly hour targets per category. They appear as progress bars in the See Your Life tab.
                             </p>
+                            {/* Week pool — 168 h total, counting down as categories are budgeted */}
+                            {(() => {
+                              const WEEK_HOURS = 168;
+                              const allocated = allCategories.reduce((sum, c) => sum + (Number(budgets[c.id]) || 0), 0);
+                              const remaining = WEEK_HOURS - allocated;
+                              const over = remaining < 0;
+                              const pct = Math.max(0, Math.min(100, Math.round((allocated / WEEK_HOURS) * 100)));
+                              return (
+                                <div className="mb-3 rounded-lg bg-gray-50 dark:bg-gray-700/40 px-2.5 py-2 space-y-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] text-gray-500 dark:text-gray-400">Week total</span>
+                                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">168 h</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] text-gray-500 dark:text-gray-400">Allocated</span>
+                                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">{hoursToLabel(allocated)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className={`text-[11px] ${over ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                      {over ? 'Over by' : 'Remaining'}
+                                    </span>
+                                    <span className={`text-xs font-bold ${over ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                                      {hoursToLabel(Math.abs(remaining))}
+                                    </span>
+                                  </div>
+                                  <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${over ? 'bg-red-500' : 'bg-blue-500'}`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {allCategories.map(cat => {
                               const val = budgets[cat.id] ?? '';
                               return (
@@ -2927,6 +2993,7 @@ export default function App() {
               events={planEvents}
               allEvents={events}
               weekStart={weekStart}
+              weekStartsOn={weekStartsOn}
               precision={precision}
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
@@ -2947,7 +3014,7 @@ export default function App() {
               onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
-              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
+              onNavigateToDate={dateStr => setWeekStart(getDisplayWeekStart(new Date(dateStr + 'T00:00:00'), weekStartsOn))}
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
               homeAddress={profile.homeAddress || ''}
               savedAddresses={profile.otherAddresses || []}
@@ -2959,6 +3026,7 @@ export default function App() {
               actualEvents={actualEvents}
               allEvents={events}
               weekStart={weekStart}
+              weekStartsOn={weekStartsOn}
               precision={precision}
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
@@ -2979,7 +3047,7 @@ export default function App() {
               onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
-              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
+              onNavigateToDate={dateStr => setWeekStart(getDisplayWeekStart(new Date(dateStr + 'T00:00:00'), weekStartsOn))}
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
               homeAddress={profile.homeAddress || ''}
               savedAddresses={profile.otherAddresses || []}
@@ -2993,6 +3061,7 @@ export default function App() {
               linkedCalendars={linkedCalendars}
               onDiffChange={state => { diffStateRef.current = state; }}
               budgets={budgets}
+              weekStartsOn={weekStartsOn}
               habitsWithStreaks={habitsWithStreaks}
               completions={completions}
               onToggleHabit={toggleCompletion}
