@@ -15,7 +15,7 @@ const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 export default function RouteAttribution({ className = '' }) {
   return (
     <p className={`text-[10px] leading-snug text-gray-400 dark:text-gray-500 ${className}`}>
-      © openrouteservice.org by HeiGIT · Map data ©{' '}
+      © openrouteservice.org by HeiGIT | Map data ©{' '}
       <a
         href={OSM_COPYRIGHT_URL}
         target="_blank"
