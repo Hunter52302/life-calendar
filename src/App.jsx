@@ -156,7 +156,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount } = useAuth();
+  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, serverReachable } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -816,7 +816,7 @@ export default function App() {
 
   // Show auth screen when not yet authenticated, ZK-locked, or while the user
   // still needs to save their one-time recovery code after registering.
-  if (recoveryCodeToShow || ['checking', 'setup', 'login', 'unlock', 'offline'].includes(authState)) {
+  if (recoveryCodeToShow || ['checking', 'choose', 'setup', 'login', 'unlock', 'offline'].includes(authState)) {
     return (
       <AuthGate
         authState={authState}
@@ -826,6 +826,9 @@ export default function App() {
         onResetPassword={handleResetPassword}
         onLogout={() => { lock(); logout(); }}
         onContinueOffline={continueOffline}
+        onChooseLocal={chooseLocal}
+        onChooseAccount={chooseAccount}
+        serverReachable={serverReachable}
         recoveryCode={recoveryCodeToShow}
         onRecoverySaved={() => { setRecoveryCodeToShow(null); markUnlocked(); }}
         theme={theme}
@@ -899,7 +902,15 @@ export default function App() {
               <span title="Syncing…" className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse flex-shrink-0" />
             )}
             {authState === 'offline-ok' && (
-              <span title="Offline — data saved locally" className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+              <button
+                type="button"
+                onClick={switchToAccount}
+                title="Local mode — data saved only on this device. Click to create an account and sync."
+                className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span className="hidden sm:inline text-[11px] text-amber-600 dark:text-amber-400 font-medium">Local · Sync</span>
+              </button>
             )}
             {/* Search button */}
             {eff.searchBar && (

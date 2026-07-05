@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import AccountChoice from './AccountChoice';
 
 /**
  * AuthGate — shown instead of the app when the user needs to authenticate or
  * unlock. Envelope zero-knowledge model:
  *
  *   'checking' — spinner while we ping the server
+ *   'choose'   — first-ever launch: pick "no account" (local) or "account"
  *   'setup'    — first-ever launch: create the first (admin) account
  *   'login'    — email + password, with register / forgot-password toggles
  *   'unlock'   — token valid but the data key needs the password (after reload)
@@ -19,6 +21,7 @@ const inputCls = 'w-full px-4 py-3 rounded-xl border border-gray-200 dark:border
 export default function AuthGate({
   authState, onLogin, onRegister, onUnlock, onResetPassword,
   onContinueOffline, onLogout, recoveryCode, onRecoverySaved, theme,
+  onChooseLocal, onChooseAccount, serverReachable = true,
 }) {
   const [mode, setMode]         = useState(null); // 'login' | 'register' | 'reset'
   const [email, setEmail]       = useState('');
@@ -88,6 +91,18 @@ export default function AuthGate({
 
   const showForm = ['setup', 'login', 'unlock'].includes(authState);
 
+  // ── First-run choice: account vs local-only ────────────────────────────────
+  if (authState === 'choose') {
+    return (
+      <AccountChoice
+        onChooseLocal={onChooseLocal}
+        onChooseAccount={onChooseAccount}
+        serverReachable={serverReachable}
+        theme={theme}
+      />
+    );
+  }
+
   // ── One-time recovery-code screen (post-registration) ──────────────────────
   if (recoveryCode) {
     return (
@@ -122,10 +137,6 @@ export default function AuthGate({
     );
   }
 
-  const title = authState === 'unlock' ? 'Unlock your data'
-    : isReset ? 'Reset your password'
-    : isRegister ? 'Create your account'
-    : 'Welcome back';
   const subtitle = authState === 'checking' ? 'Connecting…'
     : authState === 'offline' ? 'Server is not reachable.'
     : authState === 'unlock' ? 'Enter your password to unlock your encrypted data.'
