@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments, dateToWeekData } from '../lib/calendarUtils.js';
 import { generateId, generateRepeatInstances } from '../lib/utils.js';
+import { enrichPeople } from '../../shared/peopleSuggestions.js';
 import { useVoiceInput } from '../hooks/useVoiceInput.js';
 
 // Repeat frequencies, matching generateRepeatInstances() and the Add Event form.
@@ -144,6 +145,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             {draft.people?.length > 0 && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 max-w-[160px] truncate">
                 👥 {draft.people.map(p => p.displayName).join(', ')}
+                {draft.people.some(p => p.phone || p.email) && ' 🔗'}
               </span>
             )}
           </div>
@@ -247,7 +249,12 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
               placeholder="Comma-separated names"
               onChange={e => {
                 const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
-                onChange({ ...draft, people: names.length ? names.map(displayName => ({ displayName, source: 'paste' })) : undefined });
+                const prev = draft.people ?? [];
+                // Preserve any linked phone/email for a name that's unchanged.
+                onChange({ ...draft, people: names.length ? names.map(displayName => {
+                  const match = prev.find(p => p.displayName.toLowerCase() === displayName.toLowerCase());
+                  return match ? { ...match, displayName } : { displayName, source: 'paste' };
+                }) : undefined });
               }}
             />
           </Field>
@@ -277,7 +284,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
-export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, autoStartVoice = false, onAddEvents, onClose }) {
+export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, peopleSuggestions = [], autoStartVoice = false, onAddEvents, onClose }) {
   const [rawText, setRawText] = useState(initialText);
   const [drafts,  setDrafts]  = useState(null); // null = input step
   const [detecting, setDetecting] = useState(false);
@@ -323,7 +330,12 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
       setDrafts([]);
       return;
     }
-    setDrafts(results.map((r, i) => ({ ...r, id: i, calendar: 'plan', enabled: true })));
+    // Auto-link parsed attendees to phone/email from your own past events.
+    setDrafts(results.map((r, i) => ({
+      ...r,
+      people: r.people ? enrichPeople(r.people, peopleSuggestions) : r.people,
+      id: i, calendar: 'plan', enabled: true,
+    })));
   }
 
   function toggleDraft(id) {
