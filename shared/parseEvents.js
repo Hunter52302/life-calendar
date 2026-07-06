@@ -231,8 +231,8 @@ function extractLocation(text) {
 const CLAUSE_SPLIT_RE = /(?<!\b(?:jr|sr|dr|mr|mrs|ms|st|mt|ave|rd|blvd|vs|etc|no|inc|ltd|co|[a-z]))\.\s+|[!?;:]\s+|\n/i;
 
 function lastClause(text) {
-  const parts = text.split(CLAUSE_SPLIT_RE);
-  return parts[parts.length - 1] ?? text;
+  const parts = text.split(CLAUSE_SPLIT_RE).filter(p => p.trim());
+  return parts.length ? parts[parts.length - 1] : text;
 }
 
 /** The first clause of the text that follows the date match, for the same
@@ -293,9 +293,18 @@ function normalizeDatePhrasings(rawText, referenceDate) {
     ));
 }
 
-// A real column separator in a tabular list: a tab, or a spaced dash. Plain
-// spaces are excluded so ordinary prose is never mistaken for a table.
-const LIST_SEPARATOR_RE = /\t+| +[–—-]+ +/;
+// Split a line into columns for tabular detection. Pipes and tabs are strong
+// table signals (prose has neither), so either column orientation is allowed;
+// a spaced dash is weaker (prose asides use it too), so it yields two columns
+// and the caller only trusts it when the date is on the right. Plain spaces are
+// never a separator. Returns { cells, kind } or null.
+function splitColumns(line) {
+  if (line.includes('|')) return { cells: line.split('|').map(c => c.trim()), kind: 'strong' };
+  if (line.includes('\t')) return { cells: line.split('\t').map(c => c.trim()), kind: 'strong' };
+  const dash = line.match(/ +[–—-]+ +/);
+  if (dash) return { cells: [line.slice(0, dash.index).trim(), line.slice(dash.index + dash[0].length).trim()], kind: 'dash' };
+  return null;
+}
 
 /** How date-like a chrono match is: 3 = has a month, 2 = a day number, 1 = a
  *  bare weekday/relative, 0 = no match. Lets us tell the date column from the
@@ -314,29 +323,32 @@ function dateLikeScore(match) {
  * null for non-tabular lines, which fall through to the natural-language pass.
  */
 function parseListLine(line, referenceDate) {
-  const sep = line.match(LIST_SEPARATOR_RE);
-  if (!sep) return null;
-  const isDash = /[–—-]/.test(sep[0]);
-  const left = line.slice(0, sep.index).trim();
-  const right = line.slice(sep.index + sep[0].length).trim();
-  if (!left || !right) return null;
+  const split = splitColumns(line);
+  if (!split) return null;
+  const cells = split.cells.filter(Boolean);
+  if (cells.length < 2) return null;
 
-  const leftMatch = chrono.parse(left, referenceDate, { forwardDate: true })[0];
-  const rightMatch = chrono.parse(right, referenceDate, { forwardDate: true })[0];
-  const ls = dateLikeScore(leftMatch);
-  const rs = dateLikeScore(rightMatch);
+  const scored = cells.map(c => {
+    const m = chrono.parse(c, referenceDate, { forwardDate: true })[0];
+    return { text: c, match: m, score: dateLikeScore(m) };
+  });
 
-  // The date column must carry a real calendar date (a month or day number) and
-  // be strictly more date-like than the name column, keeping ambiguous prose out.
-  // A dash only counts when the date is on the RIGHT ("Name – Date"); a left-side
-  // date with a dash is a prose aside ("dinner June 20 at 7pm — bring wine"), not
-  // a list row. A tab is an unambiguous column, so either orientation is allowed.
-  let dateMatch, labelText;
-  if (rs >= 2 && rs > ls) { dateMatch = rightMatch; labelText = left; }
-  else if (!isDash && ls >= 2 && ls > rs) { dateMatch = leftMatch; labelText = right; }
-  else return null;
+  // The date column is the most date-like cell; it must carry a real calendar
+  // date (a month or day number), which keeps ambiguous prose out.
+  let dateCell = scored[0];
+  for (const s of scored) if (s.score > dateCell.score) dateCell = s;
+  if (dateCell.score < 2) return null;
 
-  return { label: cleanListLabel(labelText), dateMatch };
+  // A dash aside ("dinner June 20 at 7pm — bring wine") has its date on the LEFT;
+  // a real "Name – Date" row has it on the right. Only trust a dash split when the
+  // date is the last cell. Pipes/tabs are unambiguous, so either side is fine.
+  if (split.kind === 'dash' && dateCell !== scored[scored.length - 1]) return null;
+
+  // Label = the first other cell that actually contains letters.
+  const labelCell = scored.find(s => s !== dateCell && /[a-z]/i.test(s.text));
+  if (!labelCell) return null;
+
+  return { label: cleanListLabel(labelCell.text), dateMatch: dateCell.match };
 }
 
 /** Build an event from a chrono match + an already-resolved label. */
@@ -438,9 +450,22 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     });
   }
 
+  // A time-only match ("9:00 AM", "at 3pm") with no date of its own inherits the
+  // most recent real date seen above it — so an agenda under a "March 6" header,
+  // or a follow-up "also at 4pm", lands on the right day instead of today.
+  let contextDate = null;
+
   for (const r of chronoMatches) {
-    const startDate = toDateStr(r.start.date());
-    const hasTime   = r.start.isCertain('hour');
+    const hasTime     = r.start.isCertain('hour');
+    const hasRealDate = r.start.isCertain('day') || r.start.isCertain('month') || r.start.isCertain('weekday');
+
+    let startDate;
+    if (!hasRealDate && hasTime && contextDate) {
+      startDate = toDateStr(contextDate);
+    } else {
+      startDate = toDateStr(r.start.date());
+      if (hasRealDate) contextDate = r.start.date();
+    }
 
     // The full line the match sits on, split around the matched date/time text.
     const lineStart = text.lastIndexOf('\n', r.index - 1) + 1;
@@ -449,7 +474,13 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     const offsetInLine = r.index - lineStart;
     const fullLine = text.slice(lineStart, lineEnd);
     const precedingText = fullLine.slice(0, offsetInLine);
-    const afterText = fullLine.slice(offsetInLine + r.text.length);
+    // Text after the match up to the next newline. Computed from the full text
+    // (not fullLine) so a match that itself spans a newline — chrono sometimes
+    // merges a header date with the following time — still sees its trailing name.
+    const matchEnd = r.index + r.text.length;
+    let afterEnd = text.indexOf('\n', matchEnd);
+    if (afterEnd === -1) afterEnd = text.length;
+    const afterText = text.slice(matchEnd, afterEnd);
 
     // Bound duration/attendee/location extraction to the match's own sentence
     // clause — the part before it back to the last sentence break, plus the
@@ -493,15 +524,22 @@ export function parseEvents(rawText, referenceDate = new Date()) {
       }
     }
 
-    // Label from same-line text before the date (prose: "lunch June 5"); if the
-    // date is alone on its line (a vertical "Name \n\n Date" list), fall back to
-    // the nearest preceding non-blank line. Tabular rows were already handled in
-    // Pass 1.5, so they never reach here.
+    // Label sources: (1) same-line text before the date (prose: "lunch June 5");
+    // (2) same-line text after a leading date ("01/01/2026 New Year's Day"), when
+    // it reads like a title rather than a date continuation (", every 4 years");
+    // (3) nearest preceding non-blank line (vertical "Name \n\n Date").
     let label = extractLabel(precedingText);
+    if (!label) {
+      const after = afterText.replace(/^[\s:–—-]+/, '');
+      const isContinuation = /^[,;(]/.test(afterText.trim())
+        || /^(?:every|and|at|on|in|for|to|through|following|until|repeats?)\b/i.test(after);
+      if (after && !isContinuation) label = cleanListLabel(firstClause(after));
+    }
     if (!label) {
       const prev = labelFromPreviousLines(text, lineStart);
       label = cleanListLabel(prev) || prev || r.text;
     }
+    label = label.replace(/\s+/g, ' ').trim(); // never leak newlines into a label
     const recurrence = detectRecurrence(matchSentence);
     const people = extractAttendees(clauseWindow);
     const location = extractLocation(clauseWindow);

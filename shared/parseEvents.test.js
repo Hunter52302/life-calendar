@@ -371,6 +371,48 @@ test('a duration aside after an em-dash still sets the duration', () => {
   assert.equal(e.endTime, '15:30');
 });
 
+test('markdown pipe table maps the date and name columns', () => {
+  const text = `| Date | Holiday |
+| --- | --- |
+| Jan 1 | New Year's Day |
+| Jul 4 | Independence Day |`;
+  const r = parseEvents(text, JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Independence Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-07-04']);
+});
+
+test('numeric date-first rows ("MM/DD/YYYY Name") label from the trailing text', () => {
+  const r = parseEvents('07/04/2026 Independence Day\n12/25/2026 Christmas Day', JAN);
+  assert.deepEqual(r.map(e => e.label), ['Independence Day', 'Christmas Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-07-04', '2026-12-25']);
+});
+
+test('a "Label: date range" line keeps the label and the span', () => {
+  const [e] = parseEvents('Spring Conference: March 3-5, 2026', JAN);
+  assert.equal(e.label, 'Spring Conference');
+  assert.equal(e.startDate, '2026-03-03');
+  assert.equal(e.endDate, '2026-03-05');
+});
+
+// ── Date-context inheritance (agendas, follow-ups) ────────────────────────────
+
+test('agenda: time-only lines inherit the header date', () => {
+  const text = `Friday, March 6, 2026
+10:00 AM - Keynote
+1:30 PM - Workshop`;
+  const r = parseEvents(text, JAN);
+  assert.equal(r.every(e => e.startDate === '2026-03-06'), true);
+  assert.equal(r.some(e => /Keynote/.test(e.label)), true);
+});
+
+test('a follow-up time inherits the earlier date in the same text', () => {
+  const r = parseEvents('Meeting June 5 at 2pm. Follow-up at 4pm.', JAN);
+  assert.equal(r.length, 2);
+  assert.equal(r[0].startDate, '2026-06-05');
+  assert.equal(r[1].startDate, '2026-06-05');
+  assert.equal(r[1].startTime, '16:00');
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {
