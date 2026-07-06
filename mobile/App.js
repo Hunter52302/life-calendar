@@ -1,4 +1,4 @@
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -18,7 +18,9 @@ import { usePersistentState } from './src/hooks/usePersistentState.js';
 import { useAppUpdater } from './src/hooks/useAppUpdater.js';
 import { getWeekStart, addDays } from './src/lib/utils.js';
 import { getTheme } from './src/lib/theme.js';
-import { useState } from 'react';
+import { api } from './src/lib/api.js';
+import { registerForPushNotificationsAsync } from './src/lib/push.js';
+import { useState, useEffect, useRef } from 'react';
 
 import AuthScreen     from './src/screens/AuthScreen.jsx';
 import PlanScreen     from './src/screens/PlanScreen.jsx';
@@ -98,6 +100,42 @@ function Main() {
   function deleteIntegration(id) {
     setIntegrations(p => p.filter(i => i.id !== id));
   }
+
+  // ── Push notifications: register this device's Expo token with the server ──
+  // Runs when the user turns the "Push Notifications" toggle on (and once we're
+  // authenticated). On permission denial or a server error it flips the toggle
+  // back off and surfaces why, so the switch never lies about being active.
+  const pushRegisteredRef = useRef(false);
+  useEffect(() => {
+    if (auth.authState !== 'ready' || !pushEnabled) {
+      pushRegisteredRef.current = false;
+      return;
+    }
+    if (pushRegisteredRef.current) return;
+    pushRegisteredRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      const result = await registerForPushNotificationsAsync();
+      if (cancelled) return;
+      if (result.error) {
+        pushRegisteredRef.current = false;
+        setPushEnabled(false);
+        Alert.alert('Push notifications', result.error);
+        return;
+      }
+      try {
+        await api.push.expoToken(result.token);
+      } catch {
+        if (cancelled) return;
+        pushRegisteredRef.current = false;
+        setPushEnabled(false);
+        Alert.alert('Push notifications', 'Could not register this device with the server. Please try again.');
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [pushEnabled, auth.authState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Settings: Profile ─────────────────────────────────────────────────────
   const { profile, setProfile } = profileData;

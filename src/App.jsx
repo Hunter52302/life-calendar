@@ -180,6 +180,7 @@ export default function App() {
   const [webAutoUpdate, setWebAutoUpdate] = usePersistentState('lc-web-auto-update', false);
   const [desktopReminders, setDesktopReminders] = usePersistentState('lc-desktop-reminders', true);
   const [desktopReminderOffset, setDesktopReminderOffset] = usePersistentState('lc-desktop-reminder-offset', 10);
+  const [desktopTrayTitle, setDesktopTrayTitle] = usePersistentState('lc-desktop-tray-title', false);
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
@@ -194,6 +195,7 @@ export default function App() {
   const [newIntType, setNewIntType] = useState('discord_webhook');
   const [newIntLabel, setNewIntLabel] = useState('');
   const [newIntUrl, setNewIntUrl] = useState('');
+  const [newIntEmail, setNewIntEmail] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
@@ -509,8 +511,12 @@ export default function App() {
       if (!newIntUrl.trim()) return;
       data.endpoint_url = newIntUrl.trim();
     }
+    if (newIntType === 'email') {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newIntEmail.trim())) return;
+      data.email_address = newIntEmail.trim();
+    }
     await addIntegration(data);
-    setNewIntLabel(''); setNewIntUrl(''); setAddIntegrationOpen(false);
+    setNewIntLabel(''); setNewIntUrl(''); setNewIntEmail(''); setAddIntegrationOpen(false);
   }
 
   async function handleEnablePush() {
@@ -604,6 +610,7 @@ export default function App() {
     enabled: desktopReminders,
     offsetMinutes: desktopReminderOffset,
     militaryTime,
+    showTitleInBar: desktopTrayTitle,
   });
 
   function toggleView(v) {
@@ -803,7 +810,7 @@ export default function App() {
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
     budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
-    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind'],
+    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
@@ -2024,7 +2031,7 @@ export default function App() {
                         {so(notificationsOpen, SECTION_KWS.notifications) && (
                           <div className="px-2 pb-3 space-y-3">
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                              Get reminders via Discord, Slack, or browser push. The app only sends timing info — event labels stay private unless you set an Integration Hint.
+                              Get reminders via email, Discord, Slack, or browser push. The app only sends timing info — event labels stay private unless you set an Integration Hint.
                             </p>
 
                             {/* Browser push */}
@@ -2051,7 +2058,7 @@ export default function App() {
                                 {integrations.map(intg => (
                                   <div key={intg.id} className="flex items-center gap-2 py-0.5">
                                     <span className="text-lg leading-none flex-shrink-0">
-                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : '🔗'}
+                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : intg.type === 'email' ? '📧' : '🔗'}
                                     </span>
                                     <div className="flex-1 min-w-0">
                                       <span className="text-sm text-gray-700 dark:text-gray-200 truncate block">{intg.label || intg.type}</span>
@@ -2084,6 +2091,7 @@ export default function App() {
                                   <option value="discord_webhook">Discord Webhook</option>
                                   <option value="slack_webhook">Slack Webhook</option>
                                   <option value="generic_webhook">Custom Webhook</option>
+                                  <option value="email">Email</option>
                                 </select>
                                 <input value={newIntLabel} onChange={e => setNewIntLabel(e.target.value)}
                                   placeholder="Nickname (e.g. My Discord)"
@@ -2091,6 +2099,11 @@ export default function App() {
                                 {['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType) && (
                                   <input value={newIntUrl} onChange={e => setNewIntUrl(e.target.value)}
                                     placeholder="Webhook URL"
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                )}
+                                {newIntType === 'email' && (
+                                  <input type="email" value={newIntEmail} onChange={e => setNewIntEmail(e.target.value)}
+                                    placeholder="you@example.com"
                                     className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
                                 )}
                                 <div className="flex gap-2">
@@ -2103,7 +2116,7 @@ export default function App() {
                             ) : (
                               <button type="button" onClick={() => setAddIntegrationOpen(true)}
                                 className="w-full text-left text-sm text-violet-500 hover:text-violet-600 dark:text-violet-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                + Add Discord / Slack / Webhook
+                                + Add Email / Discord / Slack / Webhook
                               </button>
                             )}
 
@@ -2771,11 +2784,12 @@ export default function App() {
                                       <div className="flex items-center justify-between px-1">
                                         <div>
                                           <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Tray reminders</p>
-                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Show the next event in the menubar and notify before it starts</p>
+                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Keep the next event on the tray icon (hover to see it) and notify before it starts</p>
                                         </div>
                                         <Toggle checked={desktopReminders} onChange={() => setDesktopReminders(v => !v)} />
                                       </div>
                                       {desktopReminders && (
+                                        <>
                                         <div className="flex items-center justify-between px-1">
                                           <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
                                           <select
@@ -2788,6 +2802,14 @@ export default function App() {
                                             ))}
                                           </select>
                                         </div>
+                                        <div className="flex items-center justify-between px-1">
+                                          <div className="pr-2">
+                                            <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Show event name in menu bar</p>
+                                            <p className="text-[10px] text-gray-400 dark:text-gray-500">Displays the next event as text beside the tray icon. macOS only — Windows shows it on hover.</p>
+                                          </div>
+                                          <Toggle checked={desktopTrayTitle} onChange={() => setDesktopTrayTitle(v => !v)} />
+                                        </div>
+                                        </>
                                       )}
                                     </div>
                                   )}

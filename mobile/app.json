@@ -37,7 +37,8 @@
           "contactsPermission": "Allow PLS Calendar to link a contact you pick to an event."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "ios": {
       "supportsTablet": true,
