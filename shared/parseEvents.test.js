@@ -237,6 +237,38 @@ test('a plain event has neither location nor people', () => {
   assert.equal('people' in e, false);
 });
 
+test('a lowercase relationship word ("with dad") becomes a title-cased attendee', () => {
+  const e = one("Sarah's birthday party with dad on September 9th at 3pm");
+  assert.equal(e.label, "Sarah's birthday party");
+  assert.equal(e.startTime, '15:00');
+  assert.deepEqual(e.people, [{ displayName: 'Dad', source: 'paste' }]);
+});
+
+// ── Abbreviations in names / pasted lists ─────────────────────────────────────
+
+test('an abbreviation ("Jr.") does not truncate the label at a false sentence break', () => {
+  const e = one('Martin Luther King Jr. Day - January 19, 2026');
+  assert.equal(e.label, 'Martin Luther King Jr. Day');
+  assert.equal(e.startDate, '2026-01-19');
+  assert.equal(e.allDay, true);
+});
+
+test('a pasted "Name - Date" holiday list keeps each holiday name', () => {
+  const list = `New Year's Day - January 1, 2026
+Memorial Day - May 25, 2026
+Juneteenth - June 19, 2026
+Independence Day - July 4, 2026
+Thanksgiving - November 26, 2026
+Christmas Day - December 25, 2026`;
+  const r = parse(list);
+  assert.equal(r.length, 6);
+  assert.deepEqual(r.map(e => e.label), [
+    "New Year's Day", 'Memorial Day', 'Juneteenth',
+    'Independence Day', 'Thanksgiving', 'Christmas Day',
+  ]);
+  assert.equal(r.every(e => e.allDay), true);
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {

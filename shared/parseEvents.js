@@ -59,9 +59,14 @@ const DURATION_ONLY_RE = /^(?:(?:for|about|around|approx\.?|approximately|~)\s*)
 // its own match, leaving just the connector behind on the label side.
 const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+\w+|every\s+other|every\s+\d+\s+weeks?|bi-?weekly|fortnightly|weekly|daily|monthly|yearly|annually|every\s+(?:day|week|month|year|mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)|each\s+(?:day|week|month|year)|every|each)\b/gi;
 
-// Attendees: "with <Capitalized name>[, <Name>][ and <Name>]". Capitalized-only
-// to avoid turning ordinary words ("with the team", "with coffee") into people.
-const ATTENDEE_RE = /\bwith\s+([A-Z][a-zA-Z.'-]+(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)[A-Z][a-zA-Z.'-]+)*)/;
+// Attendees: "with <name>[, <name>][ and <name>]". A name is a Capitalized word
+// or one of a small set of lowercase relationship words ("dad", "mom") — so
+// "with dad" is captured while ordinary phrases ("with the team", "with coffee")
+// are not. Case-sensitive on purpose: the capitalized branch must not match
+// arbitrary lowercase words.
+const RELATION_WORDS = 'dad|mom|mum|mommy|daddy|mother|father|brother|sister|grandma|grandpa|grandmother|grandfather|wife|husband|son|daughter|boss|nana|papa';
+const NAME_TOKEN = `(?:[A-Z][a-zA-Z.'-]+|${RELATION_WORDS})`;
+const ATTENDEE_RE = new RegExp(`\\bwith\\s+(${NAME_TOKEN}(?:(?:\\s*,\\s*|\\s+and\\s+|\\s+&\\s+)${NAME_TOKEN})*)`);
 
 // Location: "at|@|in <Place>", where the time-of-day "at" has already been
 // consumed by chrono. Each word of the place must start uppercase or a digit so
@@ -156,7 +161,8 @@ function extractAttendees(text) {
     .split(/\s*,\s*|\s+and\s+|\s+&\s+/)
     .map(n => n.trim())
     .filter(n => n.length > 1 && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
-    .map(displayName => ({ displayName, source: 'paste' }));
+    // Title-case so a lowercase relationship word ("dad") reads as a name ("Dad").
+    .map(n => ({ displayName: n.charAt(0).toUpperCase() + n.slice(1), source: 'paste' }));
 }
 
 /** Extract a location from an "at/@/in <Place>" clause, or null if none. */
@@ -173,11 +179,12 @@ function extractLocation(text) {
  * workshop June 18") doesn't get swept into the label — just the clause the
  * date belongs to ("let's hold the workshop").
  */
-// Sentence/clause boundaries: sentence-enders, a colon, or a newline. An
-// em-dash is deliberately NOT a boundary — it usually joins related content
-// within one sentence ("2pm — for about 90 minutes"), so splitting on it would
-// strip a duration or detail that belongs to the same event.
-const CLAUSE_SPLIT_RE = /[.!?;:]\s+|\n/;
+// Sentence/clause boundaries: sentence-enders, a colon, or a newline. Two
+// deliberate exceptions: an em-dash is NOT a boundary (it usually joins related
+// content within one sentence — "2pm — for about 90 minutes"), and a period is
+// NOT a boundary when it follows a common abbreviation or single initial, so
+// "Martin Luther King Jr. Day" and "St. Marks Church" stay in one piece.
+const CLAUSE_SPLIT_RE = /(?<!\b(?:jr|sr|dr|mr|mrs|ms|st|mt|ave|rd|blvd|vs|etc|no|inc|ltd|co|[a-z]))\.\s+|[!?;:]\s+|\n/i;
 
 function lastClause(text) {
   const parts = text.split(CLAUSE_SPLIT_RE);
