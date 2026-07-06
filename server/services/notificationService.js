@@ -7,6 +7,7 @@
  * never event labels unless the user has set an integration_hint.
  */
 import webpush from 'web-push';
+import nodemailer from 'nodemailer';
 import { randomUUID } from 'crypto';
 import { pocketbaseHabitCompletions, pocketbaseHabits } from '../lib/pocketbaseHabits.js';
 import { pocketbaseEvents } from '../lib/pocketbaseEvents.js';
@@ -25,6 +26,31 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   );
   vapidConfigured = true;
 }
+
+// ── SMTP (e-mail) setup ────────────────────────────────────────────────────────
+// A single shared transport, built lazily from env. Self-hosters set SMTP_*;
+// when unset, e-mail integrations are simply skipped (like unconfigured VAPID).
+
+let mailTransport = null;
+let mailConfigured = false;
+
+if (process.env.SMTP_HOST) {
+  const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
+  mailTransport = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port,
+    // Implicit TLS on 465, STARTTLS otherwise — the usual convention.
+    secure: process.env.SMTP_SECURE
+      ? process.env.SMTP_SECURE === 'true'
+      : port === 465,
+    auth: (process.env.SMTP_USER || process.env.SMTP_PASS)
+      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+      : undefined,
+  });
+  mailConfigured = true;
+}
+
+const MAIL_FROM = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'PLS Calendar <no-reply@example.com>';
 
 // ── Timezone helpers ──────────────────────────────────────────────────────────
 
@@ -112,6 +138,33 @@ async function dispatchExpoPush(token, title, body) {
   }
 }
 
+async function dispatchEmail(to, title, body) {
+  if (!mailConfigured) throw new Error('E-mail is not configured on this server (set SMTP_HOST)');
+  if (!to) throw new Error('No recipient address on this integration');
+  try {
+    await mailTransport.sendMail({
+      from: MAIL_FROM,
+      to,
+      subject: title,
+      text: body,
+      html: `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:520px">
+        <h2 style="margin:0 0 8px;font-size:18px;color:#6d28d9">${escapeHtml(title)}</h2>
+        <p style="margin:0;font-size:15px;line-height:1.5;color:#111">${escapeHtml(body)}</p>
+        <p style="margin:20px 0 0;font-size:12px;color:#999">Sent by PLS Calendar</p>
+      </div>`,
+    });
+  } catch (err) {
+    console.warn('[notify] E-mail send failed:', err.message);
+    throw err;
+  }
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
 // ── Dispatch router ───────────────────────────────────────────────────────────
 
 async function dispatchToIntegration(integration, title, body, entityId, userId) {
@@ -130,6 +183,8 @@ async function dispatchToIntegration(integration, title, body, entityId, userId)
       await dispatchWebPush(userId, title, body);
     } else if (integration.type === 'expo_push' && integration.push_token) {
       await dispatchExpoPush(integration.push_token, title, body);
+    } else if (integration.type === 'email' && integration.email_address) {
+      await dispatchEmail(integration.email_address, title, body);
     }
   } catch {
     status = 'failed';
@@ -282,4 +337,4 @@ export function stopScheduler() {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
 }
 
-export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush };
+export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail };
