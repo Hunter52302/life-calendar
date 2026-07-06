@@ -13,6 +13,33 @@
     "updates": {
       "url": "https://u.expo.dev/102f8f2e-d692-4f96-b460-9cbc2a38064c"
     },
+    "plugins": [
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true
+          },
+          "androidIntentFilters": ["text/*"]
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PLS Calendar to use the microphone for voice event input.",
+          "speechRecognitionPermission": "Allow PLS Calendar to use speech recognition for voice event input.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow PLS Calendar to link a contact you pick to an event."
+        }
+      ],
+      "expo-secure-store",
+      "expo-notifications"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.hunter52302.plscalendar",
@@ -37,27 +64,6 @@
         "projectId": "102f8f2e-d692-4f96-b460-9cbc2a38064c"
       }
     },
-    "owner": "hunter52302",
-    "plugins": [
-      [
-        "expo-share-intent",
-        {
-          "iosActivationRules": {
-            "NSExtensionActivationSupportsText": true
-          },
-          "androidIntentFilters": ["text/*"]
-        }
-      ],
-      [
-        "expo-speech-recognition",
-        {
-          "microphonePermission": "Allow PLS Calendar to use the microphone for voice event input.",
-          "speechRecognitionPermission": "Allow PLS Calendar to use speech recognition for voice event input.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
-        }
-      ],
-      "expo-secure-store",
-      "expo-notifications"
-    ]
+    "owner": "hunter52302"
   }
 }

@@ -1,7 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments, dateToWeekData } from '../lib/calendarUtils.js';
+import { generateId, generateRepeatInstances } from '../lib/utils.js';
+import { enrichPeople, mergeContactIntoPeople } from '../../shared/peopleSuggestions.js';
+import { contactPickerSupported, pickContact } from '../lib/contactPicker.js';
 import { useVoiceInput } from '../hooks/useVoiceInput.js';
+
+// Repeat frequencies, matching generateRepeatInstances() and the Add Event form.
+const REPEAT_OPTIONS = [
+  { value: 'none',     label: 'Does not repeat' },
+  { value: 'daily',    label: 'Daily' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
+  { value: 'monthly',  label: 'Monthly' },
+  { value: 'yearly',   label: 'Yearly' },
+];
+// How many instances generateRepeatInstances() creates per frequency — shown on
+// the badge so the number of events added is never a surprise.
+const REPEAT_TOTAL = { daily: 365, weekly: 52, biweekly: 26, monthly: 12, yearly: 3 };
+const REPEAT_SHORT = { daily: 'daily', weekly: 'weekly', biweekly: 'every 2 wks', monthly: 'monthly', yearly: 'yearly' };
 
 // ── Tiny UI primitives (self-contained to avoid coupling to QuickAddFAB) ──────
 const inputCls =
@@ -115,6 +132,23 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
                 Meeting link detected
               </span>
             )}
+            {draft.recurrence && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">
+                ↻ {REPEAT_SHORT[draft.recurrence] ?? draft.recurrence}
+                {REPEAT_TOTAL[draft.recurrence] ? ` · ${REPEAT_TOTAL[draft.recurrence]}×` : ''}
+              </span>
+            )}
+            {draft.location && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 max-w-[140px] truncate">
+                📍 {draft.location}
+              </span>
+            )}
+            {draft.people?.length > 0 && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 max-w-[160px] truncate">
+                👥 {draft.people.map(p => p.displayName).join(', ')}
+                {draft.people.some(p => p.phone || p.email) && ' 🔗'}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {draft.allDay ? (
@@ -189,6 +223,62 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             <CategoryPills allCategories={allCategories} value={draft.catId}
               onChange={catId => onChange({ ...draft, catId: draft.catId === catId ? null : catId })} />
           </Field>
+          <Field label="Repeat">
+            <select
+              value={draft.recurrence ?? 'none'}
+              className={inputCls}
+              onChange={e => onChange({ ...draft, recurrence: e.target.value === 'none' ? null : e.target.value })}
+            >
+              {REPEAT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+            {draft.recurrence && isMultiDay && (
+              <p className="text-[11px] text-amber-500 mt-1">Repeat applies to single-day events only; this multi-day event will be added once.</p>
+            )}
+          </Field>
+          <Field label="Location">
+            <input
+              type="text" value={draft.location ?? ''} className={inputCls}
+              placeholder="Add a place"
+              onChange={e => onChange({ ...draft, location: e.target.value.trim() ? e.target.value : undefined })}
+            />
+          </Field>
+          <Field label="People">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={(draft.people ?? []).map(p => p.displayName).join(', ')}
+                className={inputCls}
+                placeholder="Comma-separated names"
+                onChange={e => {
+                  const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
+                  const prev = draft.people ?? [];
+                  // Preserve any linked phone/email for a name that's unchanged.
+                  onChange({ ...draft, people: names.length ? names.map(displayName => {
+                    const match = prev.find(p => p.displayName.toLowerCase() === displayName.toLowerCase());
+                    return match ? { ...match, displayName } : { displayName, source: 'paste' };
+                  }) : undefined });
+                }}
+              />
+              {contactPickerSupported() && (
+                <button
+                  type="button"
+                  title="Pick from your contacts"
+                  onClick={async () => {
+                    const contact = await pickContact();
+                    if (contact) onChange({ ...draft, people: mergeContactIntoPeople(draft.people ?? [], contact) });
+                  }}
+                  className="flex-shrink-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors text-sm"
+                >
+                  📇 Contacts
+                </button>
+              )}
+            </div>
+            {draft.people?.some(p => p.phone || p.email) && (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                🔗 {draft.people.filter(p => p.phone || p.email).map(p => p.displayName).join(', ')} linked — Call/Text/Email will be available on the event.
+              </p>
+            )}
+          </Field>
           <Field label="Calendar">
             <div className="flex gap-2">
               {['plan', 'actual'].map(cal => (
@@ -215,7 +305,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
 }
 
 // ── Main modal ────────────────────────────────────────────────────────────────
-export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, autoStartVoice = false, onAddEvents, onClose }) {
+export default function ParseEventsModal({ allCategories = [], initialText = '', militaryTime = false, keywordMap = {}, llmSettings = null, peopleSuggestions = [], autoStartVoice = false, onAddEvents, onClose }) {
   const [rawText, setRawText] = useState(initialText);
   const [drafts,  setDrafts]  = useState(null); // null = input step
   const [detecting, setDetecting] = useState(false);
@@ -261,7 +351,12 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
       setDrafts([]);
       return;
     }
-    setDrafts(results.map((r, i) => ({ ...r, id: i, calendar: 'plan', enabled: true })));
+    // Auto-link parsed attendees to phone/email from your own past events.
+    setDrafts(results.map((r, i) => ({
+      ...r,
+      people: r.people ? enrichPeople(r.people, peopleSuggestions) : r.people,
+      id: i, calendar: 'plan', enabled: true,
+    })));
   }
 
   function toggleDraft(id) {
@@ -273,8 +368,37 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
 
   function handleAdd() {
     const toAdd = (drafts ?? []).filter(d => d.enabled).flatMap(d => {
-      const segs = buildSegments(d.startDate, d.startTime, d.endDate, d.endTime);
       const cat  = allCategories.find(c => c.id === d.catId);
+      const extra = {
+        ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
+        ...(d.location ? { location: d.location } : {}),
+        ...(d.people?.length ? { people: d.people } : {}),
+      };
+
+      // Recurring, single-day events expand into a linked series (one shared
+      // series_id) via the same generator the Add Event form uses. Multi-day
+      // recurrence isn't expressible in the series model, so those fall through
+      // to the per-segment path below.
+      if (d.recurrence && d.startDate === d.endDate) {
+        const { week_start, day_of_week } = dateToWeekData(d.startDate);
+        const [seg] = buildSegments(d.startDate, d.startTime, d.endDate, d.endTime);
+        const base = {
+          label: d.label.trim() || 'Event',
+          category: d.catId,
+          color: cat?.color ?? '#6B7280',
+          week_start, day_of_week,
+          slot_start:    seg.slotStart,
+          slot_duration: seg.slotDuration,
+          precision:  0.5,
+          calendar:   d.calendar,
+          source:     'paste',
+          is_all_day: !!d.allDay,
+          series_id:  generateId(),
+        };
+        return generateRepeatInstances(base, d.recurrence).map(e => ({ ...e, ...extra }));
+      }
+
+      const segs = buildSegments(d.startDate, d.startTime, d.endDate, d.endTime);
       return segs.map(seg => {
         const { week_start, day_of_week } = dateToWeekData(seg.date);
         return {
@@ -288,7 +412,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
           calendar:   d.calendar,
           source:     'paste',
           is_all_day: !!d.allDay,
-          ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
+          ...extra,
         };
       });
     });

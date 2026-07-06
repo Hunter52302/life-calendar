@@ -7,6 +7,8 @@ import { AppContext } from '../context/AppContext.js';
 import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments } from '../lib/calendarUtils.js';
 import { getWeekStart } from '../lib/utils.js';
+import { buildPeopleSuggestions, enrichPeople, mergeContactIntoPeople } from '@pls-calendar/shared/peopleSuggestions';
+import { contactPickerSupported, pickContact } from '../lib/contactPicker.js';
 import { useVoiceInput } from '../hooks/useVoiceInput.js';
 
 function fmtDate(dateStr) {
@@ -73,8 +75,32 @@ function DraftCard({ draft, allCategories, onChange, onToggle }) {
             )}
           </View>
           <Text style={card.dateText}>
-            {fmtDate(draft.startDate)} {draft.startTime} → {isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}{draft.endTime}
+            {draft.allDay
+              ? `${fmtDate(draft.startDate)} · All day`
+              : `${fmtDate(draft.startDate)} ${draft.startTime} → ${isMultiDay ? `${fmtDate(draft.endDate)} ` : ''}${draft.endTime}`}
           </Text>
+
+          {/* Location + attendees, with a native contact picker */}
+          <View style={card.contactRow}>
+            {draft.location ? <Text style={card.contactTxt}>📍 {draft.location}</Text> : null}
+            {draft.people?.length ? (
+              <Text style={card.contactTxt}>
+                👥 {draft.people.map(p => p.displayName).join(', ')}
+                {draft.people.some(p => p.phone || p.email) ? ' 🔗' : ''}
+              </Text>
+            ) : null}
+            {contactPickerSupported() ? (
+              <Pressable
+                onPress={async () => {
+                  const contact = await pickContact();
+                  if (contact) onChange({ ...draft, people: mergeContactIntoPeople(draft.people ?? [], contact) });
+                }}
+                style={card.contactBtn}
+              >
+                <Text style={card.contactBtnTxt}>📇 Contacts</Text>
+              </Pressable>
+            ) : null}
+          </View>
 
           {/* Category pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={card.pillScroll}>
@@ -123,6 +149,10 @@ const card = StyleSheet.create({
   metaRow:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   multiDay:  { fontSize: 10, color: '#F59E0B', fontWeight: '600' },
   dateText:  { fontSize: 11, color: '#6B7280' },
+  contactRow:{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  contactTxt:{ fontSize: 11, color: '#4B5563' },
+  contactBtn:{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#fff' },
+  contactBtnTxt: { fontSize: 11, color: '#4B5563', fontWeight: '600' },
   pillScroll:{ marginTop: 6 },
   pill:      { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20, borderWidth: 1, borderColor: '#D1D5DB', marginRight: 6, backgroundColor: '#fff' },
   dot:       { width: 8, height: 8, borderRadius: 4 },
@@ -167,11 +197,17 @@ export default function ParseModal({ visible, initialText = '', onClose }) {
     voice.start();
   }
 
+  const peopleSuggestions = buildPeopleSuggestions(events.events ?? []);
+
   async function runDetect(text) {
     setDetecting(true);
     const results = await parseEventText(text ?? rawText, llmSettings, keywordMap);
     setDetecting(false);
-    setDrafts(results.map((r, i) => ({ ...r, id: i, calendar: 'plan', enabled: true })));
+    setDrafts(results.map((r, i) => ({
+      ...r,
+      people: r.people ? enrichPeople(r.people, peopleSuggestions) : r.people,
+      id: i, calendar: 'plan', enabled: true,
+    })));
   }
 
   function toggleDraft(id) {
@@ -200,8 +236,10 @@ export default function ParseModal({ visible, initialText = '', onClose }) {
           precision:     0.5,
           calendar:      d.calendar,
           source:        'paste',
-          is_all_day:    false,
+          is_all_day:    !!d.allDay,
           ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
+          ...(d.location ? { location: d.location } : {}),
+          ...(d.people?.length ? { people: d.people } : {}),
         });
       }
     }

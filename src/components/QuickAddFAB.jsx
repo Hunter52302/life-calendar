@@ -20,6 +20,7 @@ import RouteAttribution from './RouteAttribution.jsx';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions.js';
+import { buildPeopleSuggestions } from '../../shared/peopleSuggestions.js';
 
 // Ã¢â€â‚¬Ã¢â€â‚¬ Constants Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 const FAB_SIZE    = 56;
@@ -613,6 +614,10 @@ export default function QuickAddFAB({
   const [mode, setMode] = useState(null); // null | 'event-plan' | 'event-live' | 'buffer' | 'parse'
   const [parseAutoVoice, setParseAutoVoice] = useState(false);
 
+  // "Contacts from history" — phone/email you entered for a name on a past
+  // event, used to auto-link the same name when it's parsed again.
+  const peopleSuggestions = useMemo(() => buildPeopleSuggestions(allEvents), [allEvents]);
+
   const isDragging   = useRef(false);
   const hasDragged   = useRef(false);
   const dragOrigin   = useRef({ mx: 0, my: 0, px: 0, py: 0 });
@@ -776,6 +781,7 @@ export default function QuickAddFAB({
           militaryTime={militaryTime}
           keywordMap={keywordMap}
           llmSettings={llmSettings}
+          peopleSuggestions={peopleSuggestions}
           autoStartVoice={parseAutoVoice}
           onAddEvents={evts => {
             evts.filter(e => e.calendar === 'plan').forEach(handleAddPlanEvent);
