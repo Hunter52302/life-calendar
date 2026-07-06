@@ -90,4 +90,9 @@ export const api = {
     get: ()     => request('GET', '/llm-settings'),
     set: (data) => request('PUT', '/llm-settings', data),
   },
+
+  push: {
+    // Register this device's Expo push token so the server can deliver reminders.
+    expoToken: (token) => request('POST', '/push/expo-token', { token }),
+  },
 };
