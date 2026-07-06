@@ -22,16 +22,23 @@ const ORDINAL_OF_MONTH_RE = /\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\s+of\s+(Janua
 // exists too, so a lone "lunch tomorrow" is still left alone.
 const BARE_RELATIVE_RE = /^(now|today|tonight|tomorrow|yesterday)$/i;
 
+// Vague relative ranges chrono pulls out of prose ("earlier this week",
+// "starting next week" → "this week"/"next week"). Like BARE_RELATIVE_RE, these
+// are only dropped when a more concrete match is also present, so a lone
+// "vacation next week" still parses.
+const VAGUE_RELATIVE_RE = /^(?:this|next|last)\s+(?:week|month|year|weekend)$/i;
+
 // Trailing connector phrases anchored at the end of the pre-date text (e.g.
 // "... months from now"). Stripped before the leading-filler pass below so
 // "from" inside "months from now" never reaches it.
-const TRAILING_FILLER_RE = /(\s*\b(?:for|at|on|from|about|regarding|re:|months from now|weeks from now|days from now|months from|weeks from|next week|next month|soon|months out|down the road)\b\s*)$/i;
+const TRAILING_FILLER_RE = /(\s*\b(?:for|at|on|from|about|regarding|re:|is|are|was|that'?s|too|confirmed|scheduled|planned|booked|happening|months from now|weeks from now|days from now|months from|weeks from|next week|next month|soon|months out|down the road)\b[\s,;]*)$/i;
 
 // Leading "topic introduction" filler: the matched phrase and everything
 // before it is dropped, keeping only what follows (e.g. "told me about
-// thanksgiving dinner" → "thanksgiving dinner"). Deliberately excludes
-// "from" -- it's also legitimately part of titles like "invite from Sarah".
-const LEADING_FILLER_RE = /^.*?\b(?:for|about|regarding|re:|hi\s+\w+[\s,]+we(?:'re|are)?\s+\w+)\b\s*/i;
+// thanksgiving dinner" → "thanksgiving dinner", "let's hold the workshop" →
+// "workshop"). Deliberately excludes "from" -- it's also legitimately part of
+// titles like "invite from Sarah".
+const LEADING_FILLER_RE = /^.*?\b(?:for|about|regarding|re:|also|let'?s|please|don'?t forget(?:\s+the)?|remember to|reminder that|we(?:'ll| will| should| need to| want to)|i'?ll(?:\s+add)?|i\s+will(?:\s+add)?|i(?:'d like to| want to| need to| plan to)|like to|planning to|going to|do|hold(?:\s+the)?|set up|lock in|hi\s+\w+[\s,]+we(?:'re|are)?\s+\w+)\b\s*/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"')]+/i;
 
 // Explicit duration phrases: "for 2 hours", "90 min", "1.5h", "45 minutes".
@@ -44,13 +51,13 @@ const DURATION_RE = /(?:\bfor\s+)?\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mi
 // standalone match relative to the reference date. Those are never events on
 // their own — they modify a neighbouring event's end time — so they are
 // dropped from the match list and re-read from each real match's line instead.
-const DURATION_ONLY_RE = /^(?:for\s+)?\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m)$/i;
+const DURATION_ONLY_RE = /^(?:(?:for|about|around|approx\.?|approximately|~)\s*)?\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m)$/i;
 
 // Recurrence connector words to strip out of an extracted label ("standup
 // every Monday" → "standup", "rent monthly" → "rent"). Includes a bare
 // trailing "every"/"each" because chrono usually swallows the day/period into
 // its own match, leaving just the connector behind on the label side.
-const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+week|every\s+\d+\s+weeks?|bi-?weekly|fortnightly|weekly|daily|monthly|yearly|annually|every\s+(?:day|week|month|year|mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)|each\s+(?:day|week|month|year)|every|each)\b/gi;
+const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+\w+|every\s+other|every\s+\d+\s+weeks?|bi-?weekly|fortnightly|weekly|daily|monthly|yearly|annually|every\s+(?:day|week|month|year|mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)|each\s+(?:day|week|month|year)|every|each)\b/gi;
 
 // Attendees: "with <Capitalized name>[, <Name>][ and <Name>]". Capitalized-only
 // to avoid turning ordinary words ("with the team", "with coffee") into people.
@@ -60,7 +67,7 @@ const ATTENDEE_RE = /\bwith\s+([A-Z][a-zA-Z.'-]+(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)
 // consumed by chrono. Each word of the place must start uppercase or a digit so
 // the capture stops at the next lowercase connector ("at Nobu with Sarah" →
 // "Nobu"). The stop-list rejects time words chrono occasionally leaves behind.
-const LOCATION_RE = /\b(?:at|@|in)\s+((?:the\s+)?[A-Z][\w.'&#-]*(?:\s+[A-Z0-9][\w.'&#-]*)*)/;
+const LOCATION_RE = /\b(?:at|@|in)\s+((?:the\s+)?[A-Z][\w'&#-]*(?:\s+[A-Z0-9][\w'&#-]*)*)/;
 const LOCATION_STOP_RE = /^(?:the\s+)?(?:morning|afternoon|evening|night|noon|midnight|midday|tonight|today|tomorrow|yesterday|jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*|monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
 
 function toDateStr(d) {
@@ -70,11 +77,17 @@ function toDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-/** Add one calendar day to a YYYY-MM-DD string. */
+/**
+ * Add one calendar day to a YYYY-MM-DD string. Anchored at noon so a DST
+ * transition can't shift the day, and formatted with the same local-time
+ * helper as toDateStr — never round-tripping through UTC — so the result is
+ * correct in every timezone, including UTC+13/+14 where a UTC round-trip
+ * would land on the wrong calendar day.
+ */
 function addDayStr(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   d.setDate(d.getDate() + 1);
-  return d.toISOString().split('T')[0];
+  return toDateStr(d);
 }
 
 /** "2300" → "23:00" */
@@ -126,7 +139,7 @@ function applyUntilStable(s, re) {
  */
 function detectRecurrence(line) {
   const s = line.toLowerCase();
-  if (/\bevery\s+other\s+week\b|\bbi-?weekly\b|\bfortnightly\b|\bevery\s+(?:2|two)\s+weeks?\b/.test(s)) return 'biweekly';
+  if (/\bevery\s+other\s+(?:week|\w*day)\b|\bbi-?weekly\b|\bfortnightly\b|\bevery\s+(?:2|two)\s+weeks?\b/.test(s)) return 'biweekly';
   if (/\bdaily\b|\bevery\s+day\b|\beach\s+day\b/.test(s)) return 'daily';
   if (/\bweekly\b|\bevery\s+week\b|\beach\s+week\b|\bevery\s+(?:mon|tue|wed|thu|fri|sat|sun)/.test(s)) return 'weekly';
   if (/\bmonthly\b|\bevery\s+month\b|\beach\s+month\b/.test(s)) return 'monthly';
@@ -154,9 +167,32 @@ function extractLocation(text) {
   return LOCATION_STOP_RE.test(place) ? null : place;
 }
 
+/**
+ * Keep only the final sentence/clause of the text before the date, so a whole
+ * paragraph of prose ("Thanks for the call. As discussed, let's hold the
+ * workshop June 18") doesn't get swept into the label — just the clause the
+ * date belongs to ("let's hold the workshop").
+ */
+// Sentence/clause boundaries: sentence-enders, a colon, or a newline. An
+// em-dash is deliberately NOT a boundary — it usually joins related content
+// within one sentence ("2pm — for about 90 minutes"), so splitting on it would
+// strip a duration or detail that belongs to the same event.
+const CLAUSE_SPLIT_RE = /[.!?;:]\s+|\n/;
+
+function lastClause(text) {
+  const parts = text.split(CLAUSE_SPLIT_RE);
+  return parts[parts.length - 1] ?? text;
+}
+
+/** The first clause of the text that follows the date match, for the same
+ * sentence-bounding reason as lastClause. */
+function firstClause(text) {
+  return text.split(CLAUSE_SPLIT_RE)[0] ?? text;
+}
+
 /** Strip filler/connector text surrounding the real event subject. */
 function extractLabel(precedingText) {
-  let s = precedingText.replace(DURATION_RE, ' ').replace(RECURRENCE_STRIP_RE, ' ');
+  let s = lastClause(precedingText).replace(DURATION_RE, ' ').replace(RECURRENCE_STRIP_RE, ' ');
   // Drop attendee/location clauses so they don't leak into the title. Only the
   // capitalized forms match, so ordinary title words are left alone.
   s = s.replace(ATTENDEE_RE, ' ').replace(LOCATION_RE, ' ');
@@ -218,23 +254,35 @@ export function parseEvents(rawText, referenceDate = new Date()) {
   let chronoMatches = chrono.parse(text, referenceDate, { forwardDate: true });
   chronoMatches = chronoMatches.filter(m => !DURATION_ONLY_RE.test(m.text.trim()));
   if (chronoMatches.length > 1) {
-    chronoMatches = chronoMatches.filter(m => !BARE_RELATIVE_RE.test(m.text.trim()));
+    chronoMatches = chronoMatches.filter(m => {
+      const t = m.text.trim();
+      return !BARE_RELATIVE_RE.test(t) && !VAGUE_RELATIVE_RE.test(t);
+    });
   }
 
   for (const r of chronoMatches) {
     const startDate = toDateStr(r.start.date());
     const hasTime   = r.start.isCertain('hour');
 
-    // The full line the match sits on, split into the text before the match
-    // and the whole line with the matched date/time phrase removed. The latter
-    // is where we look for an explicit duration so we never re-read the time.
+    // The full line the match sits on, split around the matched date/time text.
     const lineStart = text.lastIndexOf('\n', r.index - 1) + 1;
     let lineEnd = text.indexOf('\n', r.index);
     if (lineEnd === -1) lineEnd = text.length;
     const offsetInLine = r.index - lineStart;
     const fullLine = text.slice(lineStart, lineEnd);
     const precedingText = fullLine.slice(0, offsetInLine);
-    const lineWithoutMatch = fullLine.slice(0, offsetInLine) + ' ' + fullLine.slice(offsetInLine + r.text.length);
+    const afterText = fullLine.slice(offsetInLine + r.text.length);
+
+    // Bound duration/attendee/location extraction to the match's own sentence
+    // clause — the part before it back to the last sentence break, plus the
+    // part after it up to the next one — so a "with <name>" or "at <place>" in a
+    // neighbouring sentence of the same paragraph can't bleed onto this event.
+    const beforeClause = lastClause(precedingText);
+    const afterClause = firstClause(afterText);
+    const clauseWindow = beforeClause + ' ' + afterClause;
+    // Recurrence needs the date phrase kept inline ("every Monday"), so it reads
+    // the whole sentence including the match text.
+    const matchSentence = beforeClause + ' ' + r.text + ' ' + afterClause;
 
     let allDay = false;
     let startTime, endDate, endTime, confidence;
@@ -259,7 +307,7 @@ export function parseEvents(rawText, referenceDate = new Date()) {
         confidence = 'high';
       } else {
         // No end time: honour an explicit duration ("for 2 hours"), else 1 hour.
-        const durationMin = parseDurationMinutes(lineWithoutMatch);
+        const durationMin = parseDurationMinutes(clauseWindow);
         ({ endDate, endTime } = durationMin != null
           ? addMinutes(startDate, startTime, durationMin)
           : addMinutes(startDate, startTime, 60));
@@ -268,9 +316,9 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     }
 
     const label = extractLabel(precedingText) || r.text;
-    const recurrence = detectRecurrence(fullLine);
-    const people = extractAttendees(lineWithoutMatch);
-    const location = extractLocation(lineWithoutMatch);
+    const recurrence = detectRecurrence(matchSentence);
+    const people = extractAttendees(clauseWindow);
+    const location = extractLocation(clauseWindow);
     nlResults.push({
       label, startDate, startTime, endDate, endTime, allDay, confidence,
       ...(recurrence ? { recurrence } : {}),

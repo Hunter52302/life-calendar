@@ -257,6 +257,105 @@ test('no URL means no meeting_url field', () => {
   assert.equal('meeting_url' in e, false);
 });
 
+// ── Multi-paragraph prose (business email / conversation) ─────────────────────
+// These lock in how the parser degrades on messy, multi-sentence text: it must
+// find the real events without runaway labels, phantom date-mentions, or
+// details bleeding across sentences. Structural fields are asserted exactly;
+// labels are asserted by their core noun so future label polish won't break them.
+
+const EMAIL_A = `Hi team,
+
+Thanks for the productive call earlier this week. As discussed, I'd like to lock in a few dates. Let's hold the Q3 planning workshop with Priya and Marcus on June 18 from 9am to 12pm at the Downtown Office. Please review the draft deck beforehand.
+
+We should also schedule the vendor demo next Tuesday at 2pm — it should run about 90 minutes. I've asked their team to send a calendar link.
+
+Finally, don't forget the all-hands is on June 30, and payroll runs monthly on the 1st. Let me know if any of these conflict.
+
+Best, Dana`;
+
+test('business email extracts exactly the three real events (no phantoms)', () => {
+  assert.equal(parse(EMAIL_A).length, 3);
+});
+
+test('business email: workshop keeps a tight label, range, location and attendees', () => {
+  const e = parse(EMAIL_A)[0];
+  assert.match(e.label, /Q3 planning workshop/);
+  assert.equal(e.label.length < 40, true); // not a runaway paragraph
+  assert.equal(e.startDate, '2026-06-18');
+  assert.equal(e.startTime, '09:00');
+  assert.equal(e.endTime, '12:00');
+  assert.equal(e.confidence, 'high');
+  assert.equal(e.location, 'the Downtown Office');
+  assert.deepEqual(e.people.map(p => p.displayName), ['Priya', 'Marcus']);
+});
+
+test('business email: "about 90 minutes" sets duration, not a phantom event', () => {
+  const demo = parse(EMAIL_A)[1];
+  assert.match(demo.label, /vendor demo/);
+  assert.equal(demo.startTime, '14:00');
+  assert.equal(demo.endTime, '15:30');
+});
+
+test('business email: "payroll runs monthly" is an all-day monthly recurrence', () => {
+  const allHands = parse(EMAIL_A)[2];
+  assert.match(allHands.label, /all-hands/);
+  assert.equal(allHands.allDay, true);
+  assert.equal(allHands.recurrence, 'monthly');
+});
+
+const CONVO = `hey! are we still on for coffee tomorrow at 10am?
+
+yeah! let's do Blue Bottle. also my sister's birthday is June 21 btw
+
+oh nice. and don't forget we have the dentist for the kids every Monday at 4pm starting next week
+
+got it. i'll add the parent-teacher meeting too, that's Thursday June 25 at 6:30pm`;
+
+test('text conversation extracts four events without "starting next week" phantom', () => {
+  const r = parse(CONVO);
+  assert.equal(r.length, 4);
+  assert.match(r[0].label, /coffee/);
+  assert.equal(r[0].startTime, '10:00');
+  assert.match(r[1].label, /birthday/);
+  assert.equal(r[1].allDay, true);
+  assert.equal(r[2].recurrence, 'weekly');       // dentist every Monday
+  assert.match(r[3].label, /parent-teacher meeting/);
+  assert.equal(r[3].startTime, '18:30');
+});
+
+const EMAIL_B = `Team,
+
+Following up from our sync: the client kickoff is confirmed for July 8 at 3pm in Conference Room B. Please bring the signed SOW.
+
+I'd also like to schedule a retro with Jordan on Friday at 4pm for 45 minutes. And a reminder that the office is closed July 3 for the holiday.
+
+We'll do sprint planning every other Wednesday at 10am going forward. Thanks!`;
+
+test('email B: kickoff pulls location without swallowing the next sentence', () => {
+  const e = parse(EMAIL_B)[0];
+  assert.match(e.label, /client kickoff/);
+  assert.equal(e.label.length < 40, true);
+  assert.equal(e.startTime, '15:00');
+  assert.equal(e.location, 'Conference Room B');
+});
+
+test('email B: an attendee does not bleed across a sentence boundary', () => {
+  const r = parse(EMAIL_B);
+  // "with Jordan" belongs to the retro, not the "office is closed" event.
+  const retro = r[1];
+  const officeClosed = r[2];
+  assert.deepEqual(retro.people.map(p => p.displayName), ['Jordan']);
+  assert.equal(retro.endTime, '16:45'); // 45-minute duration
+  assert.equal('people' in officeClosed, false);
+  assert.equal(officeClosed.allDay, true);
+});
+
+test('email B: "every other Wednesday" is detected as biweekly', () => {
+  const sprint = parse(EMAIL_B)[3];
+  assert.match(sprint.label, /sprint planning/);
+  assert.equal(sprint.recurrence, 'biweekly');
+});
+
 // ── Empty / no-match input ────────────────────────────────────────────────────
 
 test('text with no dates yields no events', () => {
