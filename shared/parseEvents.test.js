@@ -186,6 +186,57 @@ test('a one-off event carries no recurrence field', () => {
   assert.equal('recurrence' in e, false);
 });
 
+// ── Location & attendee extraction ────────────────────────────────────────────
+
+test('"with Sarah and Tom" is extracted as two attendees', () => {
+  const e = one('lunch with Sarah and Tom on Friday at noon');
+  assert.equal(e.label, 'lunch');
+  assert.deepEqual(e.people, [
+    { displayName: 'Sarah', source: 'paste' },
+    { displayName: 'Tom', source: 'paste' },
+  ]);
+});
+
+test('a leading "at <Place>" clause becomes the location', () => {
+  const e = one('dinner at Nobu on June 20 at 7pm');
+  assert.equal(e.label, 'dinner');
+  assert.equal(e.location, 'Nobu');
+});
+
+test('trailing location after the time is captured', () => {
+  const e = one('coffee with Alex tomorrow at 10am at Blue Bottle');
+  assert.equal(e.label, 'coffee');
+  assert.equal(e.location, 'Blue Bottle');
+  assert.deepEqual(e.people, [{ displayName: 'Alex', source: 'paste' }]);
+});
+
+test('"in Room 302" is captured as a location', () => {
+  const e = one('meeting in Room 302 on June 21 at 2pm');
+  assert.equal(e.location, 'Room 302');
+});
+
+test('a lowercase "with the team" is not turned into an attendee', () => {
+  const e = one('standup with the team at 9am');
+  assert.equal('people' in e, false);
+});
+
+test('a capitalized time word is not mistaken for a location', () => {
+  const e = one('review at Noon on June 22');
+  assert.equal('location' in e, false);
+});
+
+test('a subject name without "with" stays in the label', () => {
+  const e = one('call Bob at 3pm');
+  assert.equal(e.label, 'call Bob');
+  assert.equal('people' in e, false);
+});
+
+test('a plain event has neither location nor people', () => {
+  const e = one('dentist June 20 at 3pm');
+  assert.equal('location' in e, false);
+  assert.equal('people' in e, false);
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {

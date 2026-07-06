@@ -52,6 +52,17 @@ const DURATION_ONLY_RE = /^(?:for\s+)?\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|
 // its own match, leaving just the connector behind on the label side.
 const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+week|every\s+\d+\s+weeks?|bi-?weekly|fortnightly|weekly|daily|monthly|yearly|annually|every\s+(?:day|week|month|year|mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)|each\s+(?:day|week|month|year)|every|each)\b/gi;
 
+// Attendees: "with <Capitalized name>[, <Name>][ and <Name>]". Capitalized-only
+// to avoid turning ordinary words ("with the team", "with coffee") into people.
+const ATTENDEE_RE = /\bwith\s+([A-Z][a-zA-Z.'-]+(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)[A-Z][a-zA-Z.'-]+)*)/;
+
+// Location: "at|@|in <Place>", where the time-of-day "at" has already been
+// consumed by chrono. Each word of the place must start uppercase or a digit so
+// the capture stops at the next lowercase connector ("at Nobu with Sarah" →
+// "Nobu"). The stop-list rejects time words chrono occasionally leaves behind.
+const LOCATION_RE = /\b(?:at|@|in)\s+((?:the\s+)?[A-Z][\w.'&#-]*(?:\s+[A-Z0-9][\w.'&#-]*)*)/;
+const LOCATION_STOP_RE = /^(?:the\s+)?(?:morning|afternoon|evening|night|noon|midnight|midday|tonight|today|tomorrow|yesterday|jan\w*|feb\w*|mar\w*|apr\w*|may|jun\w*|jul\w*|aug\w*|sep\w*|oct\w*|nov\w*|dec\w*|monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i;
+
 function toDateStr(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -123,9 +134,32 @@ function detectRecurrence(line) {
   return null;
 }
 
+/** Extract attendee display names from a "with ..." clause, or [] if none. */
+function extractAttendees(text) {
+  const m = ATTENDEE_RE.exec(text);
+  if (!m) return [];
+  const seen = new Set();
+  return m[1]
+    .split(/\s*,\s*|\s+and\s+|\s+&\s+/)
+    .map(n => n.trim())
+    .filter(n => n.length > 1 && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
+    .map(displayName => ({ displayName, source: 'paste' }));
+}
+
+/** Extract a location from an "at/@/in <Place>" clause, or null if none. */
+function extractLocation(text) {
+  const m = LOCATION_RE.exec(text);
+  if (!m) return null;
+  const place = m[1].trim();
+  return LOCATION_STOP_RE.test(place) ? null : place;
+}
+
 /** Strip filler/connector text surrounding the real event subject. */
 function extractLabel(precedingText) {
   let s = precedingText.replace(DURATION_RE, ' ').replace(RECURRENCE_STRIP_RE, ' ');
+  // Drop attendee/location clauses so they don't leak into the title. Only the
+  // capitalized forms match, so ordinary title words are left alone.
+  s = s.replace(ATTENDEE_RE, ' ').replace(LOCATION_RE, ' ');
   s = applyUntilStable(s, TRAILING_FILLER_RE);
   s = applyUntilStable(s, LEADING_FILLER_RE);
   return s.replace(/[\s\-–—:,]+$/, '').trim();
@@ -235,7 +269,15 @@ export function parseEvents(rawText, referenceDate = new Date()) {
 
     const label = extractLabel(precedingText) || r.text;
     const recurrence = detectRecurrence(fullLine);
-    nlResults.push({ label, startDate, startTime, endDate, endTime, allDay, confidence, ...(recurrence ? { recurrence } : {}), ...(meetingUrl ? { meeting_url: meetingUrl } : {}) });
+    const people = extractAttendees(lineWithoutMatch);
+    const location = extractLocation(lineWithoutMatch);
+    nlResults.push({
+      label, startDate, startTime, endDate, endTime, allDay, confidence,
+      ...(recurrence ? { recurrence } : {}),
+      ...(location ? { location } : {}),
+      ...(people.length ? { people } : {}),
+      ...(meetingUrl ? { meeting_url: meetingUrl } : {}),
+    });
   }
 
   return nlResults;

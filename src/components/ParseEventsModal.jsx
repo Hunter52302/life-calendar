@@ -136,6 +136,16 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
                 {REPEAT_TOTAL[draft.recurrence] ? ` · ${REPEAT_TOTAL[draft.recurrence]}×` : ''}
               </span>
             )}
+            {draft.location && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 max-w-[140px] truncate">
+                📍 {draft.location}
+              </span>
+            )}
+            {draft.people?.length > 0 && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 max-w-[160px] truncate">
+                👥 {draft.people.map(p => p.displayName).join(', ')}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {draft.allDay ? (
@@ -222,6 +232,25 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
               <p className="text-[11px] text-amber-500 mt-1">Repeat applies to single-day events only; this multi-day event will be added once.</p>
             )}
           </Field>
+          <Field label="Location">
+            <input
+              type="text" value={draft.location ?? ''} className={inputCls}
+              placeholder="Add a place"
+              onChange={e => onChange({ ...draft, location: e.target.value.trim() ? e.target.value : undefined })}
+            />
+          </Field>
+          <Field label="People">
+            <input
+              type="text"
+              value={(draft.people ?? []).map(p => p.displayName).join(', ')}
+              className={inputCls}
+              placeholder="Comma-separated names"
+              onChange={e => {
+                const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
+                onChange({ ...draft, people: names.length ? names.map(displayName => ({ displayName, source: 'paste' })) : undefined });
+              }}
+            />
+          </Field>
           <Field label="Calendar">
             <div className="flex gap-2">
               {['plan', 'actual'].map(cal => (
@@ -307,7 +336,11 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
   function handleAdd() {
     const toAdd = (drafts ?? []).filter(d => d.enabled).flatMap(d => {
       const cat  = allCategories.find(c => c.id === d.catId);
-      const extra = d.meeting_url ? { meeting_url: d.meeting_url } : {};
+      const extra = {
+        ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
+        ...(d.location ? { location: d.location } : {}),
+        ...(d.people?.length ? { people: d.people } : {}),
+      };
 
       // Recurring, single-day events expand into a linked series (one shared
       // series_id) via the same generator the Add Event form uses. Multi-day
