@@ -280,6 +280,64 @@ Christmas Day - December 25, 2026`;
   assert.equal(r.every(e => e.allDay), true);
 });
 
+// ── Nth-weekday-of-month + vertical lists ─────────────────────────────────────
+const JAN = new Date('2026-01-01T12:00:00');
+
+test('nth-weekday: "Third Monday in January" resolves to the concrete date', () => {
+  const [e] = parseEvents('MLK Day Third Monday in January', JAN);
+  assert.equal(e.startDate, '2026-01-19');
+  assert.equal(e.allDay, true);
+  assert.equal(e.label, 'MLK Day');
+});
+
+test('nth-weekday: "Last Monday in May"', () => {
+  assert.equal(parseEvents('Memorial Last Monday in May', JAN)[0].startDate, '2026-05-25');
+});
+
+test('nth-weekday: "Fourth Thursday in November"', () => {
+  assert.equal(parseEvents('Thanksgiving Fourth Thursday in November', JAN)[0].startDate, '2026-11-26');
+});
+
+test('vertical list: the label comes from the preceding non-blank line', () => {
+  const [e] = parseEvents('Christmas Day\n\t\n\nDecember 25', JAN);
+  assert.equal(e.label, 'Christmas Day');
+  assert.equal(e.startDate, '2026-12-25');
+  assert.equal(e.allDay, true);
+});
+
+test('vertical list: preceding line + nth-weekday date on its own line', () => {
+  const [e] = parseEvents('Thanksgiving Day\n\t\n\nFourth Thursday in November', JAN);
+  assert.equal(e.label, 'Thanksgiving Day');
+  assert.equal(e.startDate, '2026-11-26');
+});
+
+test('vertical list: an "Also known as X" subtitle line resolves to X', () => {
+  const [e] = parseEvents("Washington's Birthday\n\nAlso known as Presidents Day\n\nThird Monday in February", JAN);
+  assert.equal(e.label, 'Presidents Day');
+  assert.equal(e.startDate, '2026-02-16');
+});
+
+test('a vertically-listed holiday table extracts each name and date, no phantoms', () => {
+  const text = `New Year's Day
+\t
+January 1
+
+Memorial Day
+\t
+Last Monday in May
+
+Inauguration Day
+\t
+January 20, every 4 years following a presidential election
+
+Thanksgiving Day
+\t
+Fourth Thursday in November`;
+  const r = parseEvents(text, JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Memorial Day', 'Inauguration Day', 'Thanksgiving Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-05-25', '2026-01-20', '2026-11-26']);
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {
