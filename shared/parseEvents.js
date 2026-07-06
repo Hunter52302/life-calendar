@@ -17,6 +17,33 @@ const SHIFT_RE = /^(.*?)\s+(\d{4})\s*[–\-—]+\s*(\d{4})/;
 // so it merges into one match like every other phrasing order does.
 const ORDINAL_OF_MONTH_RE = /\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\s+of\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b/gi;
 
+// "Third Monday in January", "Last Monday in May", "Fourth Thursday of November"
+// — nth-weekday-of-month phrases chrono splinters into two wrong matches. We
+// compute the concrete date ourselves and rewrite it to "Month D, YYYY".
+const NTH_WEEKDAY_RE = /\b(first|second|third|fourth|fifth|last)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+(?:in|of)\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/gi;
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+const ORDINALS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, last: 'last' };
+
+/** Date of the nth (or last) given weekday in a month. weekday: 0=Sun..6=Sat. */
+function nthWeekdayDate(n, weekday, year, month) {
+  if (n === 'last') {
+    const last = new Date(year, month + 1, 0);
+    return new Date(year, month, last.getDate() - ((last.getDay() - weekday + 7) % 7));
+  }
+  const firstDow = new Date(year, month, 1).getDay();
+  return new Date(year, month, 1 + ((weekday - firstDow + 7) % 7) + (n - 1) * 7);
+}
+
+/** Resolve an nth-weekday phrase to a concrete forward date, as "Month D, YYYY". */
+function resolveNthWeekday(ordWord, weekdayIdx, month, ref) {
+  const n = ORDINALS[ordWord.toLowerCase()];
+  const refDay = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  let date = nthWeekdayDate(n, weekdayIdx, ref.getFullYear(), month);
+  if (date < refDay) date = nthWeekdayDate(n, weekdayIdx, ref.getFullYear() + 1, month); // forwardDate
+  return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
 // chrono-node parses bare relative words (e.g. "now" inside "months from
 // now") as their own standalone match; drop those once a real date match
 // exists too, so a lone "lunch tomorrow" is still left alone.
@@ -28,6 +55,10 @@ const BARE_RELATIVE_RE = /^(now|today|tonight|tomorrow|yesterday)$/i;
 // "vacation next week" still parses.
 const VAGUE_RELATIVE_RE = /^(?:this|next|last)\s+(?:week|month|year|weekend)$/i;
 
+// A bare interval chrono extracts from phrases like "every 4 years following..."
+// ("4 years"). Never an event on its own; dropped when a real match is present.
+const INTERVAL_ONLY_RE = /^\d+\s+(?:year|month|week|day)s?$/i;
+
 // Trailing connector phrases anchored at the end of the pre-date text (e.g.
 // "... months from now"). Stripped before the leading-filler pass below so
 // "from" inside "months from now" never reaches it.
@@ -38,7 +69,7 @@ const TRAILING_FILLER_RE = /(\s*\b(?:for|at|on|from|about|regarding|re:|is|are|w
 // thanksgiving dinner" → "thanksgiving dinner", "let's hold the workshop" →
 // "workshop"). Deliberately excludes "from" -- it's also legitimately part of
 // titles like "invite from Sarah".
-const LEADING_FILLER_RE = /^.*?\b(?:for|about|regarding|re:|also|let'?s|please|don'?t forget(?:\s+the)?|remember to|reminder that|we(?:'ll| will| should| need to| want to)|i'?ll(?:\s+add)?|i\s+will(?:\s+add)?|i(?:'d like to| want to| need to| plan to)|like to|planning to|going to|do|hold(?:\s+the)?|set up|lock in|hi\s+\w+[\s,]+we(?:'re|are)?\s+\w+)\b\s*/i;
+const LEADING_FILLER_RE = /^.*?\b(?:for|about|regarding|re:|also known as|also|let'?s|please|don'?t forget(?:\s+the)?|remember to|reminder that|we(?:'ll| will| should| need to| want to)|i'?ll(?:\s+add)?|i\s+will(?:\s+add)?|i(?:'d like to| want to| need to| plan to)|like to|planning to|going to|do|hold(?:\s+the)?|set up|lock in|hi\s+\w+[\s,]+we(?:'re|are)?\s+\w+)\b\s*/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"')]+/i;
 
 // Explicit duration phrases: "for 2 hours", "90 min", "1.5h", "45 minutes".
@@ -200,14 +231,43 @@ function extractLocation(text) {
 const CLAUSE_SPLIT_RE = /(?<!\b(?:jr|sr|dr|mr|mrs|ms|st|mt|ave|rd|blvd|vs|etc|no|inc|ltd|co|[a-z]))\.\s+|[!?;:]\s+|\n/i;
 
 function lastClause(text) {
-  const parts = text.split(CLAUSE_SPLIT_RE);
-  return parts[parts.length - 1] ?? text;
+  const parts = text.split(CLAUSE_SPLIT_RE).filter(p => p.trim());
+  return parts.length ? parts[parts.length - 1] : text;
 }
 
 /** The first clause of the text that follows the date match, for the same
  * sentence-bounding reason as lastClause. */
 function firstClause(text) {
   return text.split(CLAUSE_SPLIT_RE)[0] ?? text;
+}
+
+/**
+ * For vertically-listed items (a name on one line, the date a few lines below,
+ * blank/tab lines between), the date's own line has no label. Walk back to the
+ * nearest non-blank line and use that as the label.
+ */
+function labelFromPreviousLines(text, lineStart) {
+  const lines = text.slice(0, lineStart).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line) return line;
+  }
+  return '';
+}
+
+/**
+ * Light cleaning for a label pulled from a list (a preceding line or a trailing
+ * column) — a complete title, not intro-then-subject prose, so it deliberately
+ * does NOT run the aggressive leading/trailing filler that would eat proper
+ * names like "National Day for ...". Just drops an "Also known as" prefix and
+ * trims surrounding bullets/dashes/punctuation.
+ */
+function cleanListLabel(s) {
+  return String(s ?? '')
+    .replace(/^(?:also\s+known\s+as|aka)\s+/i, '')
+    .replace(/^[\s\-–—:*•]+/, '')
+    .replace(/[\s\-–—:,]+$/, '')
+    .trim();
 }
 
 /** Strip filler/connector text surrounding the real event subject. */
@@ -219,6 +279,103 @@ function extractLabel(precedingText) {
   s = applyUntilStable(s, TRAILING_FILLER_RE);
   s = applyUntilStable(s, LEADING_FILLER_RE);
   return s.replace(/[\s\-–—:,]+$/, '').trim();
+}
+
+/** Normalize awkward date phrasings chrono can't handle, once, before parsing. */
+function normalizeDatePhrasings(rawText, referenceDate) {
+  return rawText
+    .replace(ORDINAL_OF_MONTH_RE, '$2 $1')
+    .replace(NTH_WEEKDAY_RE, (_m, ord, weekday, month) => resolveNthWeekday(
+      ord,
+      ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(weekday.toLowerCase()),
+      MONTH_NAMES.findIndex(n => n.toLowerCase() === month.toLowerCase()),
+      referenceDate,
+    ));
+}
+
+// Split a line into columns for tabular detection. Pipes and tabs are strong
+// table signals (prose has neither), so either column orientation is allowed;
+// a spaced dash is weaker (prose asides use it too), so it yields two columns
+// and the caller only trusts it when the date is on the right. Plain spaces are
+// never a separator. Returns { cells, kind } or null.
+function splitColumns(line) {
+  if (line.includes('|')) return { cells: line.split('|').map(c => c.trim()), kind: 'strong' };
+  if (line.includes('\t')) return { cells: line.split('\t').map(c => c.trim()), kind: 'strong' };
+  const dash = line.match(/ +[–—-]+ +/);
+  if (dash) return { cells: [line.slice(0, dash.index).trim(), line.slice(dash.index + dash[0].length).trim()], kind: 'dash' };
+  return null;
+}
+
+/** How date-like a chrono match is: 3 = has a month, 2 = a day number, 1 = a
+ *  bare weekday/relative, 0 = no match. Lets us tell the date column from the
+ *  name column even when a name contains a weekday ("Good Friday"). */
+function dateLikeScore(match) {
+  if (!match) return 0;
+  if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(match.text)) return 3;
+  if (/\d/.test(match.text)) return 2;
+  return 1;
+}
+
+/**
+ * If a line is a tabular "label <sep> date" or "date <sep> label" row, return
+ * { label, dateMatch }. chrono is only ever run per-column, so a weekday inside
+ * a name ("Good Friday", "Black Friday") can't spawn a phantom event. Returns
+ * null for non-tabular lines, which fall through to the natural-language pass.
+ */
+function parseListLine(line, referenceDate) {
+  const split = splitColumns(line);
+  if (!split) return null;
+  const cells = split.cells.filter(Boolean);
+  if (cells.length < 2) return null;
+
+  const scored = cells.map(c => {
+    const m = chrono.parse(c, referenceDate, { forwardDate: true })[0];
+    return { text: c, match: m, score: dateLikeScore(m) };
+  });
+
+  // The date column is the most date-like cell; it must carry a real calendar
+  // date (a month or day number), which keeps ambiguous prose out.
+  let dateCell = scored[0];
+  for (const s of scored) if (s.score > dateCell.score) dateCell = s;
+  if (dateCell.score < 2) return null;
+
+  // A dash aside ("dinner June 20 at 7pm — bring wine") has its date on the LEFT;
+  // a real "Name – Date" row has it on the right. Only trust a dash split when the
+  // date is the last cell. Pipes/tabs are unambiguous, so either side is fine.
+  if (split.kind === 'dash' && dateCell !== scored[scored.length - 1]) return null;
+
+  // Label = the first other cell that actually contains letters.
+  const labelCell = scored.find(s => s !== dateCell && /[a-z]/i.test(s.text));
+  if (!labelCell) return null;
+
+  return { label: cleanListLabel(labelCell.text), dateMatch: dateCell.match };
+}
+
+/** Build an event from a chrono match + an already-resolved label. */
+function dateMatchToEvent(dateMatch, label, meetingUrl) {
+  const startDate = toDateStr(dateMatch.start.date());
+  const hasTime = dateMatch.start.isCertain('hour');
+  let startTime, endDate, endTime, allDay = false, confidence;
+  if (!hasTime) {
+    allDay = true;
+    startTime = '00:00';
+    endTime = '23:59';
+    endDate = dateMatch.end ? toDateStr(dateMatch.end.date()) : startDate;
+    confidence = 'medium';
+  } else {
+    const h = dateMatch.start.get('hour') ?? 9;
+    const mi = dateMatch.start.get('minute') ?? 0;
+    startTime = padHHMM(h, mi);
+    if (dateMatch.end) {
+      endDate = toDateStr(dateMatch.end.date());
+      endTime = padHHMM(dateMatch.end.get('hour') ?? h + 1, dateMatch.end.get('minute') ?? 0);
+      confidence = 'high';
+    } else {
+      ({ endDate, endTime } = addMinutes(startDate, startTime, 60));
+      confidence = 'medium';
+    }
+  }
+  return { label: label || dateMatch.text, startDate, startTime, endDate, endTime, allDay, confidence, ...(meetingUrl ? { meeting_url: meetingUrl } : {}) };
 }
 
 /**
@@ -268,21 +425,47 @@ export function parseEvents(rawText, referenceDate = new Date()) {
 
   if (shiftResults.length > 0) return shiftResults;
 
-  // ── Pass 2: natural language fallback ──────────────────────────────────────
+  const normalized = normalizeDatePhrasings(rawText, referenceDate);
+
+  // ── Pass 1.5: tabular list rows ("Jan 1<TAB>New Year's Day", "Good Friday –
+  // April 3, 2026"). Handled per-column so a weekday inside a name never becomes
+  // a phantom event. Rows that match are removed before the NL pass. ───────────
+  const listResults = [];
+  const remainingLines = [];
+  for (const line of normalized.split(/\r?\n/)) {
+    const parsed = parseListLine(line, referenceDate);
+    if (parsed) listResults.push(dateMatchToEvent(parsed.dateMatch, parsed.label, meetingUrl));
+    else remainingLines.push(line);
+  }
+
+  // ── Pass 2: natural language fallback on the remaining (non-tabular) lines ───
   const nlResults = [];
-  const text = rawText.replace(ORDINAL_OF_MONTH_RE, '$2 $1');
+  const text = remainingLines.join('\n');
   let chronoMatches = chrono.parse(text, referenceDate, { forwardDate: true });
   chronoMatches = chronoMatches.filter(m => !DURATION_ONLY_RE.test(m.text.trim()));
   if (chronoMatches.length > 1) {
     chronoMatches = chronoMatches.filter(m => {
       const t = m.text.trim();
-      return !BARE_RELATIVE_RE.test(t) && !VAGUE_RELATIVE_RE.test(t);
+      return !BARE_RELATIVE_RE.test(t) && !VAGUE_RELATIVE_RE.test(t) && !INTERVAL_ONLY_RE.test(t);
     });
   }
 
+  // A time-only match ("9:00 AM", "at 3pm") with no date of its own inherits the
+  // most recent real date seen above it — so an agenda under a "March 6" header,
+  // or a follow-up "also at 4pm", lands on the right day instead of today.
+  let contextDate = null;
+
   for (const r of chronoMatches) {
-    const startDate = toDateStr(r.start.date());
-    const hasTime   = r.start.isCertain('hour');
+    const hasTime     = r.start.isCertain('hour');
+    const hasRealDate = r.start.isCertain('day') || r.start.isCertain('month') || r.start.isCertain('weekday');
+
+    let startDate;
+    if (!hasRealDate && hasTime && contextDate) {
+      startDate = toDateStr(contextDate);
+    } else {
+      startDate = toDateStr(r.start.date());
+      if (hasRealDate) contextDate = r.start.date();
+    }
 
     // The full line the match sits on, split around the matched date/time text.
     const lineStart = text.lastIndexOf('\n', r.index - 1) + 1;
@@ -291,7 +474,13 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     const offsetInLine = r.index - lineStart;
     const fullLine = text.slice(lineStart, lineEnd);
     const precedingText = fullLine.slice(0, offsetInLine);
-    const afterText = fullLine.slice(offsetInLine + r.text.length);
+    // Text after the match up to the next newline. Computed from the full text
+    // (not fullLine) so a match that itself spans a newline — chrono sometimes
+    // merges a header date with the following time — still sees its trailing name.
+    const matchEnd = r.index + r.text.length;
+    let afterEnd = text.indexOf('\n', matchEnd);
+    if (afterEnd === -1) afterEnd = text.length;
+    const afterText = text.slice(matchEnd, afterEnd);
 
     // Bound duration/attendee/location extraction to the match's own sentence
     // clause — the part before it back to the last sentence break, plus the
@@ -335,7 +524,22 @@ export function parseEvents(rawText, referenceDate = new Date()) {
       }
     }
 
-    const label = extractLabel(precedingText) || r.text;
+    // Label sources: (1) same-line text before the date (prose: "lunch June 5");
+    // (2) same-line text after a leading date ("01/01/2026 New Year's Day"), when
+    // it reads like a title rather than a date continuation (", every 4 years");
+    // (3) nearest preceding non-blank line (vertical "Name \n\n Date").
+    let label = extractLabel(precedingText);
+    if (!label) {
+      const after = afterText.replace(/^[\s:–—-]+/, '');
+      const isContinuation = /^[,;(]/.test(afterText.trim())
+        || /^(?:every|and|at|on|in|for|to|through|following|until|repeats?)\b/i.test(after);
+      if (after && !isContinuation) label = cleanListLabel(firstClause(after));
+    }
+    if (!label) {
+      const prev = labelFromPreviousLines(text, lineStart);
+      label = cleanListLabel(prev) || prev || r.text;
+    }
+    label = label.replace(/\s+/g, ' ').trim(); // never leak newlines into a label
     const recurrence = detectRecurrence(matchSentence);
     const people = extractAttendees(clauseWindow);
     const location = extractLocation(clauseWindow);
@@ -348,5 +552,5 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     });
   }
 
-  return nlResults;
+  return [...listResults, ...nlResults];
 }

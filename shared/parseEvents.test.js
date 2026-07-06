@@ -280,6 +280,139 @@ Christmas Day - December 25, 2026`;
   assert.equal(r.every(e => e.allDay), true);
 });
 
+// ── Nth-weekday-of-month + vertical lists ─────────────────────────────────────
+const JAN = new Date('2026-01-01T12:00:00');
+
+test('nth-weekday: "Third Monday in January" resolves to the concrete date', () => {
+  const [e] = parseEvents('MLK Day Third Monday in January', JAN);
+  assert.equal(e.startDate, '2026-01-19');
+  assert.equal(e.allDay, true);
+  assert.equal(e.label, 'MLK Day');
+});
+
+test('nth-weekday: "Last Monday in May"', () => {
+  assert.equal(parseEvents('Memorial Last Monday in May', JAN)[0].startDate, '2026-05-25');
+});
+
+test('nth-weekday: "Fourth Thursday in November"', () => {
+  assert.equal(parseEvents('Thanksgiving Fourth Thursday in November', JAN)[0].startDate, '2026-11-26');
+});
+
+test('vertical list: the label comes from the preceding non-blank line', () => {
+  const [e] = parseEvents('Christmas Day\n\t\n\nDecember 25', JAN);
+  assert.equal(e.label, 'Christmas Day');
+  assert.equal(e.startDate, '2026-12-25');
+  assert.equal(e.allDay, true);
+});
+
+test('vertical list: preceding line + nth-weekday date on its own line', () => {
+  const [e] = parseEvents('Thanksgiving Day\n\t\n\nFourth Thursday in November', JAN);
+  assert.equal(e.label, 'Thanksgiving Day');
+  assert.equal(e.startDate, '2026-11-26');
+});
+
+test('vertical list: an "Also known as X" subtitle line resolves to X', () => {
+  const [e] = parseEvents("Washington's Birthday\n\nAlso known as Presidents Day\n\nThird Monday in February", JAN);
+  assert.equal(e.label, 'Presidents Day');
+  assert.equal(e.startDate, '2026-02-16');
+});
+
+test('a vertically-listed holiday table extracts each name and date, no phantoms', () => {
+  const text = `New Year's Day
+\t
+January 1
+
+Memorial Day
+\t
+Last Monday in May
+
+Inauguration Day
+\t
+January 20, every 4 years following a presidential election
+
+Thanksgiving Day
+\t
+Fourth Thursday in November`;
+  const r = parseEvents(text, JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Memorial Day', 'Inauguration Day', 'Thanksgiving Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-05-25', '2026-01-20', '2026-11-26']);
+});
+
+// ── Tabular lists (dash- and tab-separated), weekday-in-name safe ─────────────
+
+test('dash list: "Good Friday – Friday, April 3, 2026" uses the explicit date', () => {
+  const [e] = parseEvents('Good Friday – Friday, April 3, 2026', JAN);
+  assert.equal(e.label, 'Good Friday');   // weekday in the name is not a phantom
+  assert.equal(e.startDate, '2026-04-03');
+  assert.equal(e.allDay, true);
+});
+
+test('dash list keeps a name containing "for" intact (light label cleaning)', () => {
+  const [e] = parseEvents('National Day for Truth and Reconciliation – Wednesday, September 30, 2026', JAN);
+  assert.equal(e.label, 'National Day for Truth and Reconciliation');
+  assert.equal(e.startDate, '2026-09-30');
+});
+
+test('tab list: date-first row, name (with weekday) after the tab', () => {
+  const r = parseEvents("Jan 1\tNew Year's Day\nApr 5\tEaster Sunday\nNov 27\tBlack Friday", JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Easter Sunday', 'Black Friday']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-04-05', '2026-11-27']);
+});
+
+test('a prose aside after an em-dash is NOT treated as a list row', () => {
+  const [e] = parseEvents('dinner June 20 at 7pm — bring wine', JAN);
+  assert.equal(e.label, 'dinner');        // date on the left ⇒ prose, not "Name – Date"
+  assert.equal(e.startTime, '19:00');
+});
+
+test('a duration aside after an em-dash still sets the duration', () => {
+  const [e] = parseEvents('meeting June 20 at 2pm — for 90 minutes', JAN);
+  assert.match(e.label, /meeting/);
+  assert.equal(e.endTime, '15:30');
+});
+
+test('markdown pipe table maps the date and name columns', () => {
+  const text = `| Date | Holiday |
+| --- | --- |
+| Jan 1 | New Year's Day |
+| Jul 4 | Independence Day |`;
+  const r = parseEvents(text, JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Independence Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-07-04']);
+});
+
+test('numeric date-first rows ("MM/DD/YYYY Name") label from the trailing text', () => {
+  const r = parseEvents('07/04/2026 Independence Day\n12/25/2026 Christmas Day', JAN);
+  assert.deepEqual(r.map(e => e.label), ['Independence Day', 'Christmas Day']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-07-04', '2026-12-25']);
+});
+
+test('a "Label: date range" line keeps the label and the span', () => {
+  const [e] = parseEvents('Spring Conference: March 3-5, 2026', JAN);
+  assert.equal(e.label, 'Spring Conference');
+  assert.equal(e.startDate, '2026-03-03');
+  assert.equal(e.endDate, '2026-03-05');
+});
+
+// ── Date-context inheritance (agendas, follow-ups) ────────────────────────────
+
+test('agenda: time-only lines inherit the header date', () => {
+  const text = `Friday, March 6, 2026
+10:00 AM - Keynote
+1:30 PM - Workshop`;
+  const r = parseEvents(text, JAN);
+  assert.equal(r.every(e => e.startDate === '2026-03-06'), true);
+  assert.equal(r.some(e => /Keynote/.test(e.label)), true);
+});
+
+test('a follow-up time inherits the earlier date in the same text', () => {
+  const r = parseEvents('Meeting June 5 at 2pm. Follow-up at 4pm.', JAN);
+  assert.equal(r.length, 2);
+  assert.equal(r[0].startDate, '2026-06-05');
+  assert.equal(r[1].startDate, '2026-06-05');
+  assert.equal(r[1].startTime, '16:00');
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {
