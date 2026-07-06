@@ -7,7 +7,8 @@
   "exports": {
     ".": "./index.js",
     "./categories": "./categories.js",
-    "./parseEvents": "./parseEvents.js"
+    "./parseEvents": "./parseEvents.js",
+    "./peopleSuggestions": "./peopleSuggestions.js"
   },
   "dependencies": {
     "chrono-node": "^2.9.1"

@@ -30,7 +30,14 @@
           "speechRecognitionPermission": "Allow PLS Calendar to use speech recognition for voice event input.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
-      ]
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow PLS Calendar to link a contact you pick to an event."
+        }
+      ],
+      "expo-secure-store"
     ],
     "ios": {
       "supportsTablet": true,
@@ -56,9 +63,6 @@
         "projectId": "102f8f2e-d692-4f96-b460-9cbc2a38064c"
       }
     },
-    "owner": "hunter52302",
-    "plugins": [
-      "expo-secure-store"
-    ]
+    "owner": "hunter52302"
   }
 }

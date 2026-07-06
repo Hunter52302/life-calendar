@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { parseEventText } from '../lib/parserRouter.js';
 import { buildSegments, dateToWeekData } from '../lib/calendarUtils.js';
 import { generateId, generateRepeatInstances } from '../lib/utils.js';
-import { enrichPeople } from '../../shared/peopleSuggestions.js';
+import { enrichPeople, mergeContactIntoPeople } from '../../shared/peopleSuggestions.js';
+import { contactPickerSupported, pickContact } from '../lib/contactPicker.js';
 import { useVoiceInput } from '../hooks/useVoiceInput.js';
 
 // Repeat frequencies, matching generateRepeatInstances() and the Add Event form.
@@ -242,21 +243,41 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             />
           </Field>
           <Field label="People">
-            <input
-              type="text"
-              value={(draft.people ?? []).map(p => p.displayName).join(', ')}
-              className={inputCls}
-              placeholder="Comma-separated names"
-              onChange={e => {
-                const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
-                const prev = draft.people ?? [];
-                // Preserve any linked phone/email for a name that's unchanged.
-                onChange({ ...draft, people: names.length ? names.map(displayName => {
-                  const match = prev.find(p => p.displayName.toLowerCase() === displayName.toLowerCase());
-                  return match ? { ...match, displayName } : { displayName, source: 'paste' };
-                }) : undefined });
-              }}
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={(draft.people ?? []).map(p => p.displayName).join(', ')}
+                className={inputCls}
+                placeholder="Comma-separated names"
+                onChange={e => {
+                  const names = e.target.value.split(',').map(n => n.trim()).filter(Boolean);
+                  const prev = draft.people ?? [];
+                  // Preserve any linked phone/email for a name that's unchanged.
+                  onChange({ ...draft, people: names.length ? names.map(displayName => {
+                    const match = prev.find(p => p.displayName.toLowerCase() === displayName.toLowerCase());
+                    return match ? { ...match, displayName } : { displayName, source: 'paste' };
+                  }) : undefined });
+                }}
+              />
+              {contactPickerSupported() && (
+                <button
+                  type="button"
+                  title="Pick from your contacts"
+                  onClick={async () => {
+                    const contact = await pickContact();
+                    if (contact) onChange({ ...draft, people: mergeContactIntoPeople(draft.people ?? [], contact) });
+                  }}
+                  className="flex-shrink-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors text-sm"
+                >
+                  📇 Contacts
+                </button>
+              )}
+            </div>
+            {draft.people?.some(p => p.phone || p.email) && (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                🔗 {draft.people.filter(p => p.phone || p.email).map(p => p.displayName).join(', ')} linked — Call/Text/Email will be available on the event.
+              </p>
+            )}
           </Field>
           <Field label="Calendar">
             <div className="flex gap-2">

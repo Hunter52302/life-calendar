@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPeopleSuggestions, enrichPeople } from './peopleSuggestions.js';
+import { buildPeopleSuggestions, enrichPeople, mergeContactIntoPeople } from './peopleSuggestions.js';
 
 test('buildPeopleSuggestions collapses people by case-insensitive name', () => {
   const events = [
@@ -57,4 +57,21 @@ test('enrichPeople is a no-op with no people or no suggestions', () => {
   assert.deepEqual(enrichPeople([], [{ displayName: 'X', phone: '1' }]), []);
   const same = [{ displayName: 'X', source: 'paste' }];
   assert.equal(enrichPeople(same, []), same);
+});
+
+test('mergeContactIntoPeople updates a matching name in place (contact fields win)', () => {
+  const people = [{ displayName: 'Sarah', source: 'paste' }];
+  const merged = mergeContactIntoPeople(people, { displayName: 'sarah', phone: '+1', source: 'picker' });
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].phone, '+1');
+  assert.equal(merged[0].displayName, 'sarah');
+  assert.equal(merged[0].source, 'picker');
+});
+
+test('mergeContactIntoPeople appends a new contact and is a no-op for null', () => {
+  const merged = mergeContactIntoPeople([{ displayName: 'Sarah' }], { displayName: 'Tom', phone: '+2', source: 'picker' });
+  assert.equal(merged.length, 2);
+  assert.equal(merged[1].displayName, 'Tom');
+  const people = [{ displayName: 'Sarah' }];
+  assert.equal(mergeContactIntoPeople(people, null), people);
 });

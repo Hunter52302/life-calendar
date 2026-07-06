@@ -55,6 +55,20 @@ export function buildPeopleSuggestions(events = []) {
  * @param {Array} people - parsed attendees ([{ displayName, source }])
  * @param {Array} suggestions - output of buildPeopleSuggestions
  */
+/**
+ * Merge a picked (or manually-shaped) contact into a people[] list: update the
+ * matching name in place (contact fields win), else append. Returns a new array.
+ * Shared by the web and mobile contact pickers.
+ */
+export function mergeContactIntoPeople(people = [], contact) {
+  if (!contact) return people;
+  const list = [...people];
+  const idx = list.findIndex(p => p.displayName?.toLowerCase() === contact.displayName.toLowerCase());
+  if (idx >= 0) list[idx] = { ...list[idx], ...contact };
+  else list.push(contact);
+  return list;
+}
+
 export function enrichPeople(people = [], suggestions = []) {
   if (!people.length || !suggestions.length) return people;
   const byKey = new Map(suggestions.map(s => [s.displayName.toLowerCase(), s]));

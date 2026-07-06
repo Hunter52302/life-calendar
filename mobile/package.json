@@ -13,6 +13,7 @@
     "chrono-node": "^2.9.1",
     "expo": "~56.0.4",
     "expo-constants": "~56.0.4",
+    "expo-contacts": "~56.0.4",
     "expo-dev-client": "~56.0.15",
     "expo-linking": "~56.0.11",
     "expo-secure-store": "~56.0.4",
