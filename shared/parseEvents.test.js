@@ -338,6 +338,39 @@ Fourth Thursday in November`;
   assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-05-25', '2026-01-20', '2026-11-26']);
 });
 
+// ── Tabular lists (dash- and tab-separated), weekday-in-name safe ─────────────
+
+test('dash list: "Good Friday – Friday, April 3, 2026" uses the explicit date', () => {
+  const [e] = parseEvents('Good Friday – Friday, April 3, 2026', JAN);
+  assert.equal(e.label, 'Good Friday');   // weekday in the name is not a phantom
+  assert.equal(e.startDate, '2026-04-03');
+  assert.equal(e.allDay, true);
+});
+
+test('dash list keeps a name containing "for" intact (light label cleaning)', () => {
+  const [e] = parseEvents('National Day for Truth and Reconciliation – Wednesday, September 30, 2026', JAN);
+  assert.equal(e.label, 'National Day for Truth and Reconciliation');
+  assert.equal(e.startDate, '2026-09-30');
+});
+
+test('tab list: date-first row, name (with weekday) after the tab', () => {
+  const r = parseEvents("Jan 1\tNew Year's Day\nApr 5\tEaster Sunday\nNov 27\tBlack Friday", JAN);
+  assert.deepEqual(r.map(e => e.label), ["New Year's Day", 'Easter Sunday', 'Black Friday']);
+  assert.deepEqual(r.map(e => e.startDate), ['2026-01-01', '2026-04-05', '2026-11-27']);
+});
+
+test('a prose aside after an em-dash is NOT treated as a list row', () => {
+  const [e] = parseEvents('dinner June 20 at 7pm — bring wine', JAN);
+  assert.equal(e.label, 'dinner');        // date on the left ⇒ prose, not "Name – Date"
+  assert.equal(e.startTime, '19:00');
+});
+
+test('a duration aside after an em-dash still sets the duration', () => {
+  const [e] = parseEvents('meeting June 20 at 2pm — for 90 minutes', JAN);
+  assert.match(e.label, /meeting/);
+  assert.equal(e.endTime, '15:30');
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {

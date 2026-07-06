@@ -22,6 +22,7 @@ const ORDINAL_OF_MONTH_RE = /\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\s+of\s+(Janua
 // compute the concrete date ourselves and rewrite it to "Month D, YYYY".
 const NTH_WEEKDAY_RE = /\b(first|second|third|fourth|fifth|last)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+(?:in|of)\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/gi;
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 const ORDINALS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, last: 'last' };
 
 /** Date of the nth (or last) given weekday in a month. weekday: 0=Sun..6=Sat. */
@@ -254,6 +255,21 @@ function labelFromPreviousLines(text, lineStart) {
   return '';
 }
 
+/**
+ * Light cleaning for a label pulled from a list (a preceding line or a trailing
+ * column) — a complete title, not intro-then-subject prose, so it deliberately
+ * does NOT run the aggressive leading/trailing filler that would eat proper
+ * names like "National Day for ...". Just drops an "Also known as" prefix and
+ * trims surrounding bullets/dashes/punctuation.
+ */
+function cleanListLabel(s) {
+  return String(s ?? '')
+    .replace(/^(?:also\s+known\s+as|aka)\s+/i, '')
+    .replace(/^[\s\-–—:*•]+/, '')
+    .replace(/[\s\-–—:,]+$/, '')
+    .trim();
+}
+
 /** Strip filler/connector text surrounding the real event subject. */
 function extractLabel(precedingText) {
   let s = lastClause(precedingText).replace(DURATION_RE, ' ').replace(RECURRENCE_STRIP_RE, ' ');
@@ -263,6 +279,91 @@ function extractLabel(precedingText) {
   s = applyUntilStable(s, TRAILING_FILLER_RE);
   s = applyUntilStable(s, LEADING_FILLER_RE);
   return s.replace(/[\s\-–—:,]+$/, '').trim();
+}
+
+/** Normalize awkward date phrasings chrono can't handle, once, before parsing. */
+function normalizeDatePhrasings(rawText, referenceDate) {
+  return rawText
+    .replace(ORDINAL_OF_MONTH_RE, '$2 $1')
+    .replace(NTH_WEEKDAY_RE, (_m, ord, weekday, month) => resolveNthWeekday(
+      ord,
+      ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(weekday.toLowerCase()),
+      MONTH_NAMES.findIndex(n => n.toLowerCase() === month.toLowerCase()),
+      referenceDate,
+    ));
+}
+
+// A real column separator in a tabular list: a tab, or a spaced dash. Plain
+// spaces are excluded so ordinary prose is never mistaken for a table.
+const LIST_SEPARATOR_RE = /\t+| +[–—-]+ +/;
+
+/** How date-like a chrono match is: 3 = has a month, 2 = a day number, 1 = a
+ *  bare weekday/relative, 0 = no match. Lets us tell the date column from the
+ *  name column even when a name contains a weekday ("Good Friday"). */
+function dateLikeScore(match) {
+  if (!match) return 0;
+  if (/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(match.text)) return 3;
+  if (/\d/.test(match.text)) return 2;
+  return 1;
+}
+
+/**
+ * If a line is a tabular "label <sep> date" or "date <sep> label" row, return
+ * { label, dateMatch }. chrono is only ever run per-column, so a weekday inside
+ * a name ("Good Friday", "Black Friday") can't spawn a phantom event. Returns
+ * null for non-tabular lines, which fall through to the natural-language pass.
+ */
+function parseListLine(line, referenceDate) {
+  const sep = line.match(LIST_SEPARATOR_RE);
+  if (!sep) return null;
+  const isDash = /[–—-]/.test(sep[0]);
+  const left = line.slice(0, sep.index).trim();
+  const right = line.slice(sep.index + sep[0].length).trim();
+  if (!left || !right) return null;
+
+  const leftMatch = chrono.parse(left, referenceDate, { forwardDate: true })[0];
+  const rightMatch = chrono.parse(right, referenceDate, { forwardDate: true })[0];
+  const ls = dateLikeScore(leftMatch);
+  const rs = dateLikeScore(rightMatch);
+
+  // The date column must carry a real calendar date (a month or day number) and
+  // be strictly more date-like than the name column, keeping ambiguous prose out.
+  // A dash only counts when the date is on the RIGHT ("Name – Date"); a left-side
+  // date with a dash is a prose aside ("dinner June 20 at 7pm — bring wine"), not
+  // a list row. A tab is an unambiguous column, so either orientation is allowed.
+  let dateMatch, labelText;
+  if (rs >= 2 && rs > ls) { dateMatch = rightMatch; labelText = left; }
+  else if (!isDash && ls >= 2 && ls > rs) { dateMatch = leftMatch; labelText = right; }
+  else return null;
+
+  return { label: cleanListLabel(labelText), dateMatch };
+}
+
+/** Build an event from a chrono match + an already-resolved label. */
+function dateMatchToEvent(dateMatch, label, meetingUrl) {
+  const startDate = toDateStr(dateMatch.start.date());
+  const hasTime = dateMatch.start.isCertain('hour');
+  let startTime, endDate, endTime, allDay = false, confidence;
+  if (!hasTime) {
+    allDay = true;
+    startTime = '00:00';
+    endTime = '23:59';
+    endDate = dateMatch.end ? toDateStr(dateMatch.end.date()) : startDate;
+    confidence = 'medium';
+  } else {
+    const h = dateMatch.start.get('hour') ?? 9;
+    const mi = dateMatch.start.get('minute') ?? 0;
+    startTime = padHHMM(h, mi);
+    if (dateMatch.end) {
+      endDate = toDateStr(dateMatch.end.date());
+      endTime = padHHMM(dateMatch.end.get('hour') ?? h + 1, dateMatch.end.get('minute') ?? 0);
+      confidence = 'high';
+    } else {
+      ({ endDate, endTime } = addMinutes(startDate, startTime, 60));
+      confidence = 'medium';
+    }
+  }
+  return { label: label || dateMatch.text, startDate, startTime, endDate, endTime, allDay, confidence, ...(meetingUrl ? { meeting_url: meetingUrl } : {}) };
 }
 
 /**
@@ -312,16 +413,22 @@ export function parseEvents(rawText, referenceDate = new Date()) {
 
   if (shiftResults.length > 0) return shiftResults;
 
-  // ── Pass 2: natural language fallback ──────────────────────────────────────
+  const normalized = normalizeDatePhrasings(rawText, referenceDate);
+
+  // ── Pass 1.5: tabular list rows ("Jan 1<TAB>New Year's Day", "Good Friday –
+  // April 3, 2026"). Handled per-column so a weekday inside a name never becomes
+  // a phantom event. Rows that match are removed before the NL pass. ───────────
+  const listResults = [];
+  const remainingLines = [];
+  for (const line of normalized.split(/\r?\n/)) {
+    const parsed = parseListLine(line, referenceDate);
+    if (parsed) listResults.push(dateMatchToEvent(parsed.dateMatch, parsed.label, meetingUrl));
+    else remainingLines.push(line);
+  }
+
+  // ── Pass 2: natural language fallback on the remaining (non-tabular) lines ───
   const nlResults = [];
-  const text = rawText
-    .replace(ORDINAL_OF_MONTH_RE, '$2 $1')
-    .replace(NTH_WEEKDAY_RE, (_m, ord, weekday, month) => resolveNthWeekday(
-      ord,
-      ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(weekday.toLowerCase()),
-      MONTH_NAMES.findIndex(n => n.toLowerCase() === month.toLowerCase()),
-      referenceDate,
-    ));
+  const text = remainingLines.join('\n');
   let chronoMatches = chrono.parse(text, referenceDate, { forwardDate: true });
   chronoMatches = chronoMatches.filter(m => !DURATION_ONLY_RE.test(m.text.trim()));
   if (chronoMatches.length > 1) {
@@ -386,12 +493,14 @@ export function parseEvents(rawText, referenceDate = new Date()) {
       }
     }
 
-    // Same-line label first; if there is none (a vertically-listed date on its
-    // own line), fall back to the nearest preceding non-blank line.
+    // Label from same-line text before the date (prose: "lunch June 5"); if the
+    // date is alone on its line (a vertical "Name \n\n Date" list), fall back to
+    // the nearest preceding non-blank line. Tabular rows were already handled in
+    // Pass 1.5, so they never reach here.
     let label = extractLabel(precedingText);
     if (!label) {
       const prev = labelFromPreviousLines(text, lineStart);
-      label = extractLabel(prev) || prev || r.text;
+      label = cleanListLabel(prev) || prev || r.text;
     }
     const recurrence = detectRecurrence(matchSentence);
     const people = extractAttendees(clauseWindow);
@@ -405,5 +514,5 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     });
   }
 
-  return nlResults;
+  return [...listResults, ...nlResults];
 }
