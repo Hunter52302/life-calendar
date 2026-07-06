@@ -244,6 +244,17 @@ test('a lowercase relationship word ("with dad") becomes a title-cased attendee'
   assert.deepEqual(e.people, [{ displayName: 'Dad', source: 'paste' }]);
 });
 
+test('a hyphenated relationship word with a possessive is captured whole', () => {
+  const e = one('dinner with my mother-in-law on Aug 3 at 6pm');
+  assert.equal(e.label, 'dinner');
+  assert.deepEqual(e.people, [{ displayName: 'Mother-in-law', source: 'paste' }]);
+});
+
+test('a mix of a name and a possessive relationship word both resolve', () => {
+  const e = one('lunch with my mom and dad on Friday at noon');
+  assert.deepEqual(e.people.map(p => p.displayName), ['Mom', 'Dad']);
+});
+
 // ── Abbreviations in names / pasted lists ─────────────────────────────────────
 
 test('an abbreviation ("Jr.") does not truncate the label at a false sentence break', () => {

@@ -64,9 +64,22 @@ const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+\w+|every\s+other|every\s+\d+\
 // "with dad" is captured while ordinary phrases ("with the team", "with coffee")
 // are not. Case-sensitive on purpose: the capitalized branch must not match
 // arbitrary lowercase words.
-const RELATION_WORDS = 'dad|mom|mum|mommy|daddy|mother|father|brother|sister|grandma|grandpa|grandmother|grandfather|wife|husband|son|daughter|boss|nana|papa';
+// Longer / hyphenated forms first so alternation matches them before a shorter
+// prefix (e.g. "father-in-law" before "father").
+const RELATION_WORDS = [
+  'mother-in-law', 'father-in-law', 'sister-in-law', 'brother-in-law', 'daughter-in-law', 'son-in-law', 'in-laws', 'in-law',
+  'grandmother', 'grandfather', 'granddaughter', 'grandson', 'granddad', 'grandma', 'grandpa', 'grandkids',
+  'stepmother', 'stepfather', 'stepbrother', 'stepsister', 'stepmom', 'stepdad', 'stepson', 'stepdaughter',
+  'girlfriend', 'boyfriend', 'partner', 'fiancee', 'fiance', 'fiancée', 'fiancé', 'spouse', 'hubby',
+  'mother', 'father', 'brother', 'sister', 'siblings', 'sibling', 'daughter', 'son',
+  'mommy', 'daddy', 'mama', 'papa', 'mum', 'mom', 'dad', 'nana', 'granny', 'gramps', 'pops', 'folks',
+  'wife', 'husband', 'uncle', 'auntie', 'aunt', 'cousin', 'nephew', 'niece', 'godmother', 'godfather',
+  'boss', 'manager', 'coworker', 'colleague', 'teammate', 'mentor', 'coach', 'roommate', 'neighbor', 'neighbour',
+].join('|');
 const NAME_TOKEN = `(?:[A-Z][a-zA-Z.'-]+|${RELATION_WORDS})`;
-const ATTENDEE_RE = new RegExp(`\\bwith\\s+(${NAME_TOKEN}(?:(?:\\s*,\\s*|\\s+and\\s+|\\s+&\\s+)${NAME_TOKEN})*)`);
+// Allow an optional possessive ("with my mom", "with our daughter") before the
+// name list; it's dropped from the captured names.
+const ATTENDEE_RE = new RegExp(`\\bwith\\s+(?:my\\s+|our\\s+)?(${NAME_TOKEN}(?:(?:\\s*,\\s*|\\s+and\\s+|\\s+&\\s+)(?:my\\s+|our\\s+)?${NAME_TOKEN})*)`);
 
 // Location: "at|@|in <Place>", where the time-of-day "at" has already been
 // consumed by chrono. Each word of the place must start uppercase or a digit so
@@ -159,7 +172,7 @@ function extractAttendees(text) {
   const seen = new Set();
   return m[1]
     .split(/\s*,\s*|\s+and\s+|\s+&\s+/)
-    .map(n => n.trim())
+    .map(n => n.trim().replace(/^(?:my|our)\s+/i, ''))
     .filter(n => n.length > 1 && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()))
     // Title-case so a lowercase relationship word ("dad") reads as a name ("Dad").
     .map(n => ({ displayName: n.charAt(0).toUpperCase() + n.slice(1), source: 'paste' }));
