@@ -135,6 +135,57 @@ test('duration phrase is not left dangling in the label', () => {
   assert.equal(e.endTime, '14:00');
 });
 
+// ── Recurrence detection ──────────────────────────────────────────────────────
+
+test('"every Monday" is detected as a weekly recurrence', () => {
+  const e = one('standup every Monday at 9am');
+  assert.equal(e.recurrence, 'weekly');
+  assert.equal(e.label, 'standup');
+  assert.equal(e.startTime, '09:00');
+});
+
+test('"every day" is detected as a daily recurrence', () => {
+  const e = one('gym every day at 6pm');
+  assert.equal(e.recurrence, 'daily');
+  assert.equal(e.label, 'gym');
+});
+
+test('"weekly" is detected and stripped from the label', () => {
+  const e = one('team lunch weekly on Friday at noon');
+  assert.equal(e.recurrence, 'weekly');
+  assert.equal(e.label, 'team lunch');
+});
+
+test('"every other week" is detected as biweekly', () => {
+  const e = one('checkin every other week on Tuesday at 3pm');
+  assert.equal(e.recurrence, 'biweekly');
+  assert.equal(e.label, 'checkin');
+});
+
+test('"monthly" is detected on an all-day event', () => {
+  const e = one('rent June 1 monthly');
+  assert.equal(e.recurrence, 'monthly');
+  assert.equal(e.allDay, true);
+  assert.equal(e.label, 'rent');
+});
+
+test('"every year" is detected as yearly', () => {
+  const e = one('anniversary June 5 every year');
+  assert.equal(e.recurrence, 'yearly');
+  assert.equal(e.label, 'anniversary');
+});
+
+test('"every weekday" is NOT treated as a recurrence (unsupported cadence)', () => {
+  const e = one('yoga every weekday at 7am');
+  assert.equal('recurrence' in e, false);
+  assert.equal(e.label, 'yoga');
+});
+
+test('a one-off event carries no recurrence field', () => {
+  const e = one('dentist June 20 at 3pm');
+  assert.equal('recurrence' in e, false);
+});
+
 // ── Ordinal-of-month rewriting ────────────────────────────────────────────────
 
 test('"the 24th of December" parses as a single dated event', () => {

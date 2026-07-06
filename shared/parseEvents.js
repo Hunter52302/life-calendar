@@ -46,6 +46,12 @@ const DURATION_RE = /(?:\bfor\s+)?\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mi
 // dropped from the match list and re-read from each real match's line instead.
 const DURATION_ONLY_RE = /^(?:for\s+)?\d+(?:\.\d+)?\s*(?:hours?|hrs?|h|minutes?|mins?|m)$/i;
 
+// Recurrence connector words to strip out of an extracted label ("standup
+// every Monday" → "standup", "rent monthly" → "rent"). Includes a bare
+// trailing "every"/"each" because chrono usually swallows the day/period into
+// its own match, leaving just the connector behind on the label side.
+const RECURRENCE_STRIP_RE = /\b(?:every\s+other\s+week|every\s+\d+\s+weeks?|bi-?weekly|fortnightly|weekly|daily|monthly|yearly|annually|every\s+(?:day|week|month|year|mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*)|each\s+(?:day|week|month|year)|every|each)\b/gi;
+
 function toDateStr(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -99,9 +105,27 @@ function applyUntilStable(s, re) {
   return s;
 }
 
+/**
+ * Classify an explicit recurrence phrase on a line into a repeat frequency
+ * matching the app's series model ('daily' | 'weekly' | 'biweekly' | 'monthly'
+ * | 'yearly'), or null when there is none. Order matters: the bi-weekly forms
+ * contain the word "week", so they are checked before plain weekly.
+ * "every weekday" is intentionally not matched — the series model can't express
+ * a Mon–Fri-only cadence, so those stay single events.
+ */
+function detectRecurrence(line) {
+  const s = line.toLowerCase();
+  if (/\bevery\s+other\s+week\b|\bbi-?weekly\b|\bfortnightly\b|\bevery\s+(?:2|two)\s+weeks?\b/.test(s)) return 'biweekly';
+  if (/\bdaily\b|\bevery\s+day\b|\beach\s+day\b/.test(s)) return 'daily';
+  if (/\bweekly\b|\bevery\s+week\b|\beach\s+week\b|\bevery\s+(?:mon|tue|wed|thu|fri|sat|sun)/.test(s)) return 'weekly';
+  if (/\bmonthly\b|\bevery\s+month\b|\beach\s+month\b/.test(s)) return 'monthly';
+  if (/\byearly\b|\bannually\b|\bevery\s+year\b|\beach\s+year\b/.test(s)) return 'yearly';
+  return null;
+}
+
 /** Strip filler/connector text surrounding the real event subject. */
 function extractLabel(precedingText) {
-  let s = precedingText.replace(DURATION_RE, ' ');
+  let s = precedingText.replace(DURATION_RE, ' ').replace(RECURRENCE_STRIP_RE, ' ');
   s = applyUntilStable(s, TRAILING_FILLER_RE);
   s = applyUntilStable(s, LEADING_FILLER_RE);
   return s.replace(/[\s\-–—:,]+$/, '').trim();
@@ -210,7 +234,8 @@ export function parseEvents(rawText, referenceDate = new Date()) {
     }
 
     const label = extractLabel(precedingText) || r.text;
-    nlResults.push({ label, startDate, startTime, endDate, endTime, allDay, confidence, ...(meetingUrl ? { meeting_url: meetingUrl } : {}) });
+    const recurrence = detectRecurrence(fullLine);
+    nlResults.push({ label, startDate, startTime, endDate, endTime, allDay, confidence, ...(recurrence ? { recurrence } : {}), ...(meetingUrl ? { meeting_url: meetingUrl } : {}) });
   }
 
   return nlResults;
