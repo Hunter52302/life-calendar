@@ -20,14 +20,27 @@ fn show_main_window(app: &AppHandle) {
     }
 }
 
-/// Update the tray's "next event" menu line and tooltip. Called from the
-/// frontend (which alone can decrypt event labels) whenever the next upcoming
-/// event changes. The label text stays on the desktop — never sent anywhere.
+/// Update the tray's "next event" menu line, tooltip, and (optionally) the
+/// inline menu-bar title. Called from the frontend (which alone can decrypt
+/// event labels) whenever the next upcoming event changes. The label text stays
+/// on the desktop — never sent anywhere.
+///
+/// `title` is the text shown *inline* next to the tray icon. On macOS this sits
+/// permanently in the menu bar; on Windows/Linux `set_title` is unsupported and
+/// silently does nothing (the hover tooltip covers those platforms instead).
+/// An empty string clears the inline title.
 #[tauri::command]
-fn update_next_event(app: AppHandle, state: State<'_, TrayState>, label: String, tooltip: String) -> Result<(), String> {
+fn update_next_event(
+    app: AppHandle,
+    state: State<'_, TrayState>,
+    label: String,
+    tooltip: String,
+    title: String,
+) -> Result<(), String> {
     state.next_item.set_text(label).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(tooltip));
+        let _ = tray.set_title(if title.is_empty() { None } else { Some(title) });
     }
     Ok(())
 }

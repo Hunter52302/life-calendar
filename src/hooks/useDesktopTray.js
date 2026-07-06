@@ -43,7 +43,19 @@ function fmtWhen(d, military) {
   return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${t}`;
 }
 
-export default function useDesktopTray(planEvents, { enabled = true, offsetMinutes = 10, militaryTime = false } = {}) {
+/** Compact label for the always-visible menu-bar title (kept short on purpose). */
+function fmtBarTitle(ev, start, military) {
+  const name = (ev.label || 'Event').trim();
+  const short = name.length > 22 ? name.slice(0, 21) + '…' : name;
+  const mins = Math.round((start - Date.now()) / 60000);
+  let when;
+  if (mins < 60) when = `${Math.max(0, mins)}m`;
+  else if (mins < 24 * 60) when = fmtTime(new Date(start), military);
+  else when = fmtWhen(new Date(start), military);
+  return `${short} · ${when}`;
+}
+
+export default function useDesktopTray(planEvents, { enabled = true, offsetMinutes = 10, militaryTime = false, showTitleInBar = false } = {}) {
   // Track which (event,instance) reminders we've already fired this session.
   const notifiedRef = useRef(new Set());
   // Latest events without re-subscribing the interval on every change.
@@ -87,9 +99,10 @@ export default function useDesktopTray(planEvents, { enabled = true, offsetMinut
         if (next) {
           const label   = `Next: ${next.ev.label || 'Event'} — ${fmtWhen(new Date(next.start), militaryTime)}`;
           const tooltip = `PLS Calendar\n${label}`;
-          await invoke('update_next_event', { label, tooltip });
+          const title   = showTitleInBar ? fmtBarTitle(next.ev, next.start, militaryTime) : '';
+          await invoke('update_next_event', { label, tooltip, title });
         } else {
-          await invoke('update_next_event', { label: 'No upcoming events', tooltip: 'PLS Calendar' });
+          await invoke('update_next_event', { label: 'No upcoming events', tooltip: 'PLS Calendar', title: '' });
         }
       } catch { /* tray not ready yet */ }
 
@@ -112,5 +125,5 @@ export default function useDesktopTray(planEvents, { enabled = true, offsetMinut
     load().then(() => tick());
     const iv = setInterval(tick, 30000);
     return () => { cancelled = true; clearInterval(iv); };
-  }, [enabled, offsetMinutes, militaryTime]);
+  }, [enabled, offsetMinutes, militaryTime, showTitleInBar]);
 }

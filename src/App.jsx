@@ -180,6 +180,7 @@ export default function App() {
   const [webAutoUpdate, setWebAutoUpdate] = usePersistentState('lc-web-auto-update', false);
   const [desktopReminders, setDesktopReminders] = usePersistentState('lc-desktop-reminders', true);
   const [desktopReminderOffset, setDesktopReminderOffset] = usePersistentState('lc-desktop-reminder-offset', 10);
+  const [desktopTrayTitle, setDesktopTrayTitle] = usePersistentState('lc-desktop-tray-title', false);
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
@@ -609,6 +610,7 @@ export default function App() {
     enabled: desktopReminders,
     offsetMinutes: desktopReminderOffset,
     militaryTime,
+    showTitleInBar: desktopTrayTitle,
   });
 
   function toggleView(v) {
@@ -2782,11 +2784,12 @@ export default function App() {
                                       <div className="flex items-center justify-between px-1">
                                         <div>
                                           <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Tray reminders</p>
-                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Show the next event in the menubar and notify before it starts</p>
+                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Keep the next event on the tray icon (hover to see it) and notify before it starts</p>
                                         </div>
                                         <Toggle checked={desktopReminders} onChange={() => setDesktopReminders(v => !v)} />
                                       </div>
                                       {desktopReminders && (
+                                        <>
                                         <div className="flex items-center justify-between px-1">
                                           <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
                                           <select
@@ -2799,6 +2802,14 @@ export default function App() {
                                             ))}
                                           </select>
                                         </div>
+                                        <div className="flex items-center justify-between px-1">
+                                          <div className="pr-2">
+                                            <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Show event name in menu bar</p>
+                                            <p className="text-[10px] text-gray-400 dark:text-gray-500">Displays the next event as text beside the tray icon. macOS only — Windows shows it on hover.</p>
+                                          </div>
+                                          <Toggle checked={desktopTrayTitle} onChange={() => setDesktopTrayTitle(v => !v)} />
+                                        </div>
+                                        </>
                                       )}
                                     </div>
                                   )}
