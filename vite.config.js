@@ -104,18 +104,16 @@ export default defineConfig({
   ],
 
   optimizeDeps: {
-    exclude: ['jspdf', 'jspdf-autotable', '@tauri-apps/api', '@tauri-apps/plugin-opener', '@tauri-apps/plugin-updater', '@tauri-apps/plugin-process'],
+    exclude: ['jspdf', 'jspdf-autotable'],
     include: ['chrono-node'],
   },
 
-  // Tauri packages are provided by the Tauri runtime — never bundle them
-  build: {
-    rollupOptions: {
-      external: [
-        /^@tauri-apps\/.*/,
-      ],
-    },
-  },
+  // NOTE: Do NOT externalize `@tauri-apps/*`. In Tauri v2 the JS API packages
+  // are ordinary npm modules that must be BUNDLED into the frontend — they are
+  // not provided as resolvable bare modules at runtime. Marking them external
+  // left specifiers like `@tauri-apps/api/core` in the built bundle, which the
+  // webview cannot resolve ("Failed to resolve module specifier …"), breaking
+  // the updater, tray, and external-link opener. Bundling them fixes all three.
 
   server: {
     // Honor an injected PORT (e.g. the Claude preview harness assigns a free

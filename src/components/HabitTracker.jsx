@@ -94,7 +94,7 @@ function AddHabitForm({ onSave, onCancel, initial }) {
   );
 }
 
-export default function HabitTracker({ habitsWithStreaks, completions, onToggle, onAdd, onUpdate, onDelete }) {
+export default function HabitTracker({ habitsWithStreaks, completions, startDate, endDate, rangeLabel, onToggle, onAdd, onUpdate, onDelete }) {
   const [showAdd,   setShowAdd]   = useState(false);
   const [editingId, setEditingId] = useState(null);
   const todayStr = toDateStr(new Date());
@@ -174,8 +174,8 @@ export default function HabitTracker({ habitsWithStreaks, completions, onToggle,
       {/* Heatmap */}
       {habitsWithStreaks.length > 0 && (
         <div className="mt-4">
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-1">Last {15} weeks</p>
-          <HabitHeatmap habits={habitsWithStreaks} completions={completions} />
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 px-1">{rangeLabel ?? 'Activity'}</p>
+          <HabitHeatmap habits={habitsWithStreaks} completions={completions} startDate={startDate} endDate={endDate} />
         </div>
       )}
     </div>

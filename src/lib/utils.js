@@ -97,6 +97,28 @@ export function todayStr() {
   return toDateStr(new Date());
 }
 
+/** True when running inside the Tauri desktop webview. */
+export function isTauri() {
+  return typeof window !== 'undefined' && typeof window.__TAURI__ !== 'undefined';
+}
+
+/**
+ * Open a URL in the user's real browser. In the Tauri webview a plain
+ * `<a target="_blank">` does nothing (there is no browser chrome to spawn a
+ * tab), so we route through the opener plugin; on web we fall back to
+ * `window.open`. Safe to call from a click handler on both platforms.
+ */
+export async function openExternal(url) {
+  if (isTauri()) {
+    try {
+      const { open } = await import('@tauri-apps/plugin-opener');
+      await open(url);
+      return;
+    } catch { /* fall through to window.open */ }
+  }
+  if (typeof window !== 'undefined') window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 /** Returns the 1-based week-of-year number for a given dateStr (Sunday-based weeks). */
 export function getWeekNumber(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');

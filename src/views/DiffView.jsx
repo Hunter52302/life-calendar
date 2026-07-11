@@ -3,7 +3,7 @@ import { computeDiff } from '../lib/diffEngine';
 import DiffSummary from '../components/DiffSummary';
 import DiffDayBars from '../components/DiffDayBars';
 import HabitTracker from '../components/HabitTracker';
-import { addDays, todayStr, getWeekStart } from '../lib/utils';
+import { addDays, todayStr, getWeekStart, formatShortDate } from '../lib/utils';
 
 // Named presets — id is what gets stored in activePreset
 const NAMED_PRESETS = [
@@ -70,6 +70,25 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
     () => computeDiff(filteredPlan, filteredActual, allCategories),
     [filteredPlan, filteredActual, allCategories]
   );
+
+  // Number of calendar days in the selected range (inclusive). Weekly budgets
+  // are prorated by this so the "Budget" comparison reflects the period being
+  // viewed instead of a single week (e.g. Past 30 days ≈ 4.3× a weekly budget).
+  const rangeDays = useMemo(() => {
+    const s = new Date(startDate + 'T00:00:00');
+    const e = new Date(endDate + 'T00:00:00');
+    const days = Math.round((e - s) / 86400000) + 1;
+    return Number.isFinite(days) && days > 0 ? days : 1;
+  }, [startDate, endDate]);
+
+  // Human label for the current range, shared with the habit tracker header.
+  const rangeLabel = useMemo(() => {
+    if (activePreset === 'today') return 'Today';
+    if (activePreset === 'week')  return 'This week';
+    const preset = PAST_PRESETS.find(p => p.id === activePreset);
+    if (preset) return preset.label;
+    return `${formatShortDate(startDate)} – ${formatShortDate(endDate)}`;
+  }, [activePreset, startDate, endDate]);
 
   useEffect(() => {
     onDiffChange?.({ diff, startDate, endDate });
@@ -167,7 +186,7 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
           <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
             Summary
           </h2>
-          <DiffSummary diff={diff} budgets={budgets} />
+          <DiffSummary diff={diff} budgets={budgets} rangeDays={rangeDays} />
         </section>
 
         {Object.keys(diff.byDay).length > 0 && (
@@ -186,6 +205,9 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
           <HabitTracker
             habitsWithStreaks={habitsWithStreaks}
             completions={completions}
+            startDate={startDate}
+            endDate={endDate}
+            rangeLabel={rangeLabel}
             onToggle={onToggleHabit}
             onAdd={onAddHabit}
             onUpdate={onUpdateHabit}

@@ -50,7 +50,7 @@ export default function DownloadsPage() {
         {PLATFORMS.map(p => {
           const url    = !p.comingSoon ? matchAsset(assets, p.patterns)    : null;
           const altUrl = !p.comingSoon ? matchAsset(assets, p.altPatterns) : null;
-          const unavailable = !p.comingSoon && hasRelease && !url;
+          const unavailable = !p.comingSoon && hasRelease && !url && !altUrl;
           return (
             <div
               key={p.name}

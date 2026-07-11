@@ -1,6 +1,6 @@
 import { hoursToLabel } from '../lib/utils';
 
-export default function DiffSummary({ diff, budgets = {} }) {
+export default function DiffSummary({ diff, budgets = {}, rangeDays = 7 }) {
   const entries = Object.values(diff.byCategory);
 
   if (entries.length === 0) {
@@ -15,9 +15,13 @@ export default function DiffSummary({ diff, budgets = {} }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {entries.map(({ category, planned, actual, delta }) => {
-        const budget = budgets[category.id];
-        const hasBudget = budget != null && budget > 0;
-        const budgetPct = hasBudget ? Math.round((actual / budget) * 100) : null;
+        const weeklyBudget = budgets[category.id];
+        const hasBudget = weeklyBudget != null && weeklyBudget > 0;
+        // Prorate the weekly budget to the number of days actually being viewed
+        // so the percentage compares like-for-like (a 30-day view budgets ~4.3
+        // weeks, not one). rangeDays defaults to 7 → unchanged for a week view.
+        const scaledBudget = hasBudget ? weeklyBudget * (rangeDays / 7) : null;
+        const budgetPct = hasBudget ? Math.round((actual / scaledBudget) * 100) : null;
         const budgetStatus = budgetPct == null ? null : budgetPct < 80 ? 'under' : budgetPct < 100 ? 'near' : 'over';
 
         const status = Math.abs(delta) < 0.25 ? 'good' : delta < 0 ? 'under' : 'over';
@@ -43,7 +47,10 @@ export default function DiffSummary({ diff, budgets = {} }) {
             {hasBudget && (
               <div className="mb-3">
                 <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-gray-400 dark:text-gray-500">Budget: {hoursToLabel(budget)}/wk</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    Budget: {hoursToLabel(scaledBudget)}
+                    {rangeDays !== 7 && <span className="opacity-70"> · {hoursToLabel(weeklyBudget)}/wk</span>}
+                  </span>
                   <span className={`text-xs font-bold ${budgetPctColor}`}>{budgetPct}%</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
@@ -59,7 +66,7 @@ export default function DiffSummary({ diff, budgets = {} }) {
               {hasBudget && (
                 <div>
                   <div className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Budget</div>
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{hoursToLabel(budget)}</div>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{hoursToLabel(scaledBudget)}</div>
                 </div>
               )}
               <div>
