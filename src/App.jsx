@@ -165,6 +165,7 @@ export default function App() {
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
   const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
+  const [stackOverlap, setStackOverlap] = usePersistentState('lc-stack-overlap', false);
   const [enabledViews, setEnabledViews] = usePersistentState('lc-enabled-views', []);
   const [showWeekNumbers, setShowWeekNumbers] = usePersistentState('lc-week-numbers', false);
   const [assumeCompleted, setAssumeCompleted] = usePersistentState('lc-assume-completed', true);
@@ -826,7 +827,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
@@ -1121,6 +1122,15 @@ export default function App() {
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
                                 <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
+                              </label>
+                            )}
+                            {sv(['stack', 'overlap', 'overlapping', 'events', 'cascade', 'side by side']) && (
+                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                <div>
+                                  <span className="text-sm text-gray-600 dark:text-gray-400">Stack overlapping events</span>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Layer overlapping events on top of one another instead of side by side</p>
+                                </div>
+                                <Toggle checked={stackOverlap} onChange={() => setStackOverlap(v => !v)} />
                               </label>
                             )}
                             {sv(['week', 'numbers', 'month', 'view']) && (
@@ -3051,6 +3061,7 @@ export default function App() {
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
+              stackOverlap={stackOverlap}
               enabledViews={eff.enabledViews}
               showWeekNumbers={eff.showWeekNumbers}
               showPrecisionToggle={eff.precisionToggle}
@@ -3083,6 +3094,7 @@ export default function App() {
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
               militaryTime={militaryTime}
+              stackOverlap={stackOverlap}
               enabledViews={eff.enabledViews}
               showWeekNumbers={eff.showWeekNumbers}
               showPrecisionToggle={eff.precisionToggle}

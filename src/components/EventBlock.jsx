@@ -1,7 +1,7 @@
 import { SLOT_HEIGHT } from '../lib/constants';
 import { hoursToLabel } from '../lib/utils';
 
-export default function EventBlock({ event, gridPrecision, onClick, onDragStart }) {
+export default function EventBlock({ event, gridPrecision, stackOverlap = false, onClick, onDragStart }) {
   const slotCount = gridPrecision <= 0.5 ? 48 : 24;
   const displayStart = Math.round((event.slot_start * event.precision) / gridPrecision);
   const displayDuration = Math.max(1, Math.round((event.slot_duration * event.precision) / gridPrecision));
@@ -24,11 +24,27 @@ export default function EventBlock({ event, gridPrecision, onClick, onDragStart 
   // Use the stored total hours if present (for split overnight events), else compute normally
   const totalHours = event._totalHours ?? (event.slot_duration * event.precision);
 
-  // Horizontal column layout for overlapping events
+  // Horizontal layout for overlapping events.
+  //   default        → split into side-by-side columns
+  //   stackOverlap   → cascade: each event spans (nearly) the full width and is layered
+  //                    on top of the previous one, offset slightly so lower cards peek out
   const col = event._col ?? 0;
   const colCount = event._colCount ?? 1;
-  const leftEdge  = colCount > 1 ? `calc(${(col / colCount) * 100}% + 2px)`             : 2;
-  const rightEdge = colCount > 1 ? `calc(${((colCount - col - 1) / colCount) * 100}% + 2px)` : 2;
+  const overlapping = colCount > 1;
+  const STACK_OFFSET = 14; // px each stacked card is nudged right of the one behind it
+  let leftEdge, rightEdge;
+  if (overlapping && stackOverlap) {
+    leftEdge = 2 + col * STACK_OFFSET;
+    rightEdge = 2;
+  } else if (overlapping) {
+    leftEdge = `calc(${(col / colCount) * 100}% + 2px)`;
+    rightEdge = `calc(${((colCount - col - 1) / colCount) * 100}% + 2px)`;
+  } else {
+    leftEdge = 2;
+    rightEdge = 2;
+  }
+  // In cascade mode later cards sit on top; a left shadow separates same-colour cards
+  const stacked = overlapping && stackOverlap;
 
   // Safety cap — shouldn't trigger after CalendarGrid expansion, but just in case
   const clampedDuration = Math.min(displayDuration, slotCount - displayStart);
@@ -61,9 +77,13 @@ export default function EventBlock({ event, gridPrecision, onClick, onDragStart 
         overflow: 'hidden',
         cursor: draggable ? 'grab' : 'pointer',
         touchAction: draggable ? 'none' : undefined,
-        zIndex: isDragPreview ? 30 : 10,
+        zIndex: isDragPreview ? 30 : 10 + (stacked ? col : 0),
         opacity: isGhost ? 0.35 : isDragPreview ? 0.65 : isAutoCompleted ? 0.8 : 1,
-        boxShadow: isDragPreview ? '0 4px 14px rgba(0,0,0,0.35)' : 'none',
+        boxShadow: isDragPreview
+          ? '0 4px 14px rgba(0,0,0,0.35)'
+          : stacked && col > 0
+            ? '-3px 0 6px rgba(0,0,0,0.35)'
+            : 'none',
         border: isGhost ? `2px dashed ${event.color}` : isAutoCompleted ? '2px dashed rgba(255,255,255,0.7)' : 'none',
       }}
       onPointerDown={handlePointerDown}
