@@ -39,3 +39,68 @@ button, [role="button"] {
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ── Background image layer ──────────────────────────────────────────────
+   Fixed to the viewport and behind all app UI. The <img> fills this layer and
+   uses object-fit/object-position (set inline from the saved layout), so the
+   picture re-fits automatically to whatever screen it's shown on. */
+.app-background {
+  position: fixed;
+  inset: 0;
+  /* Negative z-index so the wallpaper sits BEHIND all calendar content. As a
+     positioned child of the (stacking-context) root, z-index:0 would paint on
+     top of the static calendar content — burying the grid under the image. */
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.app-background > img {
+  display: block;
+}
+.app-background-dim {
+  position: absolute;
+  inset: 0;
+}
+/* Scrim: a single theme-coloured tint over the wallpaper, driven by
+   --lc-panel-alpha (1 = fully opaque = wallpaper hidden). This is the ONE tint
+   layer — the calendar's structural surfaces below are made transparent so this
+   shows through uniformly. Doing it here (one fixed layer) avoids the compounding
+   that happened when several translucent panels stacked (which produced the
+   darker "bands"). */
+.app-background-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, var(--lc-panel-alpha, 1));
+}
+.dark .app-background-scrim {
+  background-color: rgba(17, 24, 39, var(--lc-panel-alpha, 1));
+}
+/* App content must sit above the fixed background layer. The root app div is
+   position:static by default, so give its children a stacking context. */
+.has-app-bg {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Calendar-panel transparency ─────────────────────────────────────────
+   Instead of recolouring broad Tailwind utilities (which also hit toggle knobs,
+   inputs, modals, and stacked into bands), we tag only the large structural
+   surfaces — the app shell, per-view containers, and the sticky weekday headers
+   — with `lc-surface`. When a wallpaper is active those go transparent so the
+   scrim + wallpaper show through them uniformly. Everything else (controls,
+   menus, cards, inputs, modals) keeps its normal solid background and stacking. */
+.has-app-bg .lc-surface {
+  background-color: transparent !important;
+}
+
+/* Over a wallpaper the calendar's near-black grid lines (dark:border-gray-700/800)
+   disappear, so the grid structure — most visibly in month/year views — vanishes.
+   Lift those border colours to a faint light tint so the grid stays legible on
+   any image. Dark-mode only (the root carries both .dark and .has-app-bg); light
+   mode keeps its own dark-on-light borders. */
+.dark.has-app-bg .dark\:border-gray-700 {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+.dark.has-app-bg .dark\:border-gray-800 {
+  border-color: rgba(255, 255, 255, 0.11) !important;
+}

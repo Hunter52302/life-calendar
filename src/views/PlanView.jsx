@@ -130,7 +130,7 @@ export default function PlanView({
   const monthCount = view === 'quarter' ? 3 : view === 'half' ? 6 : 12;
 
   return (
-    <div className="flex flex-col h-full dark:bg-gray-900">
+    <div className="lc-surface flex flex-col h-full dark:bg-gray-900">
       <div className="relative flex flex-wrap items-center px-4 py-2 gap-y-1.5 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
         {/* Left: view switcher + precision (day/week only) */}
         <div className="flex items-center gap-2 flex-shrink-0 order-1">

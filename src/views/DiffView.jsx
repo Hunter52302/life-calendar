@@ -76,7 +76,7 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
   }, [diff, startDate, endDate]);
 
   return (
-    <div className="overflow-y-auto h-full dark:bg-gray-900">
+    <div className="lc-surface overflow-y-auto h-full dark:bg-gray-900">
       <div className="max-w-4xl mx-auto p-6 space-y-8">
 
         {/* Date range controls */}

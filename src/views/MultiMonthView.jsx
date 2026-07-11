@@ -84,7 +84,7 @@ export default function MultiMonthView({ startYear, startMonth, monthCount, even
   const rows = Math.ceil(months.length / cols);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden dark:bg-gray-900 p-4">
+    <div className="lc-surface h-full flex flex-col overflow-hidden dark:bg-gray-900 p-4">
       <div
         className="grid gap-4 flex-1 min-h-0"
         style={{

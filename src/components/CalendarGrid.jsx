@@ -187,10 +187,10 @@ export default function CalendarGrid({
   }
 
   return (
-    <div className="flex flex-col h-full select-none dark:bg-gray-900">
+    <div className="lc-surface flex flex-col h-full select-none dark:bg-gray-900">
       <div className="overflow-y-auto flex-1">
         {/* Sticky header (day names + all-day row) */}
-        <div className="sticky top-0 z-20 bg-white dark:bg-gray-900">
+        <div className="lc-surface sticky top-0 z-20 bg-white dark:bg-gray-900">
           {/* Day-name row */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
             <div style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }} className="flex-shrink-0" />

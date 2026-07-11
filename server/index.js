@@ -15,6 +15,7 @@ import pushRoute            from './routes/push.js';
 import profileRoute         from './routes/profile.js';
 import categoryKeywordsRoute from './routes/categoryKeywords.js';
 import llmSettingsRoute     from './routes/llmSettings.js';
+import appearanceRoute      from './routes/appearance.js';
 import adminRoute           from './routes/admin.js';
 import icalFetchRoute       from './routes/icalFetch.js';
 import feedRoute            from './routes/feed.js';
@@ -28,7 +29,7 @@ import { startScheduler }   from './services/notificationService.js';
 import { pocketbaseEvents } from './lib/pocketbaseEvents.js';
 import { pocketbaseHabitCompletions, pocketbaseHabits } from './lib/pocketbaseHabits.js';
 import { pocketbaseNotificationSchedules, pocketbaseUserIntegrations } from './lib/pocketbaseNotifications.js';
-import { pbCategoryKeywords, pbCategoryOverrides, pbCustomCategories, pbDeletedDefaults, pbLinkedCalendars, pbTimeBudgets, pbUserLlmSettings, pbUserProfile } from './lib/pocketbaseSupport.js';
+import { pbCategoryKeywords, pbCategoryOverrides, pbCustomCategories, pbDeletedDefaults, pbLinkedCalendars, pbTimeBudgets, pbUserLlmSettings, pbUserProfile, pbUserAppearance } from './lib/pocketbaseSupport.js';
 
 // â”€â”€ Auth middleware (for the /sync convenience endpoint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import { requireAuth } from './middleware/auth.js';
@@ -88,6 +89,7 @@ app.use('/api/push',            pushRoute);
 app.use('/api/profile',         profileRoute);
 app.use('/api/category-keywords', categoryKeywordsRoute);
 app.use('/api/llm-settings',    llmSettingsRoute);
+app.use('/api/appearance',      appearanceRoute);
 app.use('/api/admin',           adminRoute);
 app.use('/api/ical-fetch',      icalFetchRoute);
 app.use('/api/feed',            feedRoute);
@@ -123,6 +125,7 @@ app.get('/api/sync', requireAuth, async (req, res) => {
     syncHabitCompletions,
     syncIntegrations,
     syncSchedules,
+    syncAppearance,
   ] = await Promise.all([
     pocketbaseEvents.getAllForSync(req.userId),
     pbCustomCategories.getAll(req.userId),
@@ -137,6 +140,7 @@ app.get('/api/sync', requireAuth, async (req, res) => {
     pocketbaseHabitCompletions.getAll(req.userId),
     pocketbaseUserIntegrations.getAll(req.userId),
     pocketbaseNotificationSchedules.getAll(req.userId),
+    pbUserAppearance.get(req.userId),
   ]);
   res.json({
     events:            syncEvents, // live + recent tombstones for client merge
@@ -152,6 +156,7 @@ app.get('/api/sync', requireAuth, async (req, res) => {
     profile:           syncProfile,
     categoryKeywords:  syncCategoryKeywords,
     llmSettings:       syncLlmSettings,
+    appearance:        syncAppearance,
   });
 });
 

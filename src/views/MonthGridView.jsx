@@ -45,7 +45,7 @@ export default function MonthGridView({
     <div className="h-full flex flex-col overflow-hidden">
       {/* Day-of-week header */}
       <div
-        className="grid border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex-shrink-0"
+        className="lc-surface grid border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex-shrink-0"
         style={colStyle}
       >
         {showWeekNumbers && (
@@ -104,7 +104,7 @@ export default function MonthGridView({
               <div
                 key={dateStr}
                 onClick={() => onDayClick?.(dateStr)}
-                className={`flex flex-col border-b border-r border-gray-100 dark:border-gray-800 overflow-hidden ${
+                className={`lc-surface flex flex-col border-b border-r border-gray-100 dark:border-gray-800 overflow-hidden ${
                   onDayClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors' : ''
                 } ${!isCurrentMonth ? 'bg-gray-50/60 dark:bg-gray-800/30' : 'bg-white dark:bg-gray-900'}`}
               >

@@ -78,6 +78,10 @@ import { useAuth } from './hooks/useAuth';
 import { useProfile } from './hooks/useProfile';
 import { useCategoryKeywords } from './hooks/useCategoryKeywords';
 import { useLlmSettings } from './hooks/useLlmSettings';
+import { useAppearance } from './hooks/useAppearance';
+import AppBackground from './components/AppBackground';
+import BackgroundImageEditor from './components/BackgroundImageEditor';
+import { downscaleImage } from './lib/imageResize';
 import ListFieldEditor from './components/ListFieldEditor';
 import AddressFieldEditor, { SingleAddressEditor } from './components/AddressFieldEditor';
 import { usePersistentState } from './hooks/usePersistentState';
@@ -210,6 +214,27 @@ export default function App() {
   const [feedCopied, setFeedCopied] = useState(false);
   // ── User profile ─────────────────────────────────────────────────────────
   const { profile, setProfile } = useProfile(authState);
+  // ── Background image & appearance (synced across devices) ─────────────────
+  const { appearance, setAppearance } = useAppearance(authState);
+  const [bgEditorOpen, setBgEditorOpen] = useState(false);
+  const bgFileInputRef = useRef(null);
+  const hasBackground = appearance.enabled && !!appearance.image;
+
+  async function handleBackgroundFile(file) {
+    if (!file) return;
+    try {
+      const dataUrl = await downscaleImage(file);
+      setAppearance(a => ({ ...a, image: dataUrl, enabled: true }));
+      setBgEditorOpen(true);
+    } catch (err) {
+      console.warn('Failed to load background image', err);
+    }
+  }
+
+  function removeBackground() {
+    setAppearance(a => ({ ...a, image: '', enabled: false }));
+    setBgEditorOpen(false);
+  }
   // Drafts for the settings form (so edits don't commit until the user saves)
   const [birthdayDraft,    setBirthdayDraft]    = useState(profile.birthday    || '');
   const [usernameDraft,    setUsernameDraft]    = useState('');
@@ -801,7 +826,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
@@ -845,7 +870,11 @@ export default function App() {
   // authState === 'ready' or 'offline-ok' → render the full app below
 
   return (
-    <div className={theme === 'dark' ? 'dark' : ''}>
+    <div
+      className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}`}
+      style={hasBackground ? { '--lc-panel-alpha': appearance.panelAlpha } : undefined}
+    >
+      <AppBackground appearance={appearance} />
       {importNotice && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-4 py-2.5 rounded-lg shadow-lg text-sm font-medium pointer-events-none">
           <span>✓</span>
@@ -864,6 +893,13 @@ export default function App() {
       )}
       {showDownload && (
         <DownloadModal onClose={() => setShowDownload(false)} />
+      )}
+      {bgEditorOpen && appearance.image && (
+        <BackgroundImageEditor
+          appearance={appearance}
+          setAppearance={setAppearance}
+          onClose={() => setBgEditorOpen(false)}
+        />
       )}
       {connectModalOpen && (
         <ConnectCalendarModal
@@ -889,7 +925,7 @@ export default function App() {
           onBack={() => { setTutorialTopic(null); setShowTutorialHub(true); }}
         />
       )}
-      <div className="flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
+      <div className="lc-surface flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
@@ -1226,6 +1262,57 @@ export default function App() {
                                     </div>
                                   )}
                                 </div>
+                              </div>
+                            )}
+
+                            {/* ── Background image ── */}
+                            {sv(['background', 'image', 'wallpaper', 'photo', 'picture', 'appearance', 'opacity', 'blur', 'transparency']) && (
+                              <div className={`space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Background image</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">Show a photo behind your calendar. Synced across your devices.</p>
+                                <input
+                                  ref={bgFileInputRef}
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/gif"
+                                  className="hidden"
+                                  onChange={e => { handleBackgroundFile(e.target.files?.[0]); e.target.value = ''; }}
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => bgFileInputRef.current?.click()}
+                                    className="text-xs px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium hover:opacity-90 transition-opacity"
+                                  >
+                                    {appearance.image ? 'Replace image' : 'Choose image'}
+                                  </button>
+                                  {appearance.image && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => setBgEditorOpen(true)}
+                                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                      >
+                                        Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={removeBackground}
+                                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                      >
+                                        Remove
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                                {appearance.image && (
+                                  <label className="flex items-center justify-between gap-3 cursor-pointer pt-1">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">Show background</span>
+                                    <Toggle
+                                      checked={appearance.enabled}
+                                      onChange={() => setAppearance(a => ({ ...a, enabled: !a.enabled }))}
+                                    />
+                                  </label>
+                                )}
                               </div>
                             )}
 

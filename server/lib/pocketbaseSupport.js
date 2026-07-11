@@ -216,6 +216,21 @@ function userLlmSettingsToRecord(userId, data) {
   };
 }
 
+// Appearance (background image + visual controls) is stored as one opaque JSON
+// blob — the client owns its shape, and with zero-knowledge sync the `image`
+// field arrives already encrypted, so the server never interprets it.
+function userAppearanceFromRecord(record) {
+  if (!record) return null;
+  return asJsonValue(record.data, null);
+}
+
+function userAppearanceToRecord(userId, data) {
+  return {
+    user: userId,
+    data: data ?? {},
+  };
+}
+
 export const pbCustomCategories = {
   async getAll(userId) {
     return (await listAll('custom_categories', `user = '${encodeFilter(userId)}'`)).map(customCategoryFromRecord);
@@ -465,6 +480,31 @@ export const pbUserLlmSettings = {
     }
 
     await pbFetch(collectionUrl('user_llm_settings'), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+};
+
+export const pbUserAppearance = {
+  async get(userId) {
+    const record = await findOne('user_appearance', `user = '${encodeFilter(userId)}'`);
+    return userAppearanceFromRecord(record);
+  },
+
+  async set(userId, data) {
+    const existing = await findOne('user_appearance', `user = '${encodeFilter(userId)}'`);
+    const body = userAppearanceToRecord(userId, data);
+
+    if (existing) {
+      await pbFetch(`${collectionUrl('user_appearance')}/${existing.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      return;
+    }
+
+    await pbFetch(collectionUrl('user_appearance'), {
       method: 'POST',
       body: JSON.stringify(body),
     });
