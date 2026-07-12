@@ -1,3 +1,59 @@
+# Normalize line endings: store all text files with LF in the repository.
+# Git auto-detects text vs binary; the explicit rules below are for safety.
+* text=auto
+
+# --- Text files (stored LF in repo) ---
+*.js     text
+*.jsx    text
+*.ts     text
+*.tsx    text
+*.mjs    text
+*.cjs    text
+*.json   text
+*.jsonc  text
+*.md     text
+*.css    text
+*.scss   text
+*.html   text
+*.svg    text
+*.xml    text
+*.yml    text
+*.yaml   text
+*.toml   text
+*.rs     text
+*.lock   text
+*.txt    text
+*.env    text
+.gitignore     text
+.gitattributes text
+
 # Shell scripts must keep LF endings or the container shebang breaks on Windows checkouts.
-*.sh text eol=lf
+*.sh          text eol=lf
 entrypoint.sh text eol=lf
+
+# --- Binary files (never touch line endings) ---
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.webp     binary
+*.ico      binary
+*.icns     binary
+*.woff     binary
+*.woff2    binary
+*.ttf      binary
+*.otf      binary
+*.eot      binary
+*.pdf      binary
+*.zip      binary
+*.gz       binary
+*.tar      binary
+*.exe      binary
+*.dll      binary
+*.node     binary
+*.wasm     binary
+*.mp4      binary
+*.webm     binary
+*.mp3      binary
+*.jar      binary
+*.keystore binary
