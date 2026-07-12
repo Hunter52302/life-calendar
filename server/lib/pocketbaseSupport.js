@@ -49,6 +49,12 @@ async function pbFetch(path, options = {}) {
     try {
       const body = await res.json();
       detail = body?.message ?? body?.data?.message ?? detail;
+      // PocketBase puts per-field validation errors in `data` (e.g.
+      // { connection_id: { code, message } }). Append it so failures name the
+      // offending field instead of the useless generic "Failed to create record".
+      if (body?.data && Object.keys(body.data).length) {
+        detail += ` ${JSON.stringify(body.data)}`;
+      }
     } catch {}
     throw new Error(`PocketBase request failed: ${detail}`);
   }

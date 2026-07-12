@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { pbAuthedFetch } from './pbClient.js';
 
 const PB_BASE = (process.env.POCKETBASE_URL ?? 'http://127.0.0.1:8090').replace(/\/$/, '');
@@ -140,7 +141,13 @@ export const pocketbaseCalendarConnections = {
   },
 
   async create(userId, conn) {
-    const existing = await findOne(CALENDAR_CONNECTIONS_PATH, calendarConnectionFilter(userId, conn.id));
+    // `connection_id` is a required field and the app's public handle for the
+    // connection. Fresh OAuth connections arrive without one, so mint a stable
+    // id here — otherwise the record is rejected with "Failed to create record".
+    const connWithId = conn.id ? conn : { ...conn, id: randomUUID() };
+    const existing = conn.id
+      ? await findOne(CALENDAR_CONNECTIONS_PATH, calendarConnectionFilter(userId, conn.id))
+      : null;
     if (existing) {
       const updated = await pbFetch(`${CALENDAR_CONNECTIONS_PATH}/${existing.id}`, {
         method: 'PATCH',
@@ -154,7 +161,7 @@ export const pocketbaseCalendarConnections = {
 
     const created = await pbFetch(CALENDAR_CONNECTIONS_PATH, {
       method: 'POST',
-      body: JSON.stringify(calendarConnectionToRecord(userId, conn)),
+      body: JSON.stringify(calendarConnectionToRecord(userId, connWithId)),
     });
     return calendarConnectionFromRecord(created, true);
   },
