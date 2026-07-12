@@ -213,6 +213,29 @@ export async function rewrapForRecovery(dek) {
   };
 }
 
+// ── Google linked-login wrap ──────────────────────────────────────────────────
+/**
+ * Wrap the DEK under a fresh random 256-bit secret for the "Sign in with Google"
+ * door. Unlike the password/recovery wraps, the secret is already high-entropy,
+ * so it's used directly as the AES-GCM key (no PBKDF2 stretching needed).
+ *
+ * Returns the wrapped blob to store on the envelope and the raw secret (base64).
+ * The caller sends BOTH to the server: the server holds the secret and releases
+ * it only after a verified Google sign-in. This is the one server-assisted path
+ * — password + recovery unwrapping never leave the browser.
+ */
+export async function wrapDekForGoogle(dek) {
+  const secret = randomBytes(32);
+  const key = await subtle.importKey('raw', secret, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return { wrappedDekGoogle: await wrapDEK(dek, key), googleUnlockSecret: toB64(secret) };
+}
+
+/** Unwrap the DEK using the server-released Google secret. Throws if it's wrong. */
+export async function unlockWithGoogle(wrappedDekGoogle, googleUnlockSecretB64) {
+  const key = await subtle.importKey('raw', fromB64(googleUnlockSecretB64), { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  return unwrapDEK(wrappedDekGoogle, key);
+}
+
 // ── DEK session persistence ──────────────────────────────────────────────────
 // For "stay unlocked on this device": export the raw DEK to stash in
 // sessionStorage and re-import it after a reload. sessionStorage is per-tab and

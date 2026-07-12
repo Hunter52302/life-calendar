@@ -5,6 +5,7 @@ import helmet from 'helmet';
 
 // â”€â”€ Route modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import authRoute            from './routes/auth.js';
+import authGoogleRoute      from './routes/authGoogle.js';
 import eventsRoute          from './routes/events.js';
 import categoriesRoute      from './routes/categories.js';
 import linkedCalendarsRoute from './routes/linkedCalendars.js';
@@ -78,6 +79,8 @@ app.use(express.json({ limit: '10mb' })); // larger limit for bulk iCal imports
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
+// Mounted before /api/auth so the more specific Google login routes match first.
+app.use('/api/auth/google',     authGoogleRoute);
 app.use('/api/auth',            authRoute);
 app.use('/api/events',          eventsRoute);
 app.use('/api/categories',      categoriesRoute);

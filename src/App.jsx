@@ -60,7 +60,7 @@ import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
 import { useIntegrations } from './hooks/useIntegrations';
 import { useCrypto } from './context/CryptoContext';
-import { createEnvelope, deriveAuthVerifier, unlockWithPassword, unlockWithRecovery, deriveRecoveryVerifier, rewrapForPassword } from './lib/zkEnvelope';
+import { createEnvelope, deriveAuthVerifier, unlockWithPassword, unlockWithRecovery, deriveRecoveryVerifier, rewrapForPassword, wrapDekForGoogle, unlockWithGoogle } from './lib/zkEnvelope';
 import { eventsToIcal, parseIcal, parseIcalCalName, parseRrule, icalToAppEvent, downloadIcal } from './lib/ical';
 import { exportDiffCsv, exportDiffJson, exportDiffPdf } from './lib/exportUtils';
 import PlanView from './views/PlanView';
@@ -161,7 +161,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, accountEmail, prelogin, register, login, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, serverReachable } = useAuth();
+  const { authState, zkInfo, accountEmail, prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, serverReachable } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -204,6 +204,11 @@ export default function App() {
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
+  // ── Google linked-login ──────────────────────────────────────────────────
+  const [googleLinkStatus, setGoogleLinkStatus] = useState(null); // null=unloaded | { linked, google_email }
+  const [googleLinkPending, setGoogleLinkPending] = useState(false); // returned from consent, awaiting DEK wrap
+  const [googleLinkMsg, setGoogleLinkMsg] = useState('');
+  const [googleBusy, setGoogleBusy] = useState(false);
   // ── Calendar subscriptions (ICS URLs) + outbound feed ────────────────────
   const [subUrl, setSubUrl] = useState('');
   const [subBusy, setSubBusy] = useState(false);
@@ -483,6 +488,71 @@ export default function App() {
     });
     await setDek(key, keepUnlocked);
     markUnlocked();
+  }
+
+  // ── Google linked-login ────────────────────────────────────────────────────
+  /** Kick off "Sign in with Google" from the auth screen (leaves the app). */
+  async function handleGoogleLogin() {
+    const { url } = await api.authGoogle.loginUrl();
+    window.location.href = url;
+  }
+
+  /**
+   * Finish a Google sign-in: exchange the one-time ticket for the session token
+   * + Google unlock material, then unwrap the DEK with the released secret.
+   */
+  async function handleGoogleLoginComplete(ticket) {
+    const res = await loginWithGoogle(ticket); // sets token + zkInfo
+    const key = await unlockWithGoogle(res.wrapped_dek_google, res.google_unlock_secret);
+    await setDek(key, true); // stay unlocked on this device for a smooth login-provider UX
+    markUnlocked();
+  }
+
+  /** Start linking Google to the current (signed-in) account. */
+  async function handleLinkGoogle() {
+    setGoogleBusy(true);
+    setGoogleLinkMsg('');
+    try {
+      const { url } = await api.authGoogle.linkUrl();
+      window.location.href = url; // returns via ?googleLink=pending
+    } catch (err) {
+      setGoogleLinkMsg(err.message || 'Could not start Google linking.');
+      setGoogleBusy(false);
+    }
+  }
+
+  /**
+   * Complete a pending link once the DEK is available: wrap it under a fresh
+   * random secret and hand both to the server. Called on return from consent.
+   */
+  async function handleFinalizeGoogleLink() {
+    if (!dek) return;
+    setGoogleBusy(true);
+    try {
+      const { wrappedDekGoogle, googleUnlockSecret } = await wrapDekForGoogle(dek);
+      const res = await api.authGoogle.linkFinalize({ wrappedDekGoogle, googleUnlockSecret });
+      setGoogleLinkPending(false);
+      setGoogleLinkStatus({ linked: true, google_email: res.google_email ?? null });
+      setGoogleLinkMsg('Google account linked. You can now sign in with Google.');
+    } catch (err) {
+      setGoogleLinkMsg(err.message || 'Could not finish linking Google.');
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
+  async function handleUnlinkGoogle() {
+    setGoogleBusy(true);
+    setGoogleLinkMsg('');
+    try {
+      await api.authGoogle.unlink();
+      setGoogleLinkStatus({ linked: false, google_email: null });
+      setGoogleLinkMsg('Google sign-in removed. Password login is unaffected.');
+    } catch (err) {
+      setGoogleLinkMsg(err.message || 'Could not unlink Google.');
+    } finally {
+      setGoogleBusy(false);
+    }
   }
 
   async function handleSetAccountEmail() {
@@ -769,9 +839,35 @@ export default function App() {
       setImportNotice(`Calendar connection failed: ${connectError}`);
       setTimeout(() => setImportNotice(null), 6000);
     }
-    if (connected || connectionId || connectError) {
+
+    // ── Google linked-login landings ──────────────────────────────────────
+    const googleTicket     = params.get('googleTicket');
+    const googleLink       = params.get('googleLink');
+    const googleLoginError = params.get('googleLoginError');
+    const googleLinkError  = params.get('googleLinkError');
+    if (googleTicket) {
+      handleGoogleLoginComplete(googleTicket).catch(err => {
+        setImportNotice(`Google sign-in failed: ${err.message || 'please try again.'}`);
+        setTimeout(() => setImportNotice(null), 6000);
+      });
+    } else if (googleLink === 'pending') {
+      // Returned from consent; the finalize effect wraps the DEK once it's available.
+      setGoogleLinkPending(true);
+    } else if (googleLoginError) {
+      const msg = googleLoginError === 'not_linked'
+        ? 'That Google account isn’t linked to any LifeCalendar account. Sign in with your password first, then link Google in Settings.'
+        : 'Google sign-in failed. Please try again.';
+      setImportNotice(msg);
+      setTimeout(() => setImportNotice(null), 8000);
+    } else if (googleLinkError) {
+      setImportNotice(`Google linking failed: ${googleLinkError}`);
+      setTimeout(() => setImportNotice(null), 8000);
+    }
+
+    if (connected || connectionId || connectError || googleTicket || googleLink || googleLoginError || googleLinkError) {
       const url = new URL(window.location.href);
-      ['connected', 'connectionId', 'connectError'].forEach(k => url.searchParams.delete(k));
+      ['connected', 'connectionId', 'connectError', 'googleTicket', 'googleLink', 'googleLoginError', 'googleLinkError']
+        .forEach(k => url.searchParams.delete(k));
       window.history.replaceState({}, '', url);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -781,6 +877,21 @@ export default function App() {
     if (!connectedOpen || authState !== 'ready' || feedInfo !== null) return;
     api.feed.status().then(setFeedInfo).catch(() => {});
   }, [connectedOpen, authState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Finish a pending Google link once we're unlocked and hold the DEK. If the
+  // user returned locked (didn't "stay unlocked"), this fires right after they
+  // re-unlock with their password.
+  useEffect(() => {
+    if (googleLinkPending && authState === 'ready' && dek && !googleBusy) {
+      handleFinalizeGoogleLink();
+    }
+  }, [googleLinkPending, authState, dek]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load Google link status when the Account section opens.
+  useEffect(() => {
+    if (!accountOpen || authState !== 'ready' || googleLinkStatus !== null) return;
+    api.authGoogle.status().then(setGoogleLinkStatus).catch(() => {});
+  }, [accountOpen, authState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleFeedToggle() {
     try {
@@ -868,6 +979,7 @@ export default function App() {
         onRegister={handleRegister}
         onUnlock={handleUnlock}
         onResetPassword={handleResetPassword}
+        onGoogleLogin={handleGoogleLogin}
         onLogout={() => { lock(); logout(); }}
         onContinueOffline={continueOffline}
         onChooseLocal={chooseLocal}
@@ -2613,6 +2725,39 @@ export default function App() {
                                 >Save</button>
                               </div>
                               {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
+                            </div>
+                            )}
+
+                            {/* ── Sign in with Google (linked login) ── */}
+                            {sv(['google', 'sign in', 'login', 'account']) && (
+                            <div className={`space-y-1.5 px-2 pb-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                              <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Sign in with Google</p>
+                              {googleLinkStatus?.linked ? (
+                                <>
+                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    Linked{googleLinkStatus.google_email ? ` as ${googleLinkStatus.google_email}` : ''}. You can sign in with Google or your password. Your Google Calendar also syncs here.
+                                  </p>
+                                  <button
+                                    type="button"
+                                    disabled={googleBusy}
+                                    onClick={handleUnlinkGoogle}
+                                    className="w-full text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors disabled:opacity-50"
+                                  >Unlink Google</button>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                    Link your Google account to also sign in with Google. Your password and recovery code keep working — losing Google won't lock you out.
+                                  </p>
+                                  <button
+                                    type="button"
+                                    disabled={googleBusy}
+                                    onClick={handleLinkGoogle}
+                                    className="w-full text-sm px-3 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-semibold transition-colors disabled:opacity-50"
+                                  >{googleBusy ? 'Please wait…' : 'Link Google account'}</button>
+                                </>
+                              )}
+                              {googleLinkMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{googleLinkMsg}</p>}
                             </div>
                             )}
 

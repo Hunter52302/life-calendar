@@ -6,6 +6,7 @@ const USERS_PATH = `${PB_BASE}/api/collections/users/records`;
 const AUTH_ENVELOPES_PATH = `${PB_BASE}/api/collections/user_auth_envelopes/records`;
 const SECRETS_PATH = `${PB_BASE}/api/collections/secrets/records`;
 const AUDIT_LOG_PATH = `${PB_BASE}/api/collections/admin_audit_log/records`;
+const GOOGLE_TICKETS_PATH = `${PB_BASE}/api/collections/google_auth_tickets/records`;
 
 const USER_OWNED_COLLECTIONS = [
   'events',
@@ -129,6 +130,10 @@ function feedTokenFilter(token) {
   return `ics_feed_token = '${encodeFilter(token)}'`;
 }
 
+function googleSubFilter(sub) {
+  return `google_sub = '${encodeFilter(sub)}'`;
+}
+
 function secretKeyFilter(keyName) {
   return `key_name = '${encodeFilter(keyName)}'`;
 }
@@ -151,7 +156,14 @@ function mapUser(authRecord, envelopeRecord = null) {
     recovery_verifier: asNullableString(envelopeRecord?.recovery_verifier),
     wrapped_dek_password: asNullableString(envelopeRecord?.wrapped_dek_password),
     wrapped_dek_recovery: asNullableString(envelopeRecord?.wrapped_dek_recovery),
+    wrapped_dek_google: asNullableString(envelopeRecord?.wrapped_dek_google),
+    google_unlock_secret: asNullableString(envelopeRecord?.google_unlock_secret),
     password_hash: asNullableString(envelopeRecord?.password_hash),
+    google_sub: asNullableString(authRecord.google_sub),
+    google_email: asNullableString(authRecord.google_email),
+    pending_google_sub: asNullableString(authRecord.pending_google_sub),
+    pending_google_email: asNullableString(authRecord.pending_google_email),
+    pending_google_expires: asNumber(authRecord.pending_google_expires, null),
     signup_ip: asNullableString(authRecord.signup_ip),
     ics_feed_token: asNullableString(authRecord.ics_feed_token),
     failed_login_attempts: asNumber(authRecord.failed_login_attempts, 0) ?? 0,
@@ -199,6 +211,8 @@ async function upsertAuthEnvelope(userId, updates) {
     ...(updates.recovery_verifier !== undefined ? { recovery_verifier: updates.recovery_verifier } : {}),
     ...(updates.wrapped_dek_password !== undefined ? { wrapped_dek_password: updates.wrapped_dek_password } : {}),
     ...(updates.wrapped_dek_recovery !== undefined ? { wrapped_dek_recovery: updates.wrapped_dek_recovery } : {}),
+    ...(updates.wrapped_dek_google !== undefined ? { wrapped_dek_google: updates.wrapped_dek_google } : {}),
+    ...(updates.google_unlock_secret !== undefined ? { google_unlock_secret: updates.google_unlock_secret } : {}),
   };
 
   if (existing) {
@@ -392,6 +406,7 @@ export const pocketbaseUsers = {
     await Promise.all([
       deleteMatching(AUTH_ENVELOPES_PATH, authEnvelopeFilter(id)),
       deleteMatching(AUDIT_LOG_PATH, `admin_user_id = '${encodeFilter(id)}'`),
+      deleteMatching(GOOGLE_TICKETS_PATH, `app_user_id = '${encodeFilter(id)}'`),
       pbFetch(`${USERS_PATH}/${record.id}`, { method: 'DELETE' }),
     ]);
   },
@@ -460,6 +475,112 @@ export const pocketbaseUsers = {
   async getByFeedToken(token) {
     const record = await findOne(USERS_PATH, feedTokenFilter(token));
     return getHydratedUserByRecord(record);
+  },
+
+  // ── Google linked-login ────────────────────────────────────────────────────
+  /** Look up a user by their committed (verified) Google account id. */
+  async getByGoogleSub(sub) {
+    if (!sub) return null;
+    const record = await findOne(USERS_PATH, googleSubFilter(sub));
+    return getHydratedUserByRecord(record);
+  },
+
+  /**
+   * Stage a Google identity that proved ownership during the link redirect.
+   * The commit (with the client-built DEK wrap) happens in a second,
+   * authenticated step. Expires so an abandoned link can't be finalized later.
+   */
+  async setPendingGoogleLink(id, { sub, email, ttlSeconds = 600 }) {
+    const record = await getUserRecordByAppUserId(id);
+    if (!record) return null;
+    await pbFetch(`${USERS_PATH}/${record.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        pending_google_sub: sub,
+        pending_google_email: email ?? null,
+        pending_google_expires: Math.floor(Date.now() / 1000) + ttlSeconds,
+      }),
+    });
+    return this.getById(id);
+  },
+
+  /**
+   * Commit a linked Google identity: moves the (still-valid) pending sub/email
+   * onto the user and stores the client-built wrapped DEK + unlock secret on the
+   * envelope. Clears the pending state.
+   */
+  async commitGoogleLink(id, { sub, email, wrappedDekGoogle, googleUnlockSecret }) {
+    const record = await getUserRecordByAppUserId(id);
+    if (!record) return null;
+    await Promise.all([
+      pbFetch(`${USERS_PATH}/${record.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          google_sub: sub,
+          google_email: email ?? null,
+          pending_google_sub: null,
+          pending_google_email: null,
+          pending_google_expires: null,
+        }),
+      }),
+      upsertAuthEnvelope(id, {
+        wrapped_dek_google: wrappedDekGoogle,
+        google_unlock_secret: googleUnlockSecret,
+      }),
+    ]);
+    return this.getById(id);
+  },
+
+  /** Unlink Google: wipe the identity, the DEK wrap, and any pending state. */
+  async clearGoogleLink(id) {
+    const record = await getUserRecordByAppUserId(id);
+    if (!record) return null;
+    await Promise.all([
+      pbFetch(`${USERS_PATH}/${record.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          google_sub: null,
+          google_email: null,
+          pending_google_sub: null,
+          pending_google_email: null,
+          pending_google_expires: null,
+        }),
+      }),
+      upsertAuthEnvelope(id, {
+        wrapped_dek_google: null,
+        google_unlock_secret: null,
+      }),
+    ]);
+    return this.getById(id);
+  },
+};
+
+/**
+ * Single-use, short-lived tickets for the Google *login* exchange. The OAuth
+ * callback is a top-level browser navigation, so it can't return JSON; it bounces
+ * a signed ticket to the SPA, which POSTs it back to receive the session token +
+ * unlock material. Consuming deletes the row, so a ticket works exactly once.
+ */
+export const pocketbaseGoogleTickets = {
+  async create(userId, jti) {
+    await pbFetch(GOOGLE_TICKETS_PATH, {
+      method: 'POST',
+      body: JSON.stringify({
+        jti,
+        app_user_id: userId,
+        expires: Math.floor(Date.now() / 1000) + 120, // 2 min, well past the redirect
+      }),
+    });
+  },
+
+  /** Returns the app_user_id if the ticket exists and is unexpired, else null. Always deletes it. */
+  async consume(jti) {
+    const record = await findOne(GOOGLE_TICKETS_PATH, `jti = '${encodeFilter(jti)}'`);
+    if (!record) return null;
+    await pbFetch(`${GOOGLE_TICKETS_PATH}/${record.id}`, { method: 'DELETE' }).catch(() => {});
+    const expires = asNumber(record.expires, 0) ?? 0;
+    if (expires < Math.floor(Date.now() / 1000)) return null;
+    return record.app_user_id ?? null;
   },
 };
 

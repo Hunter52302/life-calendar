@@ -39,6 +39,24 @@ export function buildAuthUrl(state, redirectUri) {
   return `${AUTH_URL}?${params.toString()}`;
 }
 
+/**
+ * Lightweight identity-only auth URL for "Sign in with Google". No calendar
+ * scope, no offline access / forced consent — the user already consented when
+ * they linked, so re-auth stays a quick round-trip that just proves the `sub`.
+ */
+const LOGIN_SCOPES = 'openid email';
+export function buildLoginAuthUrl(state, redirectUri) {
+  const { clientId } = config();
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: LOGIN_SCOPES,
+    state,
+  });
+  return `${AUTH_URL}?${params.toString()}`;
+}
+
 export async function exchangeCode(code, redirectUri) {
   const { clientId, clientSecret } = config();
   const res = await fetch(TOKEN_URL, {
@@ -82,6 +100,20 @@ export async function fetchAccountEmail(accessToken) {
   if (!res.ok) return null;
   const j = await res.json();
   return j.email ?? null;
+}
+
+/**
+ * Identity for the login/link flow: the stable Google account id (`sub`) plus
+ * the email. `sub` is what we match on at sign-in — never the email, which can
+ * change or be reassigned. Throws if userinfo can't be read (no `sub` = we must
+ * refuse rather than guess an identity).
+ */
+export async function fetchAccountIdentity(accessToken) {
+  const res = await fetch(USERINFO_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) throw new Error(`Google userinfo failed (${res.status})`);
+  const j = await res.json();
+  if (!j.id) throw new Error('Google userinfo returned no account id.');
+  return { sub: String(j.id), email: j.email ?? null };
 }
 
 export async function listCalendars(accessToken) {

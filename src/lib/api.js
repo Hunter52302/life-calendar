@@ -61,6 +61,19 @@ export const api = {
     deleteAccount:    (authVerifier)              => request('DELETE', '/auth/account', { authVerifier }),
   },
 
+  /** "Sign in with Google" as a linked login provider. */
+  authGoogle: {
+    // Linking (must be signed in): get the consent URL, then finalize the DEK wrap.
+    linkUrl:      ()    => request('GET',  '/auth/google/link/connect'),
+    linkFinalize: (env) => request('POST', '/auth/google/link/finalize', env),
+    // Login (public): get the consent URL, then exchange the returned ticket.
+    loginUrl:     ()      => request('GET',  '/auth/google/login/connect'),
+    loginComplete:(ticket)=> request('POST', '/auth/google/login/complete', { ticket }),
+    // Management.
+    status:       ()    => request('GET',    '/auth/google/status'),
+    unlink:       ()    => request('DELETE', '/auth/google/link'),
+  },
+
   admin: {
     listUsers:      ()                => request('GET',    '/admin/users'),
     resetPassword:  (id, newPassword) => request('POST',   `/admin/users/${id}/reset-password`, { newPassword }),

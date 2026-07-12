@@ -38,12 +38,12 @@ async function verifyTurnstile(token) {
   }
 }
 
-function makeToken(userId) {
+export function makeToken(userId) {
   return jwt.sign({ userId }, SECRET, { expiresIn: TOKEN_TTL });
 }
 
 /** Identity + unlock material the client needs right after authenticating. */
-function authPayload(user) {
+export function authPayload(user) {
   return {
     token:                makeToken(user.id),
     role:                 user.role ?? 'user',

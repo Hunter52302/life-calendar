@@ -86,6 +86,14 @@ export function useAuth() {
   const login = (email, authVerifier) =>
     api.auth.login(email, authVerifier).then(applyAuthResponse);
 
+  /**
+   * Complete a "Sign in with Google" flow: exchange the one-time ticket for the
+   * session token + Google unlock material. Returns the response (including
+   * wrapped_dek_google + google_unlock_secret) so App can unwrap the DEK.
+   */
+  const loginWithGoogle = (ticket) =>
+    api.authGoogle.loginComplete(ticket).then(applyAuthResponse);
+
   const recoveryEnvelope = (email) => api.auth.recoveryEnvelope(email);
 
   const resetPassword = (email, recoveryVerifier, envelope) =>
@@ -163,7 +171,7 @@ export function useAuth() {
     authState, zkInfo, serverReachable,
     isAdmin: accountRole === 'admin',
     accountEmail,
-    prelogin, register, login, recoveryEnvelope, resetPassword,
+    prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword,
     markUnlocked, logout, continueOffline,
     chooseLocal, chooseAccount, switchToAccount,
     setAccountEmail: setAccountEmailOnServer,
