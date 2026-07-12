@@ -79,6 +79,7 @@ import { useProfile } from './hooks/useProfile';
 import { useCategoryKeywords } from './hooks/useCategoryKeywords';
 import { useLlmSettings } from './hooks/useLlmSettings';
 import { useAppearance } from './hooks/useAppearance';
+import { useTheme, THEME_PRESETS } from './hooks/useTheme';
 import AppBackground from './components/AppBackground';
 import BackgroundImageEditor from './components/BackgroundImageEditor';
 import { downscaleImage } from './lib/imageResize';
@@ -216,6 +217,7 @@ export default function App() {
   const { profile, setProfile } = useProfile(authState);
   // ── Background image & appearance (synced across devices) ─────────────────
   const { appearance, setAppearance } = useAppearance(authState);
+  const { themePreset, customTheme, isThemed, setThemePreset, setCustomThemeColor, resetCustomTheme } = useTheme();
   const [bgEditorOpen, setBgEditorOpen] = useState(false);
   const bgFileInputRef = useRef(null);
   const hasBackground = appearance.enabled && !!appearance.image;
@@ -247,6 +249,16 @@ export default function App() {
   const [clearCalendarMsg, setClearCalendarMsg] = useState('');
   const [clearCalendarBusy, setClearCalendarBusy] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  // A signed-in account's email IS the user's email — there's no separate
+  // "login email". Once auth resolves (accountEmail loads async), prefill the
+  // still-empty profile Email field from it so the two aren't shown as
+  // duplicate/conflicting values. Runs at most once thanks to the guards.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (accountEmail && !profile.email && !emailDraft) setEmailDraft(accountEmail);
+  }, [accountEmail, profile.email]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── PWA share target ──────────────────────────────────────────────────────
   const [shareText, setShareText] = useState(() => {
     const p = new URLSearchParams(window.location.search);
@@ -871,7 +883,7 @@ export default function App() {
 
   return (
     <div
-      className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}`}
+      className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}${isThemed ? ' lc-themed' : ''}`}
       style={hasBackground ? { '--lc-panel-alpha': appearance.panelAlpha } : undefined}
     >
       <AppBackground appearance={appearance} />
@@ -1109,12 +1121,12 @@ export default function App() {
                             {/* ── Quick toggles ── */}
                             <div className="space-y-3">
                             {sv(['dark', 'mode', 'theme']) && (
-                              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                              <label className={`flex items-center justify-between gap-3 ${isThemed ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                                 <span className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                                   <span className="text-base leading-none">{theme === 'dark' ? '🌙' : '☀️'}</span>
-                                  {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+                                  {isThemed ? 'Dark mode · locked by theme' : theme === 'dark' ? 'Dark mode' : 'Light mode'}
                                 </span>
-                                <Toggle checked={theme === 'dark'} onChange={() => setTheme(t => t === 'dark' ? 'light' : 'dark')} />
+                                <Toggle checked={theme === 'dark'} onChange={() => { if (!isThemed) setTheme(t => t === 'dark' ? 'light' : 'dark'); }} />
                               </label>
                             )}
                             {sv(['military', 'time']) && (
@@ -1130,6 +1142,60 @@ export default function App() {
                               </label>
                             )}
                             </div>
+                            {/* ── Theme colors ── */}
+                            {sv(['theme', 'color', 'colour', 'colors', 'accent', 'primary', 'palette', 'custom', 'green']) && (
+                              <div className={`space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Theme colors</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">Recolor the whole app. Blue is the default; other themes use their own dark base.</p>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {[
+                                    ...Object.entries(THEME_PRESETS).map(([key, p]) => ({
+                                      key,
+                                      label: p.label,
+                                      swatch: p.isDefault ? { bg: '#0f172a', accent: '#3b82f6' } : { bg: p.primary, accent: p.accent },
+                                    })),
+                                    { key: 'custom', label: 'Custom', swatch: { bg: customTheme.primary, accent: customTheme.accent } },
+                                  ].map(({ key, label, swatch }) => (
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      onClick={() => { setThemePreset(key); if (key !== 'blue') setTheme('dark'); }}
+                                      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-left transition-colors ${
+                                        themePreset === key
+                                          ? 'border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                                          : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                                      }`}
+                                    >
+                                      <span
+                                        className="w-6 h-6 rounded-full flex-shrink-0 border border-black/10 dark:border-white/10"
+                                        style={{ background: `linear-gradient(135deg, ${swatch.bg} 45%, ${swatch.accent} 100%)` }}
+                                      />
+                                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                {themePreset === 'custom' && (
+                                  <div className="space-y-1.5 pt-1">
+                                    {[['primary', 'Primary (background)'], ['accent', 'Accent (buttons, links)'], ['text', 'Text']].map(([k, label]) => (
+                                      <label key={k} className="flex items-center justify-between gap-3 cursor-pointer">
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">{label}</span>
+                                        <input
+                                          type="color"
+                                          value={customTheme[k]}
+                                          onChange={e => setCustomThemeColor(k, e.target.value)}
+                                          className="w-8 h-8 rounded cursor-pointer bg-transparent border border-gray-200 dark:border-gray-600 p-0.5"
+                                        />
+                                      </label>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={resetCustomTheme}
+                                      className="text-xs text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+                                    >↺ Reset custom colors</button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {/* ── Minimalist Mode ── */}
                             {sv(['minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories']) && (
                               <div className="space-y-2">
@@ -1177,12 +1243,21 @@ export default function App() {
                                       <Toggle checked={categoriesVisible} onChange={() => setCategoriesVisible(v => !v)} />
                                     </label>
                                   )}
-                                  {sv(['views', 'quarter', 'half', 'extra']) && (
+                                  {sv(['views', 'quarter', 'extra']) && (
                                     <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                      <span className="text-sm text-gray-600 dark:text-gray-400">Quarter & Half-year views</span>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Quarter view</span>
                                       <Toggle
-                                        checked={enabledViews.length > 0}
-                                        onChange={() => setEnabledViews(v => v.length > 0 ? [] : ['quarter', 'half'])}
+                                        checked={enabledViews.includes('quarter')}
+                                        onChange={() => toggleView('quarter')}
+                                      />
+                                    </label>
+                                  )}
+                                  {sv(['views', 'half', 'year', 'extra']) && (
+                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">Half-year view</span>
+                                      <Toggle
+                                        checked={enabledViews.includes('half')}
+                                        onChange={() => toggleView('half')}
                                       />
                                     </label>
                                   )}
@@ -1366,22 +1441,6 @@ export default function App() {
                                     )}
                                   </>
                                 )}
-                              </div>
-                            )}
-                            {sv(['views', 'quarter', 'half', 'extra']) && (
-                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
-                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Extra views</p>
-                                {[{ id: 'quarter', label: 'Quarter view' }, { id: 'half', label: 'Half-year view' }].map(v => (
-                                  <label key={v.id} className="flex items-center gap-2.5 cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={enabledViews.includes(v.id)}
-                                      onChange={() => toggleView(v.id)}
-                                      className="w-4 h-4 rounded accent-blue-500"
-                                    />
-                                    <span className="text-sm text-gray-600 dark:text-gray-400">{v.label}</span>
-                                  </label>
-                                ))}
                               </div>
                             )}
                             </div>{/* end other-settings wrapper */}
@@ -2528,35 +2587,32 @@ export default function App() {
                         {so(accountOpen, SECTION_KWS.account) && (
                           <div className="px-2 pb-2 space-y-1">
 
-                            {/* ── Login email (account identity, plaintext — used for sign-in) ── */}
-                            {sv(['email', 'login', 'account']) && (
+                            {/* ── Login email — only shown for legacy accounts that don't
+                                   have one yet. When an account email exists it's the same
+                                   value as the User Profile → Email field below, so we don't
+                                   duplicate it here. ── */}
+                            {sv(['email', 'login', 'account']) && !accountEmail && (
                             <div className="space-y-1.5 px-2 pb-2">
                               <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Login Email</p>
-                              {accountEmail ? (
-                                <p className="text-sm text-gray-600 dark:text-gray-400">{accountEmail}</p>
-                              ) : (
-                                <>
-                                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                                    Your account predates email sign-in. Add an email so you can log in once more accounts exist.
-                                  </p>
-                                  <div className="flex gap-1.5 items-center">
-                                    <input
-                                      type="email"
-                                      value={accountEmailDraft}
-                                      onChange={e => setAccountEmailDraft(e.target.value)}
-                                      placeholder="you@example.com"
-                                      className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
-                                    />
-                                    <button
-                                      type="button"
-                                      disabled={!accountEmailDraft.trim()}
-                                      onClick={handleSetAccountEmail}
-                                      className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
-                                    >Save</button>
-                                  </div>
-                                </>
-                              )}
-                            {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                                Your account predates email sign-in. Add an email so you can log in once more accounts exist.
+                              </p>
+                              <div className="flex gap-1.5 items-center">
+                                <input
+                                  type="email"
+                                  value={accountEmailDraft}
+                                  onChange={e => setAccountEmailDraft(e.target.value)}
+                                  placeholder="you@example.com"
+                                  className="flex-1 min-w-0 text-sm bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={!accountEmailDraft.trim()}
+                                  onClick={handleSetAccountEmail}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-default text-white font-medium transition-colors"
+                                >Save</button>
+                              </div>
+                              {accountEmailMsg && <p className="text-[11px] text-gray-500 dark:text-gray-400">{accountEmailMsg}</p>}
                             </div>
                             )}
 

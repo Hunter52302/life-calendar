@@ -104,3 +104,15 @@ button, [role="button"] {
 .dark.has-app-bg .dark\:border-gray-800 {
   border-color: rgba(255, 255, 255, 0.11) !important;
 }
+
+/* ── Custom theme (full repaint) ──────────────────────────────────────────
+   A non-default theme recolours the app by remapping Tailwind v4's own colour
+   tokens (`--color-gray-900`, `--color-blue-500`, …) to the active palette — see
+   hooks/useTheme.js, which sets those as inline custom properties on <html> at
+   runtime (a build-time stylesheet rule redefining them gets stripped by the
+   Tailwind/Lightning-CSS minifier). Because every Tailwind utility compiles to
+   `var(--color-*)`, that one remap retints all backgrounds/text/borders/accents
+   at once. The only rule that needs to live here is the wallpaper exception: keep
+   the main surfaces transparent when a background image is also active, so the
+   photo shows through instead of the theme's solid background. */
+.lc-themed.has-app-bg .lc-surface { background-color: transparent !important; }
