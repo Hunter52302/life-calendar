@@ -14,7 +14,6 @@ import { PROVIDERS, providerEventToAppEvent } from '../lib/calendarProviders';
  * Tokens live only on the server; this component only ever sees event data.
  */
 export default function ConnectCalendarModal({
-  calendarTarget = 'plan',
   precision = 1,
   initialConnectionId = null,
   addLinkedCalendar,
@@ -25,7 +24,9 @@ export default function ConnectCalendarModal({
   const [connections, setConnections] = useState(null); // null = loading
   const [activeConnId, setActiveConnId] = useState(initialConnectionId);
   const [calendars, setCalendars] = useState(null);      // provider calendars for activeConn
-  const [target, setTarget] = useState(calendarTarget);
+  // Connected calendars always import into Plan — Reality (LIVE) mirrors Plan by
+  // default, so a synced source only ever writes to the Plan side.
+  const target = 'plan';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -97,7 +98,7 @@ export default function ConnectCalendarModal({
   const activeConn = connections?.find(c => c.id === activeConnId);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div
         className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden"
@@ -121,20 +122,11 @@ export default function ConnectCalendarModal({
         <div className="p-6 space-y-4">
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          {/* Target calendar (Plan vs Reality) */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 dark:text-gray-400">Import into:</span>
-            {['plan', 'actual'].map(t => (
-              <button key={t} type="button" onClick={() => setTarget(t)}
-                className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                  target === t
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
-                }`}>
-                {t === 'plan' ? 'Plan' : 'Reality'}
-              </button>
-            ))}
-          </div>
+          {/* Connected calendars import into Plan; Reality mirrors Plan. */}
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+            Imports into your <span className="font-medium text-gray-700 dark:text-gray-300">Plan</span>.
+            Reality mirrors your Plan automatically, so a connected calendar only ever writes to the Plan side.
+          </p>
 
           {/* Step 1: choose / add a connection */}
           {!activeConnId && (

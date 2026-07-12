@@ -63,10 +63,27 @@ export default function useDesktopTray(planEvents, { enabled = true, offsetMinut
   eventsRef.current = planEvents;
 
   useEffect(() => {
-    if (!isTauri() || !enabled) return;
+    if (!isTauri()) return;
     let cancelled = false;
     let invoke = null;
     let sendNotification = null;
+
+    // Reminders turned off: stop updating AND clear whatever "Next: …" line /
+    // menu-bar title we last pushed, so the tray doesn't keep showing a stale
+    // reminder. (Returning early without this left the last event stuck there.)
+    if (!enabled) {
+      (async () => {
+        try {
+          ({ invoke } = await import('@tauri-apps/api/core'));
+          if (!cancelled) {
+            await invoke('update_next_event', { label: 'No upcoming events', tooltip: 'PLS Calendar', title: '' });
+          }
+        } catch { /* tray not ready yet */ }
+      })();
+      // Forget fired reminders so re-enabling starts fresh for future events.
+      notifiedRef.current.clear();
+      return () => { cancelled = true; };
+    }
 
     async function load() {
       ({ invoke } = await import('@tauri-apps/api/core'));

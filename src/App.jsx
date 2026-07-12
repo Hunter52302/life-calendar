@@ -760,7 +760,9 @@ export default function App() {
     const url = subUrl.trim();
     if (!url) return;
     setSubBusy(true); setSubError('');
-    const calendar = activeTab === 'actual' ? 'actual' : 'plan';
+    // Subscriptions are connected calendars — they only ever feed the Plan side.
+    // Reality (LIVE) mirrors Plan by default, so we never subscribe into 'actual'.
+    const calendar = 'plan';
     try {
       const { ics } = await api.ical.fetch(url);
       const calName = parseIcalCalName(ics) || new URL(url.replace(/^webcal:/, 'https:')).hostname;
@@ -784,21 +786,28 @@ export default function App() {
   }
 
   async function syncSubscribedCalendar(cal) {
+    // A connected/subscribed calendar only ever writes to Plan — Reality mirrors
+    // Plan by default, so its auto-sync must never add/remove 'actual' rows.
+    // Coerce here so even a legacy calendar saved with calendar:'actual' is
+    // corrected on its next refresh.
+    const target = 'plan';
     let appEvents;
     if (cal.source && cal.source !== 'ics') {
       // OAuth-connected calendar: the server fetches via the stored tokens and
       // returns normalized events; we convert + (when ZK is on) encrypt locally.
       const raw = await api.calendarConnections.listEvents(cal.connectionId, cal.externalCalendarId);
       appEvents = raw
-        .map(ev => providerEventToAppEvent(ev, cal.calendar, precision))
+        .map(ev => providerEventToAppEvent(ev, target, precision))
         .filter(Boolean)
         .map(ev => ({ ...ev, color: cal.color, source: cal.source }));
     } else {
       const { ics } = await api.ical.fetch(cal.url);
-      appEvents = icsToAppEvents(ics, cal.calendar, precision, cal.id, cal.color);
+      appEvents = icsToAppEvents(ics, target, precision, cal.id, cal.color);
     }
     replaceEventsBySourceCalendar(cal.id, appEvents);
-    updateLinkedCalendar(cal.id, { lastSyncedAt: Math.floor(Date.now() / 1000) });
+    const patch = { lastSyncedAt: Math.floor(Date.now() / 1000) };
+    if (cal.calendar !== target) patch.calendar = target;
+    updateLinkedCalendar(cal.id, patch);
   }
 
   async function handleSyncNow(cal) {
@@ -1028,7 +1037,6 @@ export default function App() {
       )}
       {connectModalOpen && (
         <ConnectCalendarModal
-          calendarTarget={activeTab === 'actual' ? 'actual' : 'plan'}
           precision={precision}
           initialConnectionId={pendingConnectionId}
           addLinkedCalendar={addLinkedCalendar}
@@ -2320,6 +2328,42 @@ export default function App() {
                               </div>
                             )}
 
+                            {/* Desktop tray reminders (Tauri only) */}
+                            {typeof window.__TAURI__ !== 'undefined' && (
+                              <div className="pt-2 border-t border-gray-100 dark:border-gray-700 space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="pr-2">
+                                    <span className="text-sm text-gray-700 dark:text-gray-200">Tray reminders</span>
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500">Keep the next event on the tray icon (hover to see it) and notify before it starts</p>
+                                  </div>
+                                  <Toggle checked={desktopReminders} onChange={() => setDesktopReminders(v => !v)} />
+                                </div>
+                                {desktopReminders && (
+                                  <>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
+                                    <select
+                                      value={desktopReminderOffset}
+                                      onChange={e => setDesktopReminderOffset(parseInt(e.target.value, 10))}
+                                      className="text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                    >
+                                      {[5, 10, 15, 30, 60].map(m => (
+                                        <option key={m} value={m}>{m} min</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <div className="pr-2">
+                                      <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Show event name in menu bar</p>
+                                      <p className="text-[10px] text-gray-400 dark:text-gray-500">Displays the next event as text beside the tray icon. macOS only — Windows shows it on hover.</p>
+                                    </div>
+                                    <Toggle checked={desktopTrayTitle} onChange={() => setDesktopTrayTitle(v => !v)} />
+                                  </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+
                             {/* Existing integrations */}
                             {integrations.length > 0 && (
                               <div className="space-y-1.5">
@@ -3075,42 +3119,6 @@ export default function App() {
                                       }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
                                     </div>
                                   </div>
-
-                                  {/* Desktop tray reminders (Tauri only) */}
-                                  {typeof window.__TAURI__ !== 'undefined' && (
-                                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
-                                      <div className="flex items-center justify-between px-1">
-                                        <div>
-                                          <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Tray reminders</p>
-                                          <p className="text-[10px] text-gray-400 dark:text-gray-500">Keep the next event on the tray icon (hover to see it) and notify before it starts</p>
-                                        </div>
-                                        <Toggle checked={desktopReminders} onChange={() => setDesktopReminders(v => !v)} />
-                                      </div>
-                                      {desktopReminders && (
-                                        <>
-                                        <div className="flex items-center justify-between px-1">
-                                          <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
-                                          <select
-                                            value={desktopReminderOffset}
-                                            onChange={e => setDesktopReminderOffset(parseInt(e.target.value, 10))}
-                                            className="text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
-                                          >
-                                            {[5, 10, 15, 30, 60].map(m => (
-                                              <option key={m} value={m}>{m} min</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                        <div className="flex items-center justify-between px-1">
-                                          <div className="pr-2">
-                                            <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Show event name in menu bar</p>
-                                            <p className="text-[10px] text-gray-400 dark:text-gray-500">Displays the next event as text beside the tray icon. macOS only — Windows shows it on hover.</p>
-                                          </div>
-                                          <Toggle checked={desktopTrayTitle} onChange={() => setDesktopTrayTitle(v => !v)} />
-                                        </div>
-                                        </>
-                                      )}
-                                    </div>
-                                  )}
 
                                   {/* Check for Updates */}
                                   {typeof window.__TAURI__ !== 'undefined' ? (
