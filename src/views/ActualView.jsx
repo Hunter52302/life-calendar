@@ -13,7 +13,7 @@ const VIEW_LABELS = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarte
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function ActualView({
-  planEvents, actualEvents, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, enabledViews = [],
+  planEvents, actualEvents, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
@@ -250,6 +250,7 @@ export default function ActualView({
             onAllDayClick={handleAllDayClick} onEventClick={handleEventClick}
             onDayHeaderClick={dayIndex => { setActiveDay(dayIndex); setView('day'); }}
             militaryTime={militaryTime}
+            stackOverlap={stackOverlap}
             onUpdateEvent={onUpdateEvent}
           />
         )}

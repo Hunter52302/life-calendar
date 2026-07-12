@@ -10,6 +10,7 @@ const DRAG_THRESH = 5;
 export default function CalendarGrid({
   events, weekStart, precision, view = 'week', activeDay = 0,
   onSlotClick, onEventClick, onAllDayClick, onDayHeaderClick, militaryTime = false,
+  stackOverlap = false,
   onUpdateEvent,
 }) {
   const slotCount = precision === 1 ? 24 : 48;
@@ -302,6 +303,7 @@ export default function CalendarGrid({
                     key={event.id}
                     event={event}
                     gridPrecision={precision}
+                    stackOverlap={stackOverlap}
                     onClick={handleEventClick}
                     onDragStart={onUpdateEvent ? handleDragStart : undefined}
                   />
