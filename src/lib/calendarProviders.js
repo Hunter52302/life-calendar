@@ -35,6 +35,10 @@ export function providerEventToAppEvent(ev, calendar, precision = 1) {
   // occurrences group into one editable series — same this/future/all editing
   // as events created in-app.
   const seriesId = ev.seriesId ? shortHash(ev.seriesId) : null;
+  // Provider events arrive one-per-occurrence with a unique `id` — a stable
+  // natural key used downstream to give each occurrence a deterministic record
+  // id so re-syncs update in place (see stableId / replaceEventsBySourceCalendar).
+  const syncKey = ev.id != null ? String(ev.id) : null;
 
   // ── All-day ────────────────────────────────────────────────────────────────
   if (ev.allDay) {
@@ -53,6 +57,7 @@ export function providerEventToAppEvent(ev, calendar, precision = 1) {
       calendar,
       notes: ev.notes ?? null,
       ...(seriesId && { series_id: seriesId }),
+      ...(syncKey && { _syncKey: syncKey }),
     };
   }
 
@@ -88,5 +93,6 @@ export function providerEventToAppEvent(ev, calendar, precision = 1) {
     calendar,
     notes: ev.notes ?? null,
     ...(seriesId && { series_id: seriesId }),
+    ...(syncKey && { _syncKey: syncKey }),
   };
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
+import { safeSetJSON } from '../lib/storage.js';
 
 const INTEGRATIONS_KEY = 'lc-integrations';
 const SCHEDULES_KEY    = 'lc-notification-schedules';
@@ -12,8 +13,8 @@ export function useIntegrations(authState) {
   const [integrations, setIntegrations] = useState(() => load(INTEGRATIONS_KEY, []));
   const [schedules,    setSchedules]    = useState(() => load(SCHEDULES_KEY, []));
 
-  useEffect(() => { localStorage.setItem(INTEGRATIONS_KEY, JSON.stringify(integrations)); }, [integrations]);
-  useEffect(() => { localStorage.setItem(SCHEDULES_KEY,    JSON.stringify(schedules));    }, [schedules]);
+  useEffect(() => { safeSetJSON(INTEGRATIONS_KEY, integrations); }, [integrations]);
+  useEffect(() => { safeSetJSON(SCHEDULES_KEY,    schedules);    }, [schedules]);
 
   useEffect(() => {
     if (authState !== 'ready') return;

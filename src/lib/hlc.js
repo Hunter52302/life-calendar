@@ -42,10 +42,14 @@ export function pack({ millis, counter, node }) {
   );
 }
 
-/** Decode a packed HLC string back to `{ millis, counter, node }`. */
+/** Decode a packed HLC string back to `{ millis, counter, node }`.
+ *  Non-numeric fields coerce to 0 rather than NaN: a single malformed/corrupt
+ *  timestamp (e.g. from bad server data) must not be able to poison the clock —
+ *  `Math.max(last.millis, NaN, wall)` is NaN, which would wedge every subsequent
+ *  stamp. A corrupt timestamp instead sorts as oldest (millis 0) and loses. */
 export function unpack(ts) {
-  const [millis, counter, node] = ts.split(':');
-  return { millis: Number(millis), counter: Number(counter), node: node ?? '' };
+  const [millis, counter, node] = String(ts).split(':');
+  return { millis: Number(millis) || 0, counter: Number(counter) || 0, node: node ?? '' };
 }
 
 /**

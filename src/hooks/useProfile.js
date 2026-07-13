@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 import { encryptField, decryptField } from '../lib/crypto.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { safeSetJSON } from '../lib/storage.js';
 
 const STORAGE_KEY = 'lc-profile';
 
@@ -101,7 +102,7 @@ export function useProfile(authState) {
   const [profile, setProfileState] = useState(loadFromStorage);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+    safeSetJSON(STORAGE_KEY, profile);
   }, [profile]);
 
   useEffect(() => {

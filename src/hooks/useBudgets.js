@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
+import { safeSetJSON } from '../lib/storage.js';
 
 const STORAGE_KEY = 'lc-budgets';
 
@@ -10,7 +11,7 @@ function load() {
 export function useBudgets(authState) {
   const [budgets, setBudgetsState] = useState(load);
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(budgets)); }, [budgets]);
+  useEffect(() => { safeSetJSON(STORAGE_KEY, budgets); }, [budgets]);
 
   useEffect(() => {
     if (authState !== 'ready') return;

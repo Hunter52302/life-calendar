@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { safeSetJSON } from '../lib/storage.js';
 
 // Full-repaint color theming. The user picks three colors — primary (surfaces/
 // background), accent (buttons, toggles, links, highlights) and text — and every
@@ -124,7 +125,7 @@ export function useTheme() {
   const [state, setState] = useState(load);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    safeSetJSON(STORAGE_KEY, state);
     applyVars(state.preset, state.custom);
   }, [state]);
 

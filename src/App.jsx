@@ -55,6 +55,7 @@ const PRESET_COLORS = [
 ];
 import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId, shortHash } from './lib/utils';
 import { api } from './lib/api.js';
+import { safeSetItem } from './lib/storage.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
 import { useBudgets } from './hooks/useBudgets';
@@ -133,11 +134,14 @@ function icsToAppEvents(content, calendar, precision, calId, calColor) {
     const ev = icalToAppEvent(p, calendar, precision);
     if (!ev) return [];
     const base = { ...ev, source_calendar_id: calId, color: calColor };
+    // Natural key per VEVENT — feeds the deterministic per-occurrence record id
+    // so re-syncs update in place instead of tombstoning + recreating.
+    const uidKey = p.uid || `${p.summary}|${p.dtstart}`;
     const rrule = parseRrule(p.rrule);
-    if (!rrule) return [base];
+    if (!rrule) return [{ ...base, _syncKey: uidKey }];
     // Link every expanded occurrence under one stable series_id (derived from
     // the VEVENT UID) so recurring .ics events edit as a series, like native ones.
-    const sid = shortHash(p.uid || `${p.summary}|${p.dtstart}`);
+    const sid = shortHash(uidKey);
     let instances = generateRepeatInstances({ ...base, series_id: sid }, rrule.repeat);
     if (rrule.untilDate) instances = instances.filter(e => {
       const d = new Date(e.week_start + 'T00:00:00');
@@ -145,7 +149,11 @@ function icsToAppEvents(content, calendar, precision, calId, calColor) {
       return d <= rrule.untilDate;
     });
     if (rrule.count) instances = instances.slice(0, rrule.count);
-    return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor, series_id: sid }));
+    // Occurrence-scoped key: same series UID + this occurrence's date/slot.
+    return instances.map(e => ({
+      ...e, source_calendar_id: calId, color: calColor, series_id: sid,
+      _syncKey: `${uidKey}|${e.week_start}|${e.day_of_week}|${e.slot_start}`,
+    }));
   });
 }
 
@@ -350,7 +358,7 @@ export default function App() {
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
-  useEffect(() => { localStorage.setItem('lc-precision', String(precision)); }, [precision]);
+  useEffect(() => { safeSetItem('lc-precision', String(precision)); }, [precision]);
   // theme / militaryTime / enabledViews / showWeekNumbers / pinnedCategories persist themselves via usePersistentState
   // lc-profile localStorage is managed by useProfile hook
   // Apply selected font to the whole app via CSS variable
@@ -736,12 +744,25 @@ export default function App() {
     setEnabledViews(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]);
   }
 
+  // Show a transient toast, replacing any currently-showing one. A single timer
+  // (tracked in a ref) is cleared before each new notice so overlapping toasts
+  // don't cut each other short — the previous behaviour scheduled independent
+  // timeouts, so an earlier one could blank a later message.
+  const noticeTimerRef = useRef(null);
+  function flashNotice(msg, ms = 5000) {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    setImportNotice(msg);
+    noticeTimerRef.current = setTimeout(() => {
+      setImportNotice(null);
+      noticeTimerRef.current = null;
+    }, ms);
+  }
+
   function showImportNotice(added, customMsg) {
     const msg = customMsg ?? (added > 0
       ? `${added} event${added !== 1 ? 's' : ''} imported`
       : 'No events found in file');
-    setImportNotice(msg);
-    setTimeout(() => setImportNotice(null), 5000);
+    flashNotice(msg);
   }
 
   function handlePlanExportIcal() {
@@ -863,8 +884,7 @@ export default function App() {
       setPendingConnectionId(connectionId);
       setConnectModalOpen(true);
     } else if (connectError) {
-      setImportNotice(`Calendar connection failed: ${connectError}`);
-      setTimeout(() => setImportNotice(null), 6000);
+      flashNotice(`Calendar connection failed: ${connectError}`, 6000);
     }
 
     // ── Google linked-login landings ──────────────────────────────────────
@@ -874,8 +894,7 @@ export default function App() {
     const googleLinkError  = params.get('googleLinkError');
     if (googleTicket) {
       handleGoogleLoginComplete(googleTicket).catch(err => {
-        setImportNotice(`Google sign-in failed: ${err.message || 'please try again.'}`);
-        setTimeout(() => setImportNotice(null), 6000);
+        flashNotice(`Google sign-in failed: ${err.message || 'please try again.'}`, 6000);
       });
     } else if (googleLink === 'pending') {
       // Returned from consent; the finalize effect wraps the DEK once it's available.
@@ -884,11 +903,9 @@ export default function App() {
       const msg = googleLoginError === 'not_linked'
         ? 'That Google account isn’t linked to any LifeCalendar account. Sign in with your password first, then link Google in Settings.'
         : 'Google sign-in failed. Please try again.';
-      setImportNotice(msg);
-      setTimeout(() => setImportNotice(null), 8000);
+      flashNotice(msg, 8000);
     } else if (googleLinkError) {
-      setImportNotice(`Google linking failed: ${googleLinkError}`);
-      setTimeout(() => setImportNotice(null), 8000);
+      flashNotice(`Google linking failed: ${googleLinkError}`, 8000);
     }
 
     if (connected || connectionId || connectError || googleTicket || googleLink || googleLoginError || googleLinkError) {
@@ -1057,7 +1074,7 @@ export default function App() {
           initialConnectionId={pendingConnectionId}
           addLinkedCalendar={addLinkedCalendar}
           replaceEventsBySourceCalendar={replaceEventsBySourceCalendar}
-          showNotice={(msg) => { setImportNotice(msg); setTimeout(() => setImportNotice(null), 5000); }}
+          showNotice={(msg) => flashNotice(msg)}
           onClose={() => { setConnectModalOpen(false); setPendingConnectionId(null); }}
         />
       )}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { safeSetItem } from '../lib/storage.js';
 
 const AUTO_UPDATE_KEY = 'pls_auto_update_enabled';
 const PREVIOUS_VERSION_KEY = 'pls_previous_version';
@@ -29,7 +30,7 @@ export default function useDesktopUpdater() {
   );
 
   const setAutoUpdate = useCallback(value => {
-    localStorage.setItem(AUTO_UPDATE_KEY, value ? 'true' : 'false');
+    safeSetItem(AUTO_UPDATE_KEY, value ? 'true' : 'false');
     setAutoUpdateState(value);
   }, []);
 
@@ -40,7 +41,7 @@ export default function useDesktopUpdater() {
     setError('');
     try {
       if (updateInfo?.currentVersion) {
-        localStorage.setItem(PREVIOUS_VERSION_KEY, updateInfo.currentVersion);
+        safeSetItem(PREVIOUS_VERSION_KEY, updateInfo.currentVersion);
         setPreviousVersion(updateInfo.currentVersion);
       }
       const { invoke } = await import('@tauri-apps/api/core');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
-import { storage } from '../lib/storage.js';
+import { storage, safeSetItem } from '../lib/storage.js';
 
 /**
  * Authentication state for the envelope zero-knowledge model.
@@ -45,7 +45,7 @@ export function useAuth() {
         setServerReachable(true);
         if (tokenValid) {
           // A live account session always wins — treat as account mode.
-          localStorage.setItem(ACCOUNT_MODE_KEY, 'account');
+          safeSetItem(ACCOUNT_MODE_KEY, 'account');
           setAccountRole(role ?? null);
           setAccountEmail(email ?? null);
           setZkInfo({ authSalt: auth_salt, kdfSalt: kdf_salt, wrappedDekPassword: wrapped_dek_password });
@@ -70,7 +70,7 @@ export function useAuth() {
 
   function applyAuthResponse(res) {
     storage.setToken(res.token);
-    localStorage.setItem(ACCOUNT_MODE_KEY, 'account');
+    safeSetItem(ACCOUNT_MODE_KEY, 'account');
     setAccountRole(res.role ?? null);
     setAccountEmail(res.email ?? null);
     setZkInfo({ authSalt: res.auth_salt, kdfSalt: res.kdf_salt, wrappedDekPassword: res.wrapped_dek_password });
@@ -120,13 +120,13 @@ export function useAuth() {
   // ── First-run choice ───────────────────────────────────────────────────────
   /** User picked "no account, local only". Remembered across launches. */
   function chooseLocal() {
-    localStorage.setItem(ACCOUNT_MODE_KEY, 'local');
+    safeSetItem(ACCOUNT_MODE_KEY, 'local');
     setAuthState('offline-ok');
   }
 
   /** User picked "sign in / sign up". Route to register (first account) or login. */
   function chooseAccount() {
-    localStorage.setItem(ACCOUNT_MODE_KEY, 'account');
+    safeSetItem(ACCOUNT_MODE_KEY, 'account');
     if (!serverReachable) { setAuthState('offline'); return; }
     setAuthState(serverIsSetup ? 'login' : 'setup');
   }
@@ -137,7 +137,7 @@ export function useAuth() {
    * launch. Local data is migrated up on the first sync after they register.
    */
   async function switchToAccount() {
-    localStorage.setItem(ACCOUNT_MODE_KEY, 'account');
+    safeSetItem(ACCOUNT_MODE_KEY, 'account');
     setAuthState('checking');
     try {
       const { isSetup, tokenValid } = await api.auth.status();

@@ -15,8 +15,14 @@ export function usePersistentState(key, initialValue) {
   });
 
   useEffect(() => {
-    if (value === null || value === undefined) localStorage.removeItem(key);
-    else localStorage.setItem(key, JSON.stringify(value));
+    try {
+      if (value === null || value === undefined) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      // A full localStorage (e.g. an oversized synced event cache) would make
+      // every setItem throw; don't let that crash the app mid-render.
+      console.warn(`Failed to persist "${key}" to localStorage (continuing):`, err);
+    }
   }, [key, value]);
 
   return [value, setValue];

@@ -16,6 +16,7 @@ import { timeToSlot, slotToTimeStr, dateToWeekData, buildSegments } from '../lib
 import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
 import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
+import { safeSetJSON } from '../lib/storage.js';
 import RouteAttribution from './RouteAttribution.jsx';
 import ParseEventsModal from './ParseEventsModal.jsx';
 import EventTitleSuggestInput from './EventTitleSuggestInput.jsx';
@@ -657,7 +658,7 @@ export default function QuickAddFAB({
     function onUp() {
       if (!isDragging.current) return;
       isDragging.current = false;
-      if (posRef.current) localStorage.setItem(LS_POS_KEY, JSON.stringify(posRef.current));
+      if (posRef.current) safeSetJSON(LS_POS_KEY, posRef.current);
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup',   onUp);
@@ -677,7 +678,7 @@ export default function QuickAddFAB({
         if (!prev) return null;
         const clamped = clampToViewport(prev);
         if (clamped.x === prev.x && clamped.y === prev.y) return prev;
-        localStorage.setItem(LS_POS_KEY, JSON.stringify(clamped));
+        safeSetJSON(LS_POS_KEY, clamped);
         posRef.current = clamped;
         return clamped;
       });

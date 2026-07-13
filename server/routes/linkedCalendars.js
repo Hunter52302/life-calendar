@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { pocketbaseEvents } from '../lib/pocketbaseEvents.js';
 import { pbLinkedCalendars } from '../lib/pocketbaseSupport.js';
 
 const router = Router();
@@ -24,9 +23,14 @@ router.put('/:id', asyncHandler(async (req, res) => {
   res.json(updated ?? { ok: true });
 }));
 
-// DELETE /api/linked-calendars/:id — also removes all its events
+// DELETE /api/linked-calendars/:id
+// Only the calendar record is removed here. Its events are NOT hard-deleted:
+// the client tombstones them (deleted:true + fresh HLC) and pushes those
+// tombstones, so the removal propagates to other devices by timestamp. A
+// server-side hard delete would drop those tombstones and let a device that
+// still holds the live events re-push and resurrect them as orphans. The
+// tombstones are garbage-collected later by the normal 30-day tombstone purge.
 router.delete('/:id', asyncHandler(async (req, res) => {
-  await pocketbaseEvents.deleteBySourceCalendar(req.userId, req.params.id);
   await pbLinkedCalendars.delete(req.userId, req.params.id);
   res.json({ ok: true });
 }));

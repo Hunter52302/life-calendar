@@ -43,7 +43,12 @@ function Root() {
   }, [needRefresh, updateServiceWorker]);
 
   if (!entered) {
-    const theme = localStorage.getItem('lc-theme') || 'dark';
+    // lc-theme is persisted JSON-encoded by usePersistentState (App.jsx), so it's
+    // stored as '"dark"' (with quotes) — read it the same way, or a dark-mode
+    // visitor without a token would see the landing page render in light mode.
+    let theme;
+    try { theme = JSON.parse(localStorage.getItem('lc-theme')) || 'dark'; }
+    catch { theme = localStorage.getItem('lc-theme') || 'dark'; }
     // Reset any landing path (e.g. /docs) back to root before the app mounts —
     // App reads query params, not the path, so this just keeps the URL tidy.
     const enter = () => {

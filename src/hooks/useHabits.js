@@ -3,6 +3,7 @@ import { generateId } from '../lib/utils.js';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { safeSetJSON } from '../lib/storage.js';
 
 const HABITS_KEY      = 'lc-habits';
 const COMPLETIONS_KEY = 'lc-habit-completions';
@@ -58,8 +59,8 @@ export function useHabits(authState) {
   const [habits,      setHabits]      = useState(() => load(HABITS_KEY, []));
   const [completions, setCompletions] = useState(() => load(COMPLETIONS_KEY, []));
 
-  useEffect(() => { localStorage.setItem(HABITS_KEY,      JSON.stringify(habits));      }, [habits]);
-  useEffect(() => { localStorage.setItem(COMPLETIONS_KEY, JSON.stringify(completions)); }, [completions]);
+  useEffect(() => { safeSetJSON(HABITS_KEY,      habits);      }, [habits]);
+  useEffect(() => { safeSetJSON(COMPLETIONS_KEY, completions); }, [completions]);
 
   // Local state holds plaintext; the server only sees ciphertext when ZK is on.
   const zkActive = isZkEnabled && masterKey;

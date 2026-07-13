@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { safeSetJSON } from '../lib/storage.js';
 
 const STORAGE_KEY = 'lc-appearance';
 
@@ -90,7 +91,7 @@ export function useAppearance(authState) {
   const [appearance, setAppearanceState] = useState(loadFromStorage);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(appearance));
+    safeSetJSON(STORAGE_KEY, appearance);
   }, [appearance]);
 
   // On login, pull the server copy. If the server has nothing yet but this

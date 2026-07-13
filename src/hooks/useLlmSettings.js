@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { safeSetJSON } from '../lib/storage.js';
 
 const STORAGE_KEY = 'lc-llm-settings';
 
@@ -41,7 +42,7 @@ export function useLlmSettings(authState) {
   const [llmSettings, setLlmSettingsState] = useState(loadFromStorage);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(llmSettings));
+    safeSetJSON(STORAGE_KEY, llmSettings);
   }, [llmSettings]);
 
   useEffect(() => {

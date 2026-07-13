@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api.js';
+import { safeSetJSON } from '../lib/storage.js';
 
 const STORAGE_KEY = 'lc-category-keywords';
 
@@ -11,7 +12,7 @@ function load() {
 export function useCategoryKeywords(authState) {
   const [keywordMap, setKeywordMap] = useState(load);
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(keywordMap)); }, [keywordMap]);
+  useEffect(() => { safeSetJSON(STORAGE_KEY, keywordMap); }, [keywordMap]);
 
   useEffect(() => {
     if (authState !== 'ready') return;

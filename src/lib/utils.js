@@ -54,6 +54,27 @@ export function shortHash(str) {
 }
 
 /**
+ * Deterministic, compact id for a synced calendar occurrence, keyed by its
+ * natural identity (calendar + provider UID + occurrence). Because the id is
+ * derived from the event rather than random, re-syncing the same occurrence
+ * yields the *same* id — so the record updates in place instead of being
+ * tombstoned and recreated on every refresh (which otherwise piled 30 days of
+ * tombstones into localStorage until it blew past quota). Two djb2 passes with
+ * different seeds give ~64 bits of space to keep collisions negligible, and the
+ * result stays well within the 64-char event_id column.
+ */
+export function stableId(prefix, key) {
+  const s = String(key);
+  let h1 = 5381, h2 = 52711;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = ((h1 << 5) + h1 + c) >>> 0;
+    h2 = ((h2 << 5) + h2 + c) >>> 0;
+  }
+  return prefix + h1.toString(36) + h2.toString(36);
+}
+
+/**
  * Flatten an address into a single comma-separated string suitable for
  * geocoding / a maps handoff. Accepts either a plain string or the structured
  * address object used by the profile ({ line1, line2, city, region, ... }).

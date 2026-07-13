@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { generateId, getEventEndDateTime } from '../lib/utils';
+import { generateId, getEventEndDateTime, stableId } from '../lib/utils';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord, encryptJsonField, decryptJsonField } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
@@ -39,6 +39,18 @@ function load(key, fallback) {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
   } catch { return fallback; }
+}
+
+// Persist to the offline cache without ever throwing into React's commit phase.
+// A QuotaExceededError here (large synced calendars can push the record set past
+// the ~5MB localStorage limit) must not crash the app mid-sync — the data still
+// lives in React state; we just skip caching it this write.
+function save(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`Failed to cache "${key}" to localStorage (continuing):`, err);
+  }
 }
 
 /**
@@ -89,13 +101,14 @@ export function useEvents(authState, assumeCompleted = true) {
   // updater — which React may invoke more than once.
   const eventsRef = useRef(events);
 
-  // Keep localStorage in sync (offline cache)
-  useEffect(() => { localStorage.setItem(EVENTS_KEY,           JSON.stringify(events)); eventsRef.current = events; }, [events]);
-  useEffect(() => { localStorage.setItem(CATEGORIES_KEY,       JSON.stringify(customCategories)); }, [customCategories]);
-  useEffect(() => { localStorage.setItem(OVERRIDES_KEY,        JSON.stringify(categoryOverrides));}, [categoryOverrides]);
-  useEffect(() => { localStorage.setItem(LINKED_KEY,           JSON.stringify(linkedCalendars));  }, [linkedCalendars]);
-  useEffect(() => { localStorage.setItem(DELETED_DEFAULTS_KEY, JSON.stringify(deletedDefaultIds));}, [deletedDefaultIds]);
-  useEffect(() => { localStorage.setItem(DISMISSED_AUTO_KEY,   JSON.stringify(dismissedAutoIds)); }, [dismissedAutoIds]);
+  // Keep localStorage in sync (offline cache). Writes are guarded (see save) so a
+  // quota overflow degrades to a stale cache rather than crashing during sync.
+  useEffect(() => { save(EVENTS_KEY,           events);            eventsRef.current = events; }, [events]);
+  useEffect(() => { save(CATEGORIES_KEY,       customCategories);  }, [customCategories]);
+  useEffect(() => { save(OVERRIDES_KEY,        categoryOverrides); }, [categoryOverrides]);
+  useEffect(() => { save(LINKED_KEY,           linkedCalendars);   }, [linkedCalendars]);
+  useEffect(() => { save(DELETED_DEFAULTS_KEY, deletedDefaultIds); }, [deletedDefaultIds]);
+  useEffect(() => { save(DISMISSED_AUTO_KEY,   dismissedAutoIds);  }, [dismissedAutoIds]);
 
   // ── ZK helpers ───────────────────────────────────────────────────────────
   // Local state + localStorage hold plaintext (user's own device);
@@ -414,13 +427,21 @@ export function useEvents(authState, assumeCompleted = true) {
     replaceMatching(e => e.source === source, withIds);
   }
 
-  /** Re-sync a subscribed calendar: swap out all its events atomically.
+  /** Re-sync a subscribed calendar: reconcile its events against the fresh feed.
+   *
+   * Each occurrence gets a deterministic id (stableId, keyed by the provider's
+   * natural `_syncKey`) so re-syncing the *same* occurrence reuses the *same*
+   * record — an update in place — instead of tombstoning the whole calendar and
+   * recreating it every refresh. That churn (a full copy of tombstones per sync,
+   * retained 30 days) was what eventually overran localStorage's quota. Now only
+   * genuine changes move: new occurrences are added, vanished ones tombstoned,
+   * and unchanged ones left completely untouched (no restamp, no re-push).
    *
    * The provider owns each event's time / label / existence, but its *category*
-   * is chosen here in the app. So before the swap, we snapshot any category the
-   * user set that differs from the calendar's import default and re-apply it to
-   * the matching freshly-synced occurrence — otherwise every sync would reset a
-   * hand-categorized event (or series) back to the default. Matches are keyed by
+   * is chosen here in the app. So we snapshot any category the user set that
+   * differs from the calendar's import default and re-apply it to the matching
+   * freshly-synced occurrence — otherwise every sync would reset a hand-
+   * categorized event (or series) back to the default. Matches are keyed by
    * occurrence first, then by series_id so a new occurrence of an overridden
    * series inherits the same category. */
   function replaceEventsBySourceCalendar(sourceCalendarId, newEvents) {
@@ -436,18 +457,71 @@ export function useEvents(authState, assumeCompleted = true) {
         if (e.series_id) seriesOverride.set(e.series_id, e.category);
       }
     }
-    const withIds = newEvents.map(e => {
+    const stamped = newEvents.map(e => {
+      const { _syncKey, ...rest } = e;
       const carried = occOverride.get(occKey(e))
         ?? (e.series_id ? seriesOverride.get(e.series_id) : undefined);
       return {
-        ...e,
+        ...rest,
         ...(carried ? { category: carried } : {}),
-        id: generateId(),
+        id: stableId('sub', `${sourceCalendarId}|${_syncKey || occKey(e)}`),
         source_calendar_id: sourceCalendarId,
-        updatedAt: tick(),
       };
     });
-    replaceMatching(e => e.source_calendar_id === sourceCalendarId, withIds);
+    upsertSourceCalendar(sourceCalendarId, stamped);
+  }
+
+  // Fields a subscription owns — used to decide whether a re-synced occurrence
+  // actually changed. If none differ we leave the existing record untouched so
+  // steady-state re-syncs neither restamp nor re-push anything.
+  const SYNCED_FIELDS = [
+    'label', 'category', 'color', 'calendar', 'series_id', 'week_start',
+    'day_of_week', 'slot_start', 'slot_duration', 'precision', 'notes',
+    'location', 'meeting_url',
+  ];
+  function sameSyncedContent(a, b) {
+    if (!!a.is_all_day !== !!b.is_all_day) return false;
+    return SYNCED_FIELDS.every(f => (a[f] ?? null) === (b[f] ?? null));
+  }
+
+  /** Reconcile a calendar's existing records against the freshly-synced set,
+   *  keyed by stable id: update changed occurrences, resurrect ones that
+   *  reappeared, tombstone ones that vanished, add brand-new ones, and push only
+   *  what actually moved. */
+  function upsertSourceCalendar(sourceCalendarId, incoming) {
+    const incomingById = new Map(incoming.map(e => [e.id, e]));
+    const toPush = [];
+    const seen = new Set();
+    const next = eventsRef.current.map(e => {
+      if (e.source_calendar_id !== sourceCalendarId) return e;
+      const match = incomingById.get(e.id);
+      if (!match) {
+        // No longer in the feed → tombstone so the removal propagates by HLC.
+        if (e.deleted) return e;
+        const tomb = { ...e, deleted: true, updatedAt: tick() };
+        toPush.push(tomb);
+        return tomb;
+      }
+      seen.add(e.id);
+      // Live record whose content is identical to the feed: leave it as-is.
+      if (!e.deleted && sameSyncedContent(e, match)) return e;
+      // Changed, or a tombstone that reappeared — update/resurrect in place.
+      const merged = { ...e, ...match, deleted: false, updatedAt: tick() };
+      toPush.push(merged);
+      return merged;
+    });
+    for (const e of incoming) {
+      if (seen.has(e.id)) continue;
+      const created = { ...e, updatedAt: tick() };
+      next.push(created);
+      toPush.push(created);
+    }
+    eventsRef.current = next;
+    setEvents(next);
+    if (isOnline && toPush.length) {
+      Promise.all(toPush.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
   }
 
   /** Update sync metadata (url, lastSyncedAt, …) on a linked calendar. */
@@ -494,7 +568,12 @@ export function useEvents(authState, assumeCompleted = true) {
 
   function deleteLinkedCalendar(id) {
     setLinkedCalendars(prev => prev.filter(c => c.id !== id));
-    setEvents(prev => prev.filter(e => e.source_calendar_id !== id));
+    // Tombstone the calendar's events (don't hard-delete) so the removal
+    // propagates by HLC. A hard delete looks "remote-missing" to another device
+    // that still holds these events — it would keep and re-push them, silently
+    // resurrecting them as orphans (their calendar is now gone). replaceMatching
+    // tombstones the matches and pushes the tombstones up.
+    replaceMatching(e => e.source_calendar_id === id);
     if (isOnline) api.linkedCalendars.delete(id).catch(console.warn);
   }
 
