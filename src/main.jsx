@@ -38,8 +38,22 @@ function Root() {
   // Register the service worker; get a callback to activate a waiting update
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
     onRegistered(r) {
-      // Poll for updates every hour while the tab stays open
-      if (r) setInterval(() => r.update(), 60 * 60 * 1000);
+      if (!r) return;
+      // Poll for updates every hour while the tab stays open.
+      setInterval(() => r.update(), 60 * 60 * 1000);
+      // Also re-check the instant the app returns to the foreground, so a
+      // reopened PWA (whose process the OS kept warm, so the hourly timer never
+      // lapsed) picks up a new release within seconds instead of waiting up to
+      // an hour. Throttled to one check a minute so rapid focus toggling can't
+      // spam sw.js revalidations.
+      let lastCheck = 0;
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') return;
+        const now = Date.now();
+        if (now - lastCheck < 60 * 1000) return;
+        lastCheck = now;
+        r.update();
+      });
     },
     onRegisterError(err) {
       console.warn('Service worker registration failed:', err);
