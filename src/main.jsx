@@ -13,15 +13,27 @@ import { storage } from './lib/storage.js'
 // panel (App.jsx), persisted via usePersistentState under the same key.
 const WEB_AUTO_UPDATE_KEY = 'lc-web-auto-update';
 
+// ── Feature flag: public marketing landing page ───────────────────────────────
+// The marketing "front door" (hero + feature grid at /, plus /downloads, /docs
+// and the legal pages, all owned by LandingRouter) is currently DISABLED. Web
+// visitors now boot straight into the app's account-choice screen — the two
+// ways to use PLS Calendar: "Sign in or create an account" or "Continue without
+// an account". The landing code is intentionally kept intact and still imported
+// below; flip this to `true` to bring the marketing page back. The full working
+// version also lives on the `feature/marketing-landing-page` git branch.
+const LANDING_PAGE_ENABLED = false;
+
 function Root() {
   // Gate the app behind the landing page. The landing page is the front door
   // for plain browser visits: it lets people read about PLS Calendar, download
   // a native build, or hit GitHub WITHOUT the app mounting, calling the API, or
-  // touching their data. Skip it (boot <App/> directly) when we're inside a
-  // packaged desktop/mobile build (Tauri/Capacitor), or when the visitor is
-  // already signed in (a token is present) so returning users aren't bounced
-  // through the marketing page.
-  const [entered, setEntered] = useState(() => !isWebBrowser() || !!storage.getToken());
+  // touching their data. Skip it (boot <App/> directly) when the landing page is
+  // disabled by the feature flag above, when we're inside a packaged
+  // desktop/mobile build (Tauri/Capacitor), or when the visitor is already
+  // signed in (a token is present) so returning users aren't bounced through the
+  // marketing page.
+  const [entered, setEntered] = useState(() =>
+    !LANDING_PAGE_ENABLED || !isWebBrowser() || !!storage.getToken());
 
   // Register the service worker; get a callback to activate a waiting update
   const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
