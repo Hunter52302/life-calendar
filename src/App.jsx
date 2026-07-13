@@ -193,7 +193,6 @@ export default function App() {
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
-  const [budgetsOpen, setBudgetsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
   const [aiParsingOpen, setAiParsingOpen] = useState(false);
@@ -314,7 +313,7 @@ export default function App() {
   // Derived: how many settings sections are currently open
   const settingsOpenCount = [
     appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
-    habitsOpen, budgetsOpen, notificationsOpen, zkOpen,
+    habitsOpen, notificationsOpen, zkOpen,
     searchOptionsOpen, timezonesOpen, downloadOpen,
   ].filter(Boolean).length;
 
@@ -326,7 +325,6 @@ export default function App() {
     setDangerOpen(false);
     setAboutOpen(false);
     setHabitsOpen(false);
-    setBudgetsOpen(false);
     setNotificationsOpen(false);
     setZkOpen(false);
     setSearchOptionsOpen(false);
@@ -710,6 +708,15 @@ export default function App() {
     .map(cat => ({ ...cat, ...(categoryOverrides[cat.id] || {}) }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
+  // Weekly time-budget math: 168 h in a week, minus everything allocated so far.
+  const WEEK_HOURS = 168;
+  const fmtHours = n => String(Math.round(n * 10) / 10);
+  const allocatedHours = allCategories.reduce((sum, cat) => {
+    const v = budgets[cat.id];
+    return sum + (typeof v === 'number' && !isNaN(v) ? v : 0);
+  }, 0);
+  const remainingHours = WEEK_HOURS - allocatedHours;
+
   const planEvents = getEvents('plan');
   const actualEvents = getEvents('actual');
   const weekPlanEvents = getWeekEvents(weekStart, 'plan');
@@ -971,13 +978,12 @@ export default function App() {
   const SECTION_KWS = {
     appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
-    categories: ['category', 'categories', 'color', 'label', 'tag'],
+    categories: ['category', 'categories', 'color', 'label', 'tag', 'budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget', 'allocate', 'allocation'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete', 'clear', 'calendar', 'events', 'testing'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
-    budgets:       ['budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
@@ -1922,7 +1928,7 @@ export default function App() {
                       </div>
                       )}
 
-                      {/* ── Manage Categories (collapsible) ── */}
+                      {/* ── Categories & Time Budgets (collapsible) ── */}
                       {sv(SECTION_KWS.categories) && (
                       <div className="rounded-lg overflow-hidden">
                         <button
@@ -1930,11 +1936,51 @@ export default function App() {
                           onClick={() => setCategoriesOpen(v => !v)}
                           className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Manage Categories</span>
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Categories &amp; Time Budgets</span>
                           <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(categoriesOpen, SECTION_KWS.categories) ? '▲' : '▼'}</span>
                         </button>
                         {so(categoriesOpen, SECTION_KWS.categories) && (
-                          <div className="px-2 pb-2 space-y-0.5">
+                          <div className="px-2 pb-2">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2.5">
+                              Rename or recolor a category, and give it an optional weekly hour target. Targets show as progress bars in the See Your Life tab.
+                            </p>
+
+                            {/* Weekly time-budget calculator */}
+                            <div className="mb-3 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700">
+                              <div className="flex items-baseline justify-between mb-1.5">
+                                <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Weekly budget</span>
+                                <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{fmtHours(allocatedHours)} / {WEEK_HOURS} h allocated</span>
+                              </div>
+                              {/* Segmented allocation bar — each colored slice is one category's share of the week */}
+                              <div className="h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden flex">
+                                {allCategories.map(cat => {
+                                  const v = budgets[cat.id];
+                                  const h = typeof v === 'number' && !isNaN(v) ? v : 0;
+                                  if (h <= 0) return null;
+                                  return (
+                                    <div
+                                      key={cat.id}
+                                      style={{ width: `${(h / WEEK_HOURS) * 100}%`, backgroundColor: cat.color, flexShrink: 0 }}
+                                      title={`${cat.label}: ${fmtHours(h)} h`}
+                                    />
+                                  );
+                                })}
+                              </div>
+                              <div className="flex items-baseline justify-between mt-1.5">
+                                {remainingHours >= 0 ? (
+                                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 tabular-nums">
+                                    {fmtHours(remainingHours)} h <span className="font-normal text-gray-400 dark:text-gray-500">left this week</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-sm font-semibold text-red-500 dark:text-red-400 tabular-nums">
+                                    {fmtHours(-remainingHours)} h <span className="font-normal">over budget</span>
+                                  </span>
+                                )}
+                                <span className="text-[11px] text-gray-400 dark:text-gray-500">of {WEEK_HOURS} h/week</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-0.5">
                             {allCategories.map(cat => {
                               const isConfirming = pendingDeleteCategory === cat.id;
                               const isPickingColor = editingCatColor === cat.id;
@@ -1970,6 +2016,28 @@ export default function App() {
                                       />
                                     ) : (
                                       <span className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300 truncate">{cat.label}</span>
+                                    )}
+
+                                    {/* Weekly hour target — hidden while renaming to give the label room */}
+                                    {!isConfirming && !isEditingLabel && (
+                                      <div className="flex items-center gap-1 flex-shrink-0">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          max="168"
+                                          step="0.5"
+                                          value={budgets[cat.id] ?? ''}
+                                          onChange={e => {
+                                            const n = parseFloat(e.target.value);
+                                            if (e.target.value === '' || isNaN(n)) deleteBudget(cat.id);
+                                            else setBudget(cat.id, n);
+                                          }}
+                                          placeholder="—"
+                                          title="Weekly hour target"
+                                          className="w-14 text-sm text-right bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400"
+                                        />
+                                        <span className="text-[10px] text-gray-400 dark:text-gray-500">h/wk</span>
+                                      </div>
                                     )}
 
                                     {/* Pencil — edit label */}
@@ -2129,53 +2197,7 @@ export default function App() {
                                 className="w-full text-left text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors mt-1"
                               >+ Add category</button>
                             )}
-                          </div>
-                        )}
-                      </div>
-                      )}
-
-                      {/* ── Time Budgets (collapsible) ── */}
-                      {sv(SECTION_KWS.budgets) && (
-                      <div className="rounded-lg overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setBudgetsOpen(v => !v)}
-                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Budgets</span>
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(budgetsOpen, SECTION_KWS.budgets) ? '▲' : '▼'}</span>
-                        </button>
-                        {so(budgetsOpen, SECTION_KWS.budgets) && (
-                          <div className="px-2 pb-2 space-y-1">
-                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
-                              Set weekly hour targets per category. They appear as progress bars in the See Your Life tab.
-                            </p>
-                            {allCategories.map(cat => {
-                              const val = budgets[cat.id] ?? '';
-                              return (
-                                <div key={cat.id} className="flex items-center gap-2 py-0.5">
-                                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-                                  <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">{cat.label}</span>
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      max="168"
-                                      step="0.5"
-                                      value={val}
-                                      onChange={e => {
-                                        const n = parseFloat(e.target.value);
-                                        if (e.target.value === '' || isNaN(n)) deleteBudget(cat.id);
-                                        else setBudget(cat.id, n);
-                                      }}
-                                      placeholder="—"
-                                      className="w-16 text-sm text-right bg-gray-100 dark:bg-gray-700 rounded-lg px-2 py-1 text-gray-900 dark:text-white outline-none border border-gray-200 dark:border-gray-600 focus:border-blue-400 dark:focus:border-blue-500 placeholder-gray-400"
-                                    />
-                                    <span className="text-xs text-gray-400 dark:text-gray-500">h/wk</span>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                            </div>
                           </div>
                         )}
                       </div>
