@@ -172,7 +172,7 @@ function Toggle({ checked, onChange }) {
 }
 
 export default function App() {
-  const { authState, zkInfo, accountEmail, prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, serverReachable } = useAuth();
+  const { authState, zkInfo, accountEmail, prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, backToChoose, serverReachable } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
@@ -1027,6 +1027,7 @@ export default function App() {
         onContinueOffline={continueOffline}
         onChooseLocal={chooseLocal}
         onChooseAccount={chooseAccount}
+        onBackToChoose={backToChoose}
         serverReachable={serverReachable}
         recoveryCode={recoveryCodeToShow}
         onRecoverySaved={() => { setRecoveryCodeToShow(null); markUnlocked(); }}

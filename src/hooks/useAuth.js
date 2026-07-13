@@ -132,6 +132,19 @@ export function useAuth() {
   }
 
   /**
+   * Return to the first-run choice screen. Backs out of the account/sign-in
+   * flow (e.g. a "Back" button on the sign-in screen) so an undecided user can
+   * pick a different option. Clears the remembered mode so a refresh doesn't
+   * bounce them straight back to sign-in — the native browser back button can't
+   * do this because the choice is client-side state, not a routed page.
+   */
+  function backToChoose() {
+    localStorage.removeItem(ACCOUNT_MODE_KEY);
+    setZkInfo(null);
+    setAuthState('choose');
+  }
+
+  /**
    * Upgrade an account-free (local) user to the account flow later on. Re-checks
    * server status so we route to the right screen even if it changed since
    * launch. Local data is migrated up on the first sync after they register.
@@ -173,7 +186,7 @@ export function useAuth() {
     accountEmail,
     prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword,
     markUnlocked, logout, continueOffline,
-    chooseLocal, chooseAccount, switchToAccount,
+    chooseLocal, chooseAccount, switchToAccount, backToChoose,
     setAccountEmail: setAccountEmailOnServer,
     deleteAccount,
   };

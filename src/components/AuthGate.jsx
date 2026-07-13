@@ -21,7 +21,7 @@ const inputCls = 'w-full px-4 py-3 rounded-xl border border-gray-200 dark:border
 export default function AuthGate({
   authState, onLogin, onRegister, onUnlock, onResetPassword, onGoogleLogin,
   onContinueOffline, onLogout, recoveryCode, onRecoverySaved, theme,
-  onChooseLocal, onChooseAccount, serverReachable = true,
+  onChooseLocal, onChooseAccount, onBackToChoose, serverReachable = true,
 }) {
   const [mode, setMode]         = useState(null); // 'login' | 'register' | 'reset'
   const [email, setEmail]       = useState('');
@@ -90,6 +90,10 @@ export default function AuthGate({
   }
 
   const showForm = ['setup', 'login', 'unlock'].includes(authState);
+  // Let an undecided user back out of the account/sign-in flow to the choice
+  // screen. Not offered on 'unlock' (a returning account already has "Sign in as
+  // someone else") nor 'checking'.
+  const canGoBack = onBackToChoose && ['setup', 'login', 'offline'].includes(authState);
 
   // ── First-run choice: account vs local-only ────────────────────────────────
   if (authState === 'choose') {
@@ -148,6 +152,18 @@ export default function AuthGate({
     <div className={theme === 'dark' ? 'dark' : ''}>
       <div className="flex items-center justify-center h-[100dvh] bg-gray-50 dark:bg-gray-900 px-4">
         <div className="w-full max-w-sm">
+          {canGoBack && (
+            <button
+              type="button"
+              onClick={onBackToChoose}
+              className="inline-flex items-center gap-1.5 mb-6 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+              Back to options
+            </button>
+          )}
           <div className="text-center mb-8">
             <div className="w-14 h-14 rounded-2xl bg-indigo-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
               <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

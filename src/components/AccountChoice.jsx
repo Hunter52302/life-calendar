@@ -1,13 +1,20 @@
 /**
- * AccountChoice — first-run screen. Lays out the two ways to use PLS Calendar
- * side by side — account-free (local to this one device) or with an account
- * (encrypted sync across devices) — as a plain, informational comparison so the
- * user can make an informed choice. Rendered by AuthGate when
- * authState === 'choose'.
+ * AccountChoice — first-run screen. Lays out the three ways to use PLS Calendar
+ * side by side, as a plain, informational comparison (features + the trial's
+ * data warning, no marketing) so the user can make an informed choice. Rendered
+ * by AuthGate when authState === 'choose'.
  *
+ *   1. Try it (browser)      — instant, but data lives only in this browser.
+ *   2. Use without an account — download the native app; data persists locally.
+ *   3. Use with an account   — encrypted sync across devices.
+ *
+ * All three cards are the same size on purpose — none is presented as "better".
  * The choice is remembered (see useAuth ACCOUNT_MODE_KEY); a local-only user can
  * still switch to an account later from the app.
  */
+
+// Where "Use without an account" sends people to grab a native build.
+const RELEASES_URL = 'https://github.com/Hunter52302/life-calendar/releases';
 
 function Point({ children }) {
   return (
@@ -19,7 +26,7 @@ function Point({ children }) {
 }
 
 export default function AccountChoice({ onChooseLocal, onChooseAccount, serverReachable = true, theme }) {
-  const cardCls = 'flex flex-col rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-6';
+  const cardCls = 'flex flex-col h-full rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-6';
 
   return (
     <div className={theme === 'dark' ? 'dark' : ''}>
@@ -32,42 +39,70 @@ export default function AccountChoice({ onChooseLocal, onChooseAccount, serverRe
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Welcome to PLS Calendar</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            Two ways to use it — here's what each one means. You can switch later.
+            Three ways to use it — here's what each one means. You can switch later.
           </p>
         </div>
 
-        <div className="grid gap-5 w-full max-w-3xl md:grid-cols-2">
-          {/* ── No account / local only ─────────────────────────────────────── */}
+        <div className="grid gap-5 w-full max-w-5xl md:grid-cols-3 items-stretch">
+          {/* ── 1. Browser trial ────────────────────────────────────────────── */}
           <div className={cardCls}>
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Use without an account</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Everything stays on this device.</p>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Try it in your browser</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Start now — nothing to install.</p>
             </div>
-            <ul className="space-y-3 flex-1">
-              <Point>Full calendar, plan &amp; live views, habits, budgets and categories</Point>
-              <Point>Import and export ICS files and calendar subscriptions</Point>
-              <Point>Your data never leaves this device</Point>
-              <Point>No sync — this device is the only place your calendar exists</Point>
-              <Point>No password recovery or backup key</Point>
-              <Point>Clearing this browser or app's data erases your calendar</Point>
-            </ul>
+            <div className="flex-1 flex flex-col">
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3.5 mb-4">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Your data is saved only in this browser.</p>
+                <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300/90 mt-1">
+                  It stays across refreshes, but clearing your browser data, using a different browser, or opening it on another device will erase everything. No sync, no backup, no recovery. Best for a quick look.
+                </p>
+              </div>
+              <ul className="space-y-3">
+                <Point>Full calendar, plan &amp; live views, habits, budgets and categories</Point>
+                <Point>Import and export ICS files and calendar subscriptions</Point>
+                <Point>No account or sign-up needed</Point>
+              </ul>
+            </div>
             <button
               type="button"
               onClick={onChooseLocal}
               className="mt-6 w-full py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold hover:opacity-90 transition-opacity"
             >
-              Continue without an account
+              Try it now
             </button>
           </div>
 
-          {/* ── Account / synced ────────────────────────────────────────────── */}
+          {/* ── 2. No account / download the app ─────────────────────────────── */}
+          <div className={cardCls}>
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Use without an account</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Download the app for your device.</p>
+            </div>
+            <ul className="space-y-3 flex-1">
+              <Point>Everything in the browser trial</Point>
+              <Point>Your calendar is stored by the installed app, so clearing your browser won't erase it</Point>
+              <Point>Works fully offline on this device</Point>
+              <Point>No sync — this device is the only place your calendar exists</Point>
+              <Point>No account, password or recovery key</Point>
+            </ul>
+            <a
+              href={RELEASES_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 w-full py-3 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold hover:opacity-90 transition-opacity text-center"
+            >
+              Download the app
+            </a>
+          </div>
+
+          {/* ── 3. Account / synced ──────────────────────────────────────────── */}
           <div className={cardCls}>
             <div className="mb-4">
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Use with an account</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Encrypted and synced across your devices.</p>
             </div>
             <ul className="space-y-3 flex-1">
-              <Point>Everything the account-free option has</Point>
+              <Point>Everything the account-free options have</Point>
               <Point>Syncs across all your devices</Point>
               <Point>Zero-knowledge end-to-end encryption — only you can read your data</Point>
               <Point>One-time recovery / backup key to regain access if you forget your password</Point>
