@@ -10,7 +10,7 @@
  * the same target shape as ical.js's icalToAppEvent, so connected calendars
  * render identically to imported .ics files.
  */
-import { getWeekStart } from './utils';
+import { getWeekStart, shortHash } from './utils';
 
 export const PROVIDERS = {
   google:    { id: 'google',    label: 'Google Calendar',  short: 'Google'  },
@@ -30,6 +30,12 @@ function parseDateOnly(s) {
 export function providerEventToAppEvent(ev, calendar, precision = 1) {
   if (!ev?.start) return null;
 
+  // Recurring events arrive pre-expanded into individual occurrences that all
+  // share the master's id (`seriesId`). Hash it into a stable series_id so the
+  // occurrences group into one editable series — same this/future/all editing
+  // as events created in-app.
+  const seriesId = ev.seriesId ? shortHash(ev.seriesId) : null;
+
   // ── All-day ────────────────────────────────────────────────────────────────
   if (ev.allDay) {
     const startDate = parseDateOnly(String(ev.start).slice(0, 10));
@@ -46,6 +52,7 @@ export function providerEventToAppEvent(ev, calendar, precision = 1) {
       precision,
       calendar,
       notes: ev.notes ?? null,
+      ...(seriesId && { series_id: seriesId }),
     };
   }
 
@@ -80,5 +87,6 @@ export function providerEventToAppEvent(ev, calendar, precision = 1) {
     precision,
     calendar,
     notes: ev.notes ?? null,
+    ...(seriesId && { series_id: seriesId }),
   };
 }

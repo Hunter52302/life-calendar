@@ -53,7 +53,7 @@ const PRESET_COLORS = [
   '#6366F1', '#8B5CF6', '#A855F7', '#EC4899',
   '#6B7280', '#374151',
 ];
-import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId } from './lib/utils';
+import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId, shortHash } from './lib/utils';
 import { api } from './lib/api.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
 import { useHabits } from './hooks/useHabits';
@@ -135,14 +135,17 @@ function icsToAppEvents(content, calendar, precision, calId, calColor) {
     const base = { ...ev, source_calendar_id: calId, color: calColor };
     const rrule = parseRrule(p.rrule);
     if (!rrule) return [base];
-    let instances = generateRepeatInstances(base, rrule.repeat);
+    // Link every expanded occurrence under one stable series_id (derived from
+    // the VEVENT UID) so recurring .ics events edit as a series, like native ones.
+    const sid = shortHash(p.uid || `${p.summary}|${p.dtstart}`);
+    let instances = generateRepeatInstances({ ...base, series_id: sid }, rrule.repeat);
     if (rrule.untilDate) instances = instances.filter(e => {
       const d = new Date(e.week_start + 'T00:00:00');
       d.setDate(d.getDate() + e.day_of_week);
       return d <= rrule.untilDate;
     });
     if (rrule.count) instances = instances.slice(0, rrule.count);
-    return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor }));
+    return instances.map(e => ({ ...e, source_calendar_id: calId, color: calColor, series_id: sid }));
   });
 }
 
@@ -681,6 +684,7 @@ export default function App() {
     deleteLinkedCalendar = () => {},
     updateLinkedCalendar = () => {},
     updateLinkedCalendarColor = () => {},
+    updateLinkedCalendarCategory = () => {},
     updateLinkedCalendarExclude = () => {},
     clearLegacyEvents = () => {},
     clearAllEvents = async () => {},
@@ -803,6 +807,12 @@ export default function App() {
     } else {
       const { ics } = await api.ical.fetch(cal.url);
       appEvents = icsToAppEvents(ics, target, precision, cal.id, cal.color);
+    }
+    // A default category on the calendar tags every imported event (e.g. a
+    // "Work" calendar → all events get the "work" category). Applied here on
+    // every sync so it persists through the destructive event replacement below.
+    if (cal.defaultCategory) {
+      appEvents = appEvents.map(ev => ({ ...ev, category: cal.defaultCategory }));
     }
     replaceEventsBySourceCalendar(cal.id, appEvents);
     const patch = { lastSyncedAt: Math.floor(Date.now() / 1000) };
@@ -2660,6 +2670,21 @@ export default function App() {
                                                   </label>
                                                   <span className="text-gray-300 dark:text-gray-600 text-[10px]" title="Skip SYL — exclude this calendar from the See Your Life tab stats and charts">ⓘ</span>
                                                 </div>
+                                              </div>
+                                              {/* Default category — tags every imported event so the series edits & groups like your own events */}
+                                              <div className="flex items-center gap-1.5 mt-1">
+                                                <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">Category</span>
+                                                <select
+                                                  value={cal.defaultCategory || ''}
+                                                  onChange={e => updateLinkedCalendarCategory(cal.id, e.target.value || null)}
+                                                  className="text-[11px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-1.5 py-0.5 max-w-[170px]"
+                                                  title="Tag every event imported from this calendar with a category, so they group and edit together like events you create"
+                                                >
+                                                  <option value="">None (Free Time)</option>
+                                                  {allCategories.map(c => (
+                                                    <option key={c.id} value={c.id}>{c.label}</option>
+                                                  ))}
+                                                </select>
                                               </div>
                                               {isPickingColor && (
                                                 <div className="flex flex-wrap gap-1.5 mt-2 mb-1">

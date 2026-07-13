@@ -80,7 +80,9 @@ export function parseIcal(content) {
       const val = line.substring(ci + 1);
       const key = propPart.split(';')[0].toUpperCase();
 
-      if (key === 'DTSTART') {
+      if (key === 'UID') {
+        cur.uid = val;
+      } else if (key === 'DTSTART') {
         cur.dtstart = val;
         cur.dtstart_isUtc = val.endsWith('Z');
       } else if (key === 'DTEND') {

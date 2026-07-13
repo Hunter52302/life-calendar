@@ -41,6 +41,19 @@ export function generateId() {
 }
 
 /**
+ * Deterministic short id from an arbitrary string (djb2 → base36). Used to turn
+ * a provider's long recurrence-group id (Google recurringEventId / Microsoft
+ * seriesMasterId, which can exceed the 50-char series_id column) into a stable,
+ * compact series_id that's identical across syncs for the same series.
+ */
+export function shortHash(str) {
+  let h = 5381;
+  const s = String(str);
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return 'ext' + h.toString(36);
+}
+
+/**
  * Flatten an address into a single comma-separated string suitable for
  * geocoding / a maps handoff. Accepts either a plain string or the structured
  * address object used by the profile ({ line1, line2, city, region, ... }).

@@ -414,9 +414,39 @@ export function useEvents(authState, assumeCompleted = true) {
     replaceMatching(e => e.source === source, withIds);
   }
 
-  /** Re-sync a subscribed calendar: swap out all its events atomically. */
+  /** Re-sync a subscribed calendar: swap out all its events atomically.
+   *
+   * The provider owns each event's time / label / existence, but its *category*
+   * is chosen here in the app. So before the swap, we snapshot any category the
+   * user set that differs from the calendar's import default and re-apply it to
+   * the matching freshly-synced occurrence — otherwise every sync would reset a
+   * hand-categorized event (or series) back to the default. Matches are keyed by
+   * occurrence first, then by series_id so a new occurrence of an overridden
+   * series inherits the same category. */
   function replaceEventsBySourceCalendar(sourceCalendarId, newEvents) {
-    const withIds = newEvents.map(e => ({ ...e, id: generateId(), source_calendar_id: sourceCalendarId, updatedAt: tick() }));
+    const cal = linkedCalendars.find(c => c.id === sourceCalendarId);
+    const importDefault = cal?.defaultCategory || 'free-time';
+    const occKey = e => `${e.series_id || ''}|${e.label}|${e.week_start}|${e.day_of_week}|${e.slot_start}`;
+    const occOverride = new Map();
+    const seriesOverride = new Map();
+    for (const e of eventsRef.current) {
+      if (e.deleted || e.source_calendar_id !== sourceCalendarId) continue;
+      if (e.category && e.category !== importDefault) {
+        occOverride.set(occKey(e), e.category);
+        if (e.series_id) seriesOverride.set(e.series_id, e.category);
+      }
+    }
+    const withIds = newEvents.map(e => {
+      const carried = occOverride.get(occKey(e))
+        ?? (e.series_id ? seriesOverride.get(e.series_id) : undefined);
+      return {
+        ...e,
+        ...(carried ? { category: carried } : {}),
+        id: generateId(),
+        source_calendar_id: sourceCalendarId,
+        updatedAt: tick(),
+      };
+    });
     replaceMatching(e => e.source_calendar_id === sourceCalendarId, withIds);
   }
 
@@ -474,6 +504,33 @@ export function useEvents(authState, assumeCompleted = true) {
     if (isOnline) api.linkedCalendars.update(id, { color: newColor }).catch(console.warn);
   }
 
+  // Set (or clear, with null) the default category for a linked calendar. Every
+  // event imported from it is tagged with this category — applied at sync time
+  // (in syncSubscribedCalendar) so it survives the destructive re-sync, and
+  // re-applied to the calendar's existing events here so the change is immediate.
+  function updateLinkedCalendarCategory(id, category) {
+    const cat = category || null;
+    setLinkedCalendars(prev => prev.map(c => c.id === id ? { ...c, defaultCategory: cat } : c));
+    if (isOnline) api.linkedCalendars.update(id, { defaultCategory: cat }).catch(console.warn);
+    if (!cat) return;
+    const ts = tick();
+    const touched = [];
+    const next = eventsRef.current.map(e => {
+      if (e.source_calendar_id === id && !e.deleted && e.category !== cat) {
+        const u = { ...e, category: cat, updatedAt: ts };
+        touched.push(u);
+        return u;
+      }
+      return e;
+    });
+    eventsRef.current = next;
+    setEvents(next);
+    if (isOnline && touched.length) {
+      Promise.all(touched.map(encryptEventForApi))
+        .then(p => api.events.batch(p)).catch(console.warn);
+    }
+  }
+
   function updateLinkedCalendarExclude(id, exclude) {
     setLinkedCalendars(prev => prev.map(c => c.id === id ? { ...c, excludeFromReality: exclude } : c));
     if (isOnline) api.linkedCalendars.update(id, { excludeFromReality: exclude }).catch(console.warn);
@@ -495,6 +552,6 @@ export function useEvents(authState, assumeCompleted = true) {
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds, replaceEventsBySource, replaceEventsBySourceCalendar,
     linkedCalendars, addLinkedCalendar, deleteLinkedCalendar, updateLinkedCalendar,
-    updateLinkedCalendarColor, updateLinkedCalendarExclude, clearLegacyEvents,
+    updateLinkedCalendarColor, updateLinkedCalendarCategory, updateLinkedCalendarExclude, clearLegacyEvents,
   };
 }

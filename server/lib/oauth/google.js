@@ -151,6 +151,9 @@ export async function listEvents(accessToken, calendarId, timeMin, timeMax) {
         end:   allDay ? e.end?.date  : e.end?.dateTime,
         allDay,
         notes: e.description ?? null,
+        // Instances of a recurring event (singleEvents:true expands them) all
+        // carry the master's id here — the app groups them into one series.
+        seriesId: e.recurringEventId ?? null,
       });
     }
     pageToken = j.nextPageToken;

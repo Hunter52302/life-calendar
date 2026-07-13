@@ -102,7 +102,7 @@ export async function listEvents(accessToken, calendarId, timeMin, timeMax) {
   const out = [];
   const params = new URLSearchParams({
     startDateTime: timeMin, endDateTime: timeMax, $top: '500',
-    $select: 'subject,start,end,isAllDay,bodyPreview',
+    $select: 'subject,start,end,isAllDay,bodyPreview,seriesMasterId',
   });
   let url = `${GRAPH}/me/calendars/${encodeURIComponent(calendarId)}/calendarView?${params}`;
   // Graph caps page size; follow @odata.nextLink until exhausted.
@@ -124,6 +124,9 @@ export async function listEvents(accessToken, calendarId, timeMin, timeMax) {
         end:   allDay ? e.end?.dateTime?.slice(0, 10)   : toIso(e.end),
         allDay,
         notes: e.bodyPreview ?? null,
+        // Occurrences of a recurring series share the master's id — the app
+        // groups them into one editable series.
+        seriesId: e.seriesMasterId ?? null,
       });
     }
     url = j['@odata.nextLink'] ?? null;
