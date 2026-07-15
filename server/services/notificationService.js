@@ -274,7 +274,10 @@ async function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
   const results = [];
   for (const ev of allEvents) {
     const eventDate = addDaysToDate(ev.week_start, ev.day_of_week);
-    const slotMinutes = (ev.slot_start ?? 0) * 30;
+    // slot_start is counted in the event's own precision (0.5h or 1h per slot),
+    // not fixed 30-min slots — so convert with precision, or an hourly-precision
+    // event reminds at the wrong time (e.g. a 10:00 event treated as 05:00).
+    const slotMinutes = (ev.slot_start ?? 0) * (ev.precision || 0.5) * 60;
     const reminderMinute = Math.floor((wallClockMs(eventDate, slotMinutes) + offsetMinutes * 60_000) / 60_000);
     if (nowMinute === reminderMinute) results.push(ev);
   }

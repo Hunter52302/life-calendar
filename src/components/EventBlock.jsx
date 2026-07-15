@@ -9,6 +9,7 @@ export default function EventBlock({ event, gridPrecision, stackOverlap = false,
   const isAutoCompleted = !isGhost && event.source === 'auto-completed';
   const isContinuation = !!event._isContinuation;
   const overflowContinues = !!event._overflowContinues;
+  const overflowClipped = !!event._overflowClipped; // tail past midnight can't be drawn (Sat→Sun / day view)
   const isDragPreview = !!event._isDragPreview;
   const draggable = !isGhost && !isContinuation && !!onDragStart;
 
@@ -102,11 +103,15 @@ export default function EventBlock({ event, gridPrecision, stackOverlap = false,
         ) : (
           <>
             <span className="text-white text-xs font-semibold leading-tight truncate">{event.label}</span>
-            {clampedDuration >= 2 && (
+            {overflowClipped ? (
+              <span className="text-white/75 text-[10px] leading-tight truncate" title={`${hoursToLabel(totalHours)} total — continues past midnight`}>
+                ⤍ past midnight
+              </span>
+            ) : clampedDuration >= 2 ? (
               <span className="text-white/75 text-xs leading-tight">
                 {hoursToLabel(totalHours)}{overflowContinues ? ' →' : ''}
               </span>
-            )}
+            ) : null}
           </>
         )}
       </div>

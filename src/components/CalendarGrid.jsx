@@ -120,16 +120,23 @@ export default function CalendarGrid({
     const overflowSlots = endSlot - eventSlotCount;
     if (overflowSlots > 0) {
       const totalHours = event.slot_duration * event.precision;
+      // The after-midnight tail belongs to the next day's column. Crossing
+      // Saturday→Sunday (nextDay 7) lands in NEXT week, which this Sun–Sat grid
+      // can't show; a single-day view may not show the next day either. When the
+      // tail can't be drawn, flag the main block so it still signals "runs past
+      // midnight" instead of silently ending at 00:00.
+      const nextDay = event.day_of_week + 1;
+      const tailVisible = nextDay <= 6 && dayIndices.includes(nextDay);
       // Main block: runs from slot_start to midnight
       timedEvents.push({
         ...event,
         slot_duration: eventSlotCount - event.slot_start,
         _overflowContinues: true,
+        _overflowClipped: !tailVisible,
         _totalHours: totalHours,
       });
       // Continuation block: runs from midnight on the next day
-      const nextDay = event.day_of_week + 1;
-      if (nextDay <= 6 && dayIndices.includes(nextDay)) {
+      if (tailVisible) {
         timedEvents.push({
           ...event,
           id: String(event.id ?? event.label) + '_cont',
