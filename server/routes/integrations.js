@@ -2,16 +2,21 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { pocketbaseNotificationSchedules, pocketbaseUserIntegrations } from '../lib/pocketbaseNotifications.js';
-import { dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail } from '../services/notificationService.js';
+import { dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail, dispatchSms } from '../services/notificationService.js';
 
 const router = Router();
 router.use(requireAuth);
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-const VALID_TYPES = ['discord_webhook', 'slack_webhook', 'generic_webhook', 'web_push', 'expo_push', 'email'];
+const VALID_TYPES = ['discord_webhook', 'slack_webhook', 'generic_webhook', 'web_push', 'expo_push', 'email', 'sms'];
 
 function isValidEmail(value) {
   return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function isValidPhone(value) {
+  // E.164: optional +, leading non-zero digit, up to 15 digits total.
+  return typeof value === 'string' && /^\+?[1-9]\d{6,14}$/.test(value.trim());
 }
 
 // ── Integrations CRUD ─────────────────────────────────────────────────────────
@@ -21,21 +26,24 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { type, label, endpoint_url, push_token, email_address, include_hints, enabled } = req.body;
+  const { type, label, endpoint_url, push_token, email_address, phone_number, include_hints, enabled } = req.body;
   if (!type || !VALID_TYPES.includes(type)) {
     return res.status(400).json({ error: `type must be one of: ${VALID_TYPES.join(', ')}` });
   }
   if (type === 'email' && !isValidEmail(email_address)) {
     return res.status(400).json({ error: 'A valid email_address is required for email integrations' });
   }
-  const integration = { id: randomUUID(), type, label, endpoint_url, push_token, email_address, include_hints, enabled };
+  if (type === 'sms' && !isValidPhone(phone_number)) {
+    return res.status(400).json({ error: 'A valid phone_number (E.164, e.g. +15551234567) is required for SMS integrations' });
+  }
+  const integration = { id: randomUUID(), type, label, endpoint_url, push_token, email_address, phone_number, include_hints, enabled };
   const created = await pocketbaseUserIntegrations.create(req.userId, integration);
   res.status(201).json(created);
 }));
 
 router.put('/:id', asyncHandler(async (req, res) => {
-  const { label, endpoint_url, push_token, email_address, include_hints, enabled } = req.body;
-  const updated = await pocketbaseUserIntegrations.update(req.userId, req.params.id, { label, endpoint_url, push_token, email_address, include_hints, enabled });
+  const { label, endpoint_url, push_token, email_address, phone_number, include_hints, enabled } = req.body;
+  const updated = await pocketbaseUserIntegrations.update(req.userId, req.params.id, { label, endpoint_url, push_token, email_address, phone_number, include_hints, enabled });
   if (!updated) return res.status(404).json({ error: 'Integration not found' });
   res.json(updated);
 }));
@@ -65,8 +73,10 @@ router.post('/:id/test', asyncHandler(async (req, res) => {
       await dispatchExpoPush(integration.push_token, title, body);
     } else if (integration.type === 'email' && integration.email_address) {
       await dispatchEmail(integration.email_address, title, body);
+    } else if (integration.type === 'sms' && integration.phone_number) {
+      await dispatchSms(integration.phone_number, title, body);
     } else {
-      return res.status(400).json({ error: 'Integration is missing required configuration (endpoint_url, push_token, or email_address)' });
+      return res.status(400).json({ error: 'Integration is missing required configuration (endpoint_url, push_token, email_address, or phone_number)' });
     }
     res.json({ ok: true });
   } catch (err) {

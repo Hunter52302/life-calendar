@@ -212,7 +212,9 @@ export default function App() {
   const [newIntLabel, setNewIntLabel] = useState('');
   const [newIntUrl, setNewIntUrl] = useState('');
   const [newIntEmail, setNewIntEmail] = useState('');
+  const [newIntPhone, setNewIntPhone] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
+  const [pushError, setPushError] = useState(''); // surfaced when enabling browser push fails
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
   // ── Google linked-login ──────────────────────────────────────────────────
@@ -632,17 +634,30 @@ export default function App() {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newIntEmail.trim())) return;
       data.email_address = newIntEmail.trim();
     }
+    if (newIntType === 'sms') {
+      if (!/^\+?[1-9]\d{6,14}$/.test(newIntPhone.trim())) return;
+      data.phone_number = newIntPhone.trim();
+    }
     await addIntegration(data);
-    setNewIntLabel(''); setNewIntUrl(''); setNewIntEmail(''); setAddIntegrationOpen(false);
+    setNewIntLabel(''); setNewIntUrl(''); setNewIntEmail(''); setNewIntPhone(''); setAddIntegrationOpen(false);
   }
 
   async function handleEnablePush() {
+    setPushError('');
     try {
       await subscribePush();
       await addSchedule({ trigger_type: 'event_reminder', offset_minutes: -30 });
       await addSchedule({ trigger_type: 'habit_reminder', time_of_day: '20:00' });
     } catch (err) {
       console.warn('Push setup failed:', err);
+      // Surface the reason instead of failing silently. The most common case is
+      // the server missing VAPID keys (/vapid-public-key → 503), but a denied OS
+      // permission or an unsupported browser lands here too.
+      setPushError(
+        /not configured/i.test(err?.message || '')
+          ? 'Browser push isn’t set up on the server yet (missing VAPID keys).'
+          : (err?.message || 'Could not enable browser push on this device.')
+      );
     }
   }
 
@@ -1001,7 +1016,7 @@ export default function App() {
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
-    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp'],
+    notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp', 'sms', 'text', 'twilio', 'phone'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
@@ -2357,23 +2372,28 @@ export default function App() {
                         {so(notificationsOpen, SECTION_KWS.notifications) && (
                           <div className="px-2 pb-3 space-y-3">
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                              Get reminders via email, Discord, Slack, or browser push. The app only sends timing info — event labels stay private unless you set an Integration Hint.
+                              Get reminders via browser push, email, SMS, Discord, or Slack. The app only sends timing info — event labels stay private unless you set an Integration Hint.
                             </p>
 
                             {/* Browser push */}
                             {'Notification' in window && (
-                              <div className="flex items-center justify-between gap-2">
-                                <div>
-                                  <span className="text-sm text-gray-700 dark:text-gray-200">Browser Push</span>
-                                  <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                                    {Notification.permission === 'granted' ? 'Enabled' : Notification.permission === 'denied' ? 'Blocked in browser settings' : 'Not enabled'}
-                                  </p>
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <span className="text-sm text-gray-700 dark:text-gray-200">Browser Push</span>
+                                    <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                                      {Notification.permission === 'granted' ? 'Enabled' : Notification.permission === 'denied' ? 'Blocked in browser settings' : 'Not enabled'}
+                                    </p>
+                                  </div>
+                                  {Notification.permission !== 'denied' && (
+                                    <button type="button" onClick={handleEnablePush}
+                                      className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors flex-shrink-0">
+                                      {Notification.permission === 'granted' ? 'Refresh' : 'Enable'}
+                                    </button>
+                                  )}
                                 </div>
-                                {Notification.permission !== 'denied' && (
-                                  <button type="button" onClick={handleEnablePush}
-                                    className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors flex-shrink-0">
-                                    {Notification.permission === 'granted' ? 'Refresh' : 'Enable'}
-                                  </button>
+                                {pushError && (
+                                  <p className="text-[10px] text-red-500 dark:text-red-400 leading-snug">{pushError}</p>
                                 )}
                               </div>
                             )}
@@ -2420,7 +2440,7 @@ export default function App() {
                                 {integrations.map(intg => (
                                   <div key={intg.id} className="flex items-center gap-2 py-0.5">
                                     <span className="text-lg leading-none flex-shrink-0">
-                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : intg.type === 'email' ? '📧' : '🔗'}
+                                      {intg.type === 'discord_webhook' ? '🎮' : intg.type === 'slack_webhook' ? '💬' : intg.type === 'web_push' ? '🔔' : intg.type === 'expo_push' ? '📱' : intg.type === 'email' ? '📧' : intg.type === 'sms' ? '📲' : '🔗'}
                                     </span>
                                     <div className="flex-1 min-w-0">
                                       <span className="text-sm text-gray-700 dark:text-gray-200 truncate block">{intg.label || intg.type}</span>
@@ -2454,6 +2474,7 @@ export default function App() {
                                   <option value="slack_webhook">Slack Webhook</option>
                                   <option value="generic_webhook">Custom Webhook</option>
                                   <option value="email">Email</option>
+                                  <option value="sms">SMS</option>
                                 </select>
                                 <input value={newIntLabel} onChange={e => setNewIntLabel(e.target.value)}
                                   placeholder="Nickname (e.g. My Discord)"
@@ -2468,6 +2489,11 @@ export default function App() {
                                     placeholder="you@example.com"
                                     className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
                                 )}
+                                {newIntType === 'sms' && (
+                                  <input type="tel" value={newIntPhone} onChange={e => setNewIntPhone(e.target.value)}
+                                    placeholder="+15551234567"
+                                    className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
+                                )}
                                 <div className="flex gap-2">
                                   <button type="button" onClick={() => setAddIntegrationOpen(false)}
                                     className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition-colors">Cancel</button>
@@ -2478,7 +2504,7 @@ export default function App() {
                             ) : (
                               <button type="button" onClick={() => setAddIntegrationOpen(true)}
                                 className="w-full text-left text-sm text-violet-500 hover:text-violet-600 dark:text-violet-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                                + Add Email / Discord / Slack / Webhook
+                                + Add Email / SMS / Discord / Slack / Webhook
                               </button>
                             )}
 

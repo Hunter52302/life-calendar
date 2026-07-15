@@ -52,6 +52,17 @@ if (process.env.SMTP_HOST) {
 
 const MAIL_FROM = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'PLS Calendar <no-reply@example.com>';
 
+// ── SMS (Twilio) setup ─────────────────────────────────────────────────────────
+// Delivered over Twilio's REST API with a plain fetch (no extra dependency), the
+// same lightweight approach used for Expo push. Self-hosters set TWILIO_*; when
+// unset, SMS integrations are skipped just like unconfigured VAPID/SMTP.
+
+const smsConfigured = !!(
+  process.env.TWILIO_ACCOUNT_SID &&
+  process.env.TWILIO_AUTH_TOKEN &&
+  process.env.TWILIO_FROM_NUMBER
+);
+
 // ── Timezone helpers ──────────────────────────────────────────────────────────
 
 function nowInTz(tz) {
@@ -165,6 +176,33 @@ function escapeHtml(str) {
   ));
 }
 
+async function dispatchSms(to, title, body) {
+  if (!smsConfigured) throw new Error('SMS is not configured on this server (set TWILIO_ACCOUNT_SID)');
+  if (!to) throw new Error('No phone number on this integration');
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+  const form = new URLSearchParams({
+    To: to,
+    From: process.env.TWILIO_FROM_NUMBER,
+    Body: title ? `${title}\n${body}` : body,
+  });
+  try {
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+    if (!res.ok) {
+      let detail = String(res.status);
+      try { const j = await res.json(); detail = j.message ?? detail; } catch { /* non-JSON error body */ }
+      throw new Error(`Twilio responded ${detail}`);
+    }
+  } catch (err) {
+    console.warn('[notify] SMS send failed:', err.message);
+    throw err;
+  }
+}
+
 // ── Dispatch router ───────────────────────────────────────────────────────────
 
 async function dispatchToIntegration(integration, title, body, entityId, userId) {
@@ -185,6 +223,8 @@ async function dispatchToIntegration(integration, title, body, entityId, userId)
       await dispatchExpoPush(integration.push_token, title, body);
     } else if (integration.type === 'email' && integration.email_address) {
       await dispatchEmail(integration.email_address, title, body);
+    } else if (integration.type === 'sms' && integration.phone_number) {
+      await dispatchSms(integration.phone_number, title, body);
     }
   } catch {
     status = 'failed';
@@ -337,4 +377,4 @@ export function stopScheduler() {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
 }
 
-export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail };
+export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail, dispatchSms };

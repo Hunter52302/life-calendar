@@ -14,6 +14,7 @@
     "dev": "vite",
     "server": "node server/index.js",
     "server:watch": "node --watch server/index.js",
+    "vapid:keys": "node scripts/generate-vapid-keys.js",
     "pb:serve": "./pocketbase/pocketbase serve --migrationsDir=./pocketbase/pb_migrations",
     "pb:migrate:create": "./pocketbase/pocketbase migrate create --migrationsDir=./pocketbase/pb_migrations",
     "pb:migrate:collections": "./pocketbase/pocketbase migrate collections --migrationsDir=./pocketbase/pb_migrations",
