@@ -40,6 +40,20 @@ button, [role="button"] {
   user-select: none;
 }
 
+/* ── Settings menu transitions ───────────────────────────────────────────
+   Used by the Settings sidebar drawer (slide) and popup backdrop (fade). */
+@keyframes lc-slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes lc-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="lc-slide-in-right"], [style*="lc-fade-in"] { animation: none !important; }
+}
+
 /* ── Background image layer ──────────────────────────────────────────────
    Fixed to the viewport and behind all app UI. The <img> fills this layer and
    uses object-fit/object-position (set inline from the saved layout), so the

@@ -90,6 +90,7 @@ import { usePersistentState } from './hooks/usePersistentState';
 import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import UpdateSettings from './components/UpdateSettings';
+import SettingsShell from './components/SettingsShell';
 import useDesktopUpdater from './hooks/useDesktopUpdater';
 import useDesktopTray from './hooks/useDesktopTray';
 
@@ -185,6 +186,12 @@ export default function App() {
     'lc-pinned-cats', () => ['sleep', 'work', 'school', 'personal', 'free-time']
   );
   const [showSettings, setShowSettings] = useState(false);
+  // Settings menu presentation: 'sidebar' (default — a dockable drawer that
+  // leaves the calendar visible) or 'popup' (classic centered modal). Either
+  // form can be detached into its own window (settingsPoppedOut).
+  const [settingsView, setSettingsView] = usePersistentState('lc-settings-view', 'sidebar');
+  const [settingsPoppedOut, setSettingsPoppedOut] = useState(false);
+  const [settingsMinimized, setSettingsMinimized] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
@@ -341,6 +348,12 @@ export default function App() {
     setShowCalUrlForm(false);
     setAddingHabit(false);
   }
+  // Closing Settings (from any code path) also drops the detached window and
+  // un-minimizes, so it reopens in a clean docked state next time.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!showSettings) { setSettingsPoppedOut(false); setSettingsMinimized(false); }
+  }, [showSettings]);
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
   const [precision, setPrecision] = useState(() => {
@@ -993,7 +1006,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency', 'settings', 'sidebar', 'popup', 'drawer', 'panel', 'menu', 'window', 'popout', 'detach'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag', 'budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget', 'allocate', 'allocation'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
@@ -1039,6 +1052,7 @@ export default function App() {
 
   return (
     <div
+      data-app-root
       className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}${isThemed ? ' lc-themed' : ''}`}
       style={hasBackground ? { '--lc-panel-alpha': appearance.panelAlpha } : undefined}
     >
@@ -1205,7 +1219,11 @@ export default function App() {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setShowSettings(s => !s)}
+                onClick={() => {
+                  // If minimized to the edge, the gear re-expands rather than closing.
+                  if (showSettings && settingsMinimized) setSettingsMinimized(false);
+                  else setShowSettings(s => !s);
+                }}
                 className={`p-2 rounded-lg transition-colors text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 ${showSettings ? 'bg-gray-100 dark:bg-gray-700' : ''}`}
                 aria-label="Menu & settings"
               >
@@ -1215,12 +1233,16 @@ export default function App() {
               </button>
 
               {showSettings && (
-                <>
-                  <div className="fixed inset-0 z-40 bg-black/40 dark:bg-black/60" onClick={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }} />
-                  <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 pointer-events-none" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
-                  <div className="pointer-events-auto w-full max-w-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-4 max-h-[92vh] sm:max-h-[85vh] overflow-y-auto">
-                    <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Settings</p>
-
+                <SettingsShell
+                  view={settingsView}
+                  poppedOut={settingsPoppedOut}
+                  minimized={settingsMinimized}
+                  onClose={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }}
+                  onPopOut={() => { setSettingsMinimized(false); setSettingsPoppedOut(true); }}
+                  onDockBack={() => setSettingsPoppedOut(false)}
+                  onToggleMinimize={() => setSettingsMinimized(m => !m)}
+                  onPopoutWindowClosed={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }}
+                >
                     {/* Settings search filter */}
                     <div className="relative mb-3">
                       <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1304,6 +1326,30 @@ export default function App() {
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers in month view</span>
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                               </label>
+                            )}
+                            {sv(['settings', 'menu', 'sidebar', 'popup', 'drawer', 'panel', 'window', 'popout']) && (
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <span className="text-sm text-gray-600 dark:text-gray-400">Settings menu style</span>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Dock as a sidebar or open as a centered popup. Either can pop out into its own window.</p>
+                                </div>
+                                <div className="flex gap-0.5 rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5 flex-shrink-0">
+                                  {[['sidebar', 'Sidebar'], ['popup', 'Popup']].map(([val, label]) => (
+                                    <button
+                                      key={val}
+                                      type="button"
+                                      onClick={() => setSettingsView(val)}
+                                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                                        settingsView === val
+                                          ? 'bg-white dark:bg-gray-500 text-gray-900 dark:text-white shadow-sm'
+                                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                                      }`}
+                                    >
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                             </div>
                             {/* ── Theme colors ── */}
@@ -3316,9 +3362,7 @@ export default function App() {
                         </button>
                       </div>
 
-                  </div>
-                  </div>
-                </>
+                </SettingsShell>
               )}
             </div>
           </div>
