@@ -98,6 +98,27 @@ function addDaysToDate(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// Wall-clock time (a local date + minutes-into-day) as epoch-style ms in a fixed
+// UTC frame. Two such values differ by exactly their wall-clock gap, DST-free —
+// so reminder offsets can safely cross midnight / week boundaries.
+function wallClockMs(dateStr, minutesIntoDay) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Date.UTC(y, m - 1, d) + minutesIntoDay * 60_000;
+}
+
+// Human-readable lead time for reminder copy: 20160 → "2 weeks", 60 → "1 hour".
+function formatLeadTime(minutes) {
+  const m = Math.round(Math.abs(minutes) || 0);
+  if (m <= 0) return 'now';
+  for (const [name, size] of [['week', 10080], ['day', 1440], ['hour', 60], ['minute', 1]]) {
+    if (m % size === 0) {
+      const n = m / size;
+      return `${n} ${name}${n === 1 ? '' : 's'}`;
+    }
+  }
+  return `${m} minutes`;
+}
+
 // ── Dispatch functions ────────────────────────────────────────────────────────
 
 function discordPayload(title, body) {
@@ -244,23 +265,18 @@ function resolveLabel(entity, integration) {
 
 async function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
   const allEvents = (await pocketbaseEvents.getAll(userId)).filter(e => e.calendar === 'plan' && !e.is_all_day);
+  // Compare "now" and each event as wall-clock minutes in the user's timezone.
+  // offsetMinutes is negative for "before", so the reminder is due at
+  // (event start + offset). Working in absolute minutes lets the offset cross
+  // midnight and week boundaries — the old same-day hour math could not, so any
+  // lead time longer than the event's time-of-day silently never fired.
+  const nowMinute = Math.floor(wallClockMs(tzNow.date, tzNow.hour * 60 + tzNow.minute) / 60_000);
   const results = [];
   for (const ev of allEvents) {
-    // Compute event's absolute datetime string in UTC
     const eventDate = addDaysToDate(ev.week_start, ev.day_of_week);
-    const slotMinutes = ev.slot_start * 30;
-    const eventHour = Math.floor(slotMinutes / 60);
-    const eventMin  = slotMinutes % 60;
-    // Check if (eventHour:eventMin + offsetMinutes) ≈ now in user's timezone
-    const reminderHour   = Math.floor((slotMinutes + offsetMinutes) / 60);
-    const reminderMinute = (slotMinutes + offsetMinutes) % 60;
-    if (
-      eventDate === tzNow.date &&
-      tzNow.hour === reminderHour &&
-      Math.abs(tzNow.minute - reminderMinute) < 1
-    ) {
-      results.push(ev);
-    }
+    const slotMinutes = (ev.slot_start ?? 0) * 30;
+    const reminderMinute = Math.floor((wallClockMs(eventDate, slotMinutes) + offsetMinutes * 60_000) / 60_000);
+    if (nowMinute === reminderMinute) results.push(ev);
   }
   return results;
 }
@@ -298,14 +314,17 @@ async function tick() {
 
         if (sched.trigger_type === 'event_reminder') {
           const dueEvents = await getEventsDueForReminder(user.id, tzNow, sched.offset_minutes);
+          const lead = formatLeadTime(sched.offset_minutes);
           for (const ev of dueEvents) {
             for (const integration of targets) {
               const hint = resolveLabel(ev, integration);
               const title = 'Upcoming Event';
               const body  = hint
-                ? `${hint} starts in ${Math.abs(sched.offset_minutes)} min`
-                : `You have an event starting in ${Math.abs(sched.offset_minutes)} min`;
-              await dispatchToIntegration(integration, title, body, ev.id, user.id);
+                ? `${hint} starts in ${lead}`
+                : `You have an event starting in ${lead}`;
+              // Key the de-dupe log by (event, offset) so several lead times for
+              // the same event that happen to land on the same day each fire.
+              await dispatchToIntegration(integration, title, body, `${ev.id}:${sched.offset_minutes}`, user.id);
             }
           }
         }

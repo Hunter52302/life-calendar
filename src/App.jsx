@@ -92,6 +92,8 @@ import UpdateBanner from './components/UpdateBanner';
 import UpdateSettings from './components/UpdateSettings';
 import useDesktopUpdater from './hooks/useDesktopUpdater';
 import useDesktopTray from './hooks/useDesktopTray';
+import LeadTimeSelect from './components/LeadTimeSelect';
+import { formatLeadTime } from './lib/reminders.js';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -215,6 +217,7 @@ export default function App() {
   const [newIntPhone, setNewIntPhone] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   const [pushError, setPushError] = useState(''); // surfaced when enabling browser push fails
+  const [reminderLeadMinutes, setReminderLeadMinutes] = useState(30); // event-reminder picker
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
   // ── Google linked-login ──────────────────────────────────────────────────
@@ -659,6 +662,12 @@ export default function App() {
           : (err?.message || 'Could not enable browser push on this device.')
       );
     }
+  }
+
+  async function handleAddEventReminder() {
+    const minutes = Math.max(1, Math.round(reminderLeadMinutes || 0));
+    // Stored as a negative offset — the scheduler fires at (event start + offset).
+    await addSchedule({ trigger_type: 'event_reminder', offset_minutes: -minutes });
   }
 
   function handleFontUpload(e) {
@@ -2410,17 +2419,14 @@ export default function App() {
                                 </div>
                                 {desktopReminders && (
                                   <>
-                                  <div className="flex items-center justify-between">
+                                  <div className="space-y-1">
                                     <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Remind me before</span>
-                                    <select
-                                      value={desktopReminderOffset}
-                                      onChange={e => setDesktopReminderOffset(parseInt(e.target.value, 10))}
-                                      className="text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
-                                    >
-                                      {[5, 10, 15, 30, 60].map(m => (
-                                        <option key={m} value={m}>{m} min</option>
-                                      ))}
-                                    </select>
+                                    <LeadTimeSelect
+                                      valueMinutes={desktopReminderOffset}
+                                      onChange={setDesktopReminderOffset}
+                                      selectClassName="text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                      inputClassName="w-14 text-[11px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                    />
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <div className="pr-2">
@@ -2508,13 +2514,33 @@ export default function App() {
                               </button>
                             )}
 
+                            {/* Event reminder lead times (delivered via the channels above) */}
+                            <div className="border-t border-gray-100 dark:border-gray-700 pt-2 space-y-1.5">
+                              <p className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Add an event reminder</p>
+                              <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
+                                Sent through your enabled channels above — from 5 minutes up to 2 weeks before an event, or a custom lead time.
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <LeadTimeSelect
+                                  valueMinutes={reminderLeadMinutes}
+                                  onChange={setReminderLeadMinutes}
+                                  selectClassName="text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                  inputClassName="w-16 text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 px-1.5 py-1"
+                                />
+                                <button type="button" onClick={handleAddEventReminder}
+                                  className="text-xs px-2.5 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors flex-shrink-0">
+                                  Add reminder
+                                </button>
+                              </div>
+                            </div>
+
                             {/* Notification schedules summary */}
                             {schedules.length > 0 && (
                               <div className="border-t border-gray-100 dark:border-gray-700 pt-2 space-y-1">
                                 <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Active Schedules</p>
                                 {schedules.filter(s => s.enabled).map(s => (
                                   <div key={s.id} className="flex items-center justify-between gap-2 text-xs text-gray-600 dark:text-gray-400">
-                                    <span>{s.trigger_type === 'event_reminder' ? `Event reminder (${Math.abs(s.offset_minutes)}min before)` : s.trigger_type === 'habit_reminder' ? `Habit reminder at ${s.time_of_day}` : s.trigger_type === 'daily_summary' ? `Daily summary at ${s.time_of_day}` : s.trigger_type}</span>
+                                    <span>{s.trigger_type === 'event_reminder' ? `Event reminder — ${formatLeadTime(Math.abs(s.offset_minutes))} before` : s.trigger_type === 'habit_reminder' ? `Habit reminder at ${s.time_of_day}` : s.trigger_type === 'daily_summary' ? `Daily summary at ${s.time_of_day}` : s.trigger_type}</span>
                                     <button type="button" onClick={() => deleteSchedule(s.id)} className="text-gray-400 hover:text-red-500 transition-colors">✕</button>
                                   </div>
                                 ))}
