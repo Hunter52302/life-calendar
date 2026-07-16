@@ -6,6 +6,7 @@ import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
+import { addDays, getEventDate } from '../lib/utils';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
 const OPTIONAL_VIEWS = new Set(['quarter', 'half']);
@@ -13,7 +14,7 @@ const VIEW_LABELS = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarte
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function ActualView({
-  planEvents, actualEvents, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
+  planEvents, actualEvents, allEvents = [], weekStart, weekStartsOn = 0, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
@@ -46,8 +47,12 @@ export default function ActualView({
     [actualEvents, categoryFilter]
   );
 
-  const weekPlanEvents = useMemo(() => filteredPlanEvents.filter(e => e.week_start === weekStart), [filteredPlanEvents, weekStart]);
-  const weekActualEvents = useMemo(() => filteredActualEvents.filter(e => e.week_start === weekStart), [filteredActualEvents, weekStart]);
+  // Match by calendar date so a Monday-start week (which can straddle two
+  // Sunday-anchored storage weeks) still gathers every day's events.
+  const weekEnd = addDays(weekStart, 6);
+  const inWeek = e => { const d = getEventDate(e); return d >= weekStart && d <= weekEnd; };
+  const weekPlanEvents = useMemo(() => filteredPlanEvents.filter(inWeek), [filteredPlanEvents, weekStart, weekEnd]);
+  const weekActualEvents = useMemo(() => filteredActualEvents.filter(inWeek), [filteredActualEvents, weekStart, weekEnd]);
   const eventTitleSuggestions = useMemo(
     () => buildEventTitleSuggestions(allEvents, 'actual'),
     [allEvents]
@@ -80,9 +85,12 @@ export default function ActualView({
       return;
     }
     if (view === 'day') {
-      // Start from the ACTIVE day, not weekStart (weekStart is the Sunday anchor)
+      // activeDay is an absolute weekday; map it to its date within the displayed
+      // week (weekStart may be Sunday- or Monday-anchored), then step by `dir`.
+      const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
+      const offset = (activeDay - anchorDow + 7) % 7;
       const activeDate = new Date(weekStart + 'T00:00:00');
-      activeDate.setDate(activeDate.getDate() + activeDay + dir);
+      activeDate.setDate(activeDate.getDate() + offset + dir);
       onNavigateToDate?.(activeDate.toISOString().slice(0, 10));
       setActiveDay(activeDate.getDay());
       return;
@@ -114,8 +122,9 @@ export default function ActualView({
       return `${ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${we.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
     if (view === 'day') {
+      const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
       const ws = new Date(weekStart + 'T00:00:00');
-      ws.setDate(ws.getDate() + activeDay);
+      ws.setDate(ws.getDate() + ((activeDay - anchorDow + 7) % 7));
       return ws.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
     }
     return '';
@@ -247,6 +256,7 @@ export default function ActualView({
           <CalendarGrid
             events={displayEvents} weekStart={weekStart} precision={precision}
             view={view} activeDay={activeDay}
+            weekStartsOn={weekStartsOn}
             onAllDayClick={handleAllDayClick} onEventClick={handleEventClick}
             onDayHeaderClick={dayIndex => { setActiveDay(dayIndex); setView('day'); }}
             militaryTime={militaryTime}
@@ -260,10 +270,11 @@ export default function ActualView({
             events={filteredActualEvents} allCategories={allCategories}
             onDayClick={handleDayClick} onWeekClick={handleWeekClick}
             showWeekNumbers={showWeekNumbers}
+            weekStartsOn={weekStartsOn}
           />
         )}
         {(view === 'quarter' || view === 'half' || view === 'year') && multiStart && (
-          <MultiMonthView startYear={multiStart.year} startMonth={multiStart.month} monthCount={monthCount} events={filteredActualEvents} allCategories={allCategories} onMonthClick={handleMonthClick} />
+          <MultiMonthView startYear={multiStart.year} startMonth={multiStart.month} monthCount={monthCount} events={filteredActualEvents} allCategories={allCategories} onMonthClick={handleMonthClick} weekStartsOn={weekStartsOn} />
         )}
       </div>
 
@@ -274,7 +285,7 @@ export default function ActualView({
           defaultDay={formState.event?.day_of_week ?? formState.templateEvent?.day_of_week ?? formState.defaultDay}
           defaultSlot={formState.event?.slot_start ?? formState.templateEvent?.slot_start ?? formState.defaultSlot}
           defaultAllDay={formState.allDay ?? false}
-          calendar="actual" weekStart={weekStart} precision={precision}
+          calendar="actual" weekStart={weekStart} weekStartsOn={weekStartsOn} precision={precision}
           allCategories={allCategories} militaryTime={militaryTime}
           eventTitleSuggestions={eventTitleSuggestions}
           onSave={handleSave} onDelete={onDeleteEvent}

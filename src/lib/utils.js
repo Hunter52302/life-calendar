@@ -1,8 +1,23 @@
-export function getWeekStart(date = new Date()) {
+/**
+ * First day of the week containing `date`, as a YYYY-MM-DD string.
+ *
+ * `weekStartsOn` selects which weekday anchors the week: 0 = Sunday (the
+ * default and the app's *storage* anchor), 1 = Monday. Events are always
+ * persisted with a Sunday-anchored `week_start` + absolute `day_of_week`
+ * (see the storage callers, which pass no second argument), so switching the
+ * display start-of-week never rewrites stored data. The Monday anchor is used
+ * purely for *display/navigation* — laying the weekly grid out Mon–Sun.
+ */
+export function getWeekStart(date = new Date(), weekStartsOn = 0) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
+  d.setDate(d.getDate() - ((d.getDay() - weekStartsOn + 7) % 7));
   return toDateStr(d);
+}
+
+/** Wall-clock calendar date (YYYY-MM-DD) an event falls on. */
+export function getEventDate(e) {
+  return addDays(e.week_start, e.day_of_week);
 }
 
 export function addDays(dateStr, days) {
@@ -103,8 +118,9 @@ export function hoursToLabel(hours) {
   return `${sign}${h}h ${m}m`;
 }
 
-export function getMonthDays(year, month) {
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
+export function getMonthDays(year, month, weekStartsOn = 0) {
+  // Leading blanks before the 1st depend on which weekday starts the week.
+  const firstDayOfMonth = (new Date(year, month, 1).getDay() - weekStartsOn + 7) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const days = [];
   for (let i = 0; i < firstDayOfMonth; i++) {

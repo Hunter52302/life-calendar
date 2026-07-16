@@ -22,8 +22,10 @@ export default function MonthGridView({
   onDayClick, onWeekClick,
   showWeekNumbers = false,
   militaryTime = false,
+  weekStartsOn = 0,
 }) {
-  const days = getMonthDays(year, month);
+  const days = getMonthDays(year, month, weekStartsOn);
+  const weekdayHeaders = Array.from({ length: 7 }, (_, i) => DAYS_SHORT[(weekStartsOn + i) % 7]);
   const today = todayStr();
   const numWeeks = days.length / 7;
   const maxVisible = MAX_VISIBLE[numWeeks] ?? 3;
@@ -51,7 +53,7 @@ export default function MonthGridView({
         {showWeekNumbers && (
           <div className="border-r border-gray-100 dark:border-gray-700" />
         )}
-        {DAYS_SHORT.map(d => (
+        {weekdayHeaders.map(d => (
           <div key={d} className="text-center py-2 text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">
             {d}
           </div>

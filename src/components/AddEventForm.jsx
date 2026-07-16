@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { DAYS_FULL } from '../lib/constants';
-import { hoursToLabel, generateRepeatInstances, generateId, formatAddress } from '../lib/utils';
+import { hoursToLabel, generateRepeatInstances, generateId, formatAddress, addDays, getWeekStart } from '../lib/utils';
 import { suggestOriginFromEvents } from '../lib/travelOrigin.js';
 import { applyTrafficPadding } from '../lib/trafficPadding.js';
 import { api } from '../lib/api.js';
@@ -113,7 +113,7 @@ export default function AddEventForm({
   const originAddress = useMemo(
     () => suggestOriginFromEvents(
       siblingEvents,
-      { week_start: weekStart, day_of_week: days[0], startMinutes: slotStart * formPrecision * 60 },
+      { week_start: weekStartForDow(days[0]), day_of_week: days[0], startMinutes: slotStart * formPrecision * 60 },
       homeAddress,
       { excludeId: event?.id }
     ),
@@ -150,6 +150,14 @@ export default function AddEventForm({
   const selectedCategory = allCategories.find(c => c.id === category);
   const slotDuration = Math.max(1, slotEnd - slotStart);
 
+  // `weekStart` is the display anchor (Sunday or Monday). Events are always
+  // stored Sunday-anchored, so resolve the selected weekday to its actual date
+  // within the displayed week, then derive that date's Sunday-anchored week.
+  const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
+  const orderedWeekDays = Array.from({ length: 7 }, (_, p) => (anchorDow + p) % 7);
+  const weekStartForDow = (dow) =>
+    getWeekStart(new Date(addDays(weekStart, (dow - anchorDow + 7) % 7) + 'T00:00:00'));
+
   function toggleDay(i) {
     setDays(prev =>
       prev.includes(i)
@@ -172,7 +180,7 @@ export default function AddEventForm({
       category,
       color: selectedCategory?.color ?? '#6B7280',
       day_of_week: dayIndex,
-      week_start: weekStart,
+      week_start: weekStartForDow(dayIndex),
       precision: formPrecision,
       calendar,
       source: 'manual',
@@ -349,7 +357,7 @@ export default function AddEventForm({
           <div>
             <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 mb-2 uppercase tracking-wider">Day</label>
             <div className="flex gap-1">
-              {DAYS_FULL.map((d, i) => (
+              {orderedWeekDays.map(i => (
                 <button key={i} type="button"
                   onClick={() => (isEditing || isActualMode) ? setDays([i]) : toggleDay(i)}
                   className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
@@ -357,7 +365,7 @@ export default function AddEventForm({
                       ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                   }`}>
-                  {d[0]}
+                  {DAYS_FULL[i][0]}
                 </button>
               ))}
             </div>

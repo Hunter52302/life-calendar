@@ -53,7 +53,7 @@ const PRESET_COLORS = [
   '#6366F1', '#8B5CF6', '#A855F7', '#EC4899',
   '#6B7280', '#374151',
 ];
-import { getWeekStart, addDays, formatShortDate, generateRepeatInstances, generateId, shortHash } from './lib/utils';
+import { getWeekStart, getEventDate, addDays, formatShortDate, generateRepeatInstances, generateId, shortHash } from './lib/utils';
 import { api } from './lib/api.js';
 import { safeSetItem } from './lib/storage.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
@@ -177,7 +177,10 @@ function Toggle({ checked, onChange }) {
 export default function App() {
   const { authState, zkInfo, accountEmail, prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, backToChoose, serverReachable } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
-  const [weekStart, setWeekStart] = useState(() => getWeekStart());
+  // 0 = Sunday (default), 1 = Monday. Display/navigation only — stored events
+  // stay Sunday-anchored regardless (see getWeekStart in lib/utils).
+  const [weekStartsOn, setWeekStartsOn] = usePersistentState('lc-week-start', 0);
+  const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date(), weekStartsOn));
   const [theme, setTheme] = usePersistentState('lc-theme', 'dark');
   const [militaryTime, setMilitaryTime] = usePersistentState('lc-military', false);
   const [stackOverlap, setStackOverlap] = usePersistentState('lc-stack-overlap', false);
@@ -442,6 +445,14 @@ export default function App() {
     }
     replaceEventsBySource('birthday', events);
   }, [profile.birthday]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-anchor the visible week when the start-of-week preference changes. Anchor
+  // on the midpoint of the currently-shown 7 days so the new week overlaps it as
+  // much as possible (keeps "this week" in view instead of sliding a full week).
+  // Idempotent on mount, since the midpoint's week resolves back to the same anchor.
+  useEffect(() => {
+    setWeekStart(ws => getWeekStart(new Date(addDays(ws, 3) + 'T00:00:00'), weekStartsOn));
+  }, [weekStartsOn]);
 
   // ── Effective feature flags (minimalist mode overrides individual settings) ──
   const eff = {
@@ -709,7 +720,7 @@ export default function App() {
   function handleSearchNavigate(event) {
     const tab = event._calendar === 'plan' ? 'plan' : 'actual';
     setActiveTab(tab);
-    setWeekStart(getWeekStart(new Date(event.week_start + 'T00:00:00')));
+    setWeekStart(getWeekStart(new Date(getEventDate(event) + 'T00:00:00'), weekStartsOn));
     setSearchJump({ tab, dayOfWeek: event.day_of_week ?? 0, _id: Date.now() });
   }
 
@@ -718,7 +729,7 @@ export default function App() {
     customCategories, categoryOverrides,
     addEvent, addEvents, updateEvent, deleteEvent,
     updateSeries, deleteSeries,
-    getWeekEvents, getEvents,
+    getEvents,
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds = [], replaceEventsBySource = () => {},
     replaceEventsBySourceCalendar = () => {},
@@ -764,9 +775,16 @@ export default function App() {
 
   const planEvents = getEvents('plan');
   const actualEvents = getEvents('actual');
-  const weekPlanEvents = getWeekEvents(weekStart, 'plan');
-  const weekActualEvents = getWeekEvents(weekStart, 'actual');
+  // The displayed week is the 7 dates starting at the (Sun- or Mon-anchored)
+  // weekStart. Membership is by calendar date, so a Monday-anchored week can
+  // span two Sunday-anchored storage buckets without dropping events.
   const weekEnd = addDays(weekStart, 6);
+  const weekPlanEvents = planEvents.filter(e => {
+    const d = getEventDate(e); return d >= weekStart && d <= weekEnd;
+  });
+  const weekActualEvents = actualEvents.filter(e => {
+    const d = getEventDate(e); return d >= weekStart && d <= weekEnd;
+  });
 
   // Desktop (Tauri) only: surface the next planned event in the system tray and
   // fire a native reminder before it starts. No-ops on web/PWA.
@@ -1334,6 +1352,19 @@ export default function App() {
                               <label className="flex items-center justify-between gap-3 cursor-pointer">
                                 <span className="text-sm text-gray-600 dark:text-gray-400">Military time</span>
                                 <Toggle checked={militaryTime} onChange={() => setMilitaryTime(t => !t)} />
+                              </label>
+                            )}
+                            {sv(['start', 'week', 'first', 'day', 'sunday', 'monday']) && (
+                              <label className="flex items-center justify-between gap-3">
+                                <span className="text-sm text-gray-600 dark:text-gray-400">Start of week</span>
+                                <select
+                                  value={weekStartsOn}
+                                  onChange={e => setWeekStartsOn(Number(e.target.value))}
+                                  className="text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                                >
+                                  <option value={0}>Sunday</option>
+                                  <option value={1}>Monday</option>
+                                </select>
                               </label>
                             )}
                             {sv(['stack', 'overlap', 'overlapping', 'events', 'cascade', 'side by side']) && (
@@ -3427,6 +3458,7 @@ export default function App() {
               events={planEvents}
               allEvents={events}
               weekStart={weekStart}
+              weekStartsOn={weekStartsOn}
               precision={precision}
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
@@ -3448,7 +3480,7 @@ export default function App() {
               onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
-              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
+              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00'), weekStartsOn))}
               jumpTo={searchJump?.tab === 'plan' ? searchJump : null}
               homeAddress={profile.homeAddress || ''}
               savedAddresses={profile.otherAddresses || []}
@@ -3460,6 +3492,7 @@ export default function App() {
               actualEvents={actualEvents}
               allEvents={events}
               weekStart={weekStart}
+              weekStartsOn={weekStartsOn}
               precision={precision}
               onPrecisionChange={setPrecision}
               allCategories={allCategories}
@@ -3481,7 +3514,7 @@ export default function App() {
               onDeleteSeries={deleteSeries}
               onUpdateCategory={updateCategory}
               onAddCategory={addCategory}
-              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00')))}
+              onNavigateToDate={dateStr => setWeekStart(getWeekStart(new Date(dateStr + 'T00:00:00'), weekStartsOn))}
               jumpTo={searchJump?.tab === 'actual' ? searchJump : null}
               homeAddress={profile.homeAddress || ''}
               savedAddresses={profile.otherAddresses || []}

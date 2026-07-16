@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
-import { slotToTime, addDays, formatShortDate } from '../lib/utils';
+import { slotToTime, addDays, formatShortDate, getWeekStart } from '../lib/utils';
 import EventBlock from './EventBlock';
 
 const TIME_COL_WIDTH = 48;
@@ -15,7 +15,16 @@ export default function CalendarGrid({
 }) {
   const slotCount = precision === 1 ? 24 : 48;
   const totalHeight = slotCount * SLOT_HEIGHT;
-  const dayIndices = view === 'week' ? [0, 1, 2, 3, 4, 5, 6] : [activeDay];
+  // Column order follows the display anchor: weekStart is a Sunday (start-of-week
+  // = Sunday) or a Monday (= Monday). Columns are still keyed by absolute
+  // day_of_week (each weekday is unique within the 7 shown), only the order and
+  // the date each column maps to change.
+  const startDow = new Date(weekStart + 'T00:00:00').getDay();
+  const orderedWeek = Array.from({ length: 7 }, (_, p) => (startDow + p) % 7);
+  const dayIndices = view === 'week' ? orderedWeek : [activeDay];
+  // Calendar date shown in the column for a given day_of_week. For a Monday
+  // anchor the trailing Sunday resolves to the *next* Sunday-week's date.
+  const colDate = (dow) => addDays(weekStart, (dow - startDow + 7) % 7);
 
   const dayColRefs = useRef({});
   const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
@@ -82,7 +91,13 @@ export default function CalendarGrid({
       if (!d || e.pointerId !== d.pointerId) return;
       if (d.hasDragged && (d.dayOfWeek !== d.event.day_of_week || d.slotStart !== d.event.slot_start)) {
         justDraggedIdRef.current = d.event.id;
-        onUpdateEvent?.(d.event.id, { day_of_week: d.dayOfWeek, slot_start: d.slotStart });
+        // Persist the Sunday-anchored week_start for the drop target's date — a
+        // Monday-start week can move an event into a different storage week.
+        const targetDate = addDays(weekStart, (d.dayOfWeek - startDow + 7) % 7);
+        const newWeekStart = getWeekStart(new Date(targetDate + 'T00:00:00'));
+        const patch = { day_of_week: d.dayOfWeek, slot_start: d.slotStart };
+        if (newWeekStart !== d.event.week_start) patch.week_start = newWeekStart;
+        onUpdateEvent?.(d.event.id, patch);
       }
       dragRef.current = null;
       setDrag(null);
@@ -95,7 +110,7 @@ export default function CalendarGrid({
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
     };
-  }, [precision, slotCount, onUpdateEvent]);
+  }, [precision, slotCount, onUpdateEvent, weekStart, startDow]);
 
   // Separate all-day events from timed events
   const allDayByDay = {};
@@ -120,13 +135,12 @@ export default function CalendarGrid({
     const overflowSlots = endSlot - eventSlotCount;
     if (overflowSlots > 0) {
       const totalHours = event.slot_duration * event.precision;
-      // The after-midnight tail belongs to the next day's column. Crossing
-      // Saturday→Sunday (nextDay 7) lands in NEXT week, which this Sun–Sat grid
-      // can't show; a single-day view may not show the next day either. When the
-      // tail can't be drawn, flag the main block so it still signals "runs past
-      // midnight" instead of silently ending at 00:00.
-      const nextDay = event.day_of_week + 1;
-      const tailVisible = nextDay <= 6 && dayIndices.includes(nextDay);
+      // The after-midnight tail belongs to the next day's column. When that day
+      // is the last column (the tail would land in the following display week)
+      // or isn't shown (single-day view), it can't be drawn — flag the main
+      // block so it still signals "runs past midnight" instead of ending at 00:00.
+      const nextDow = (event.day_of_week + 1) % 7;
+      const tailVisible = dayIndices.indexOf(nextDow) === dayIndices.indexOf(event.day_of_week) + 1;
       // Main block: runs from slot_start to midnight
       timedEvents.push({
         ...event,
@@ -142,7 +156,7 @@ export default function CalendarGrid({
           id: String(event.id ?? event.label) + '_cont',
           slot_start: 0,
           slot_duration: overflowSlots,
-          day_of_week: nextDay,
+          day_of_week: nextDow,
           _isContinuation: true,
           _totalHours: totalHours,
         });
@@ -217,8 +231,8 @@ export default function CalendarGrid({
                 </div>
                 <div className={`font-semibold text-gray-800 dark:text-gray-200 leading-tight ${view === 'week' ? 'text-xs' : 'text-sm'}`}>
                   {view === 'week'
-                    ? parseInt(addDays(weekStart, dayIndex).slice(-2), 10)
-                    : formatShortDate(addDays(weekStart, dayIndex))}
+                    ? parseInt(colDate(dayIndex).slice(-2), 10)
+                    : formatShortDate(colDate(dayIndex))}
                 </div>
               </div>
             ))}

@@ -6,6 +6,7 @@ import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
+import { addDays, getEventDate } from '../lib/utils';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
 const OPTIONAL_VIEWS = new Set(['quarter', 'half']);
@@ -13,7 +14,7 @@ const VIEW_LABELS = { day: 'Day', week: 'Week', month: 'Month', quarter: 'Quarte
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function PlanView({
-  events, allEvents = [], weekStart, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
+  events, allEvents = [], weekStart, weekStartsOn = 0, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
@@ -45,7 +46,13 @@ export default function PlanView({
     () => buildEventTitleSuggestions(allEvents, 'plan'),
     [allEvents]
   );
-  const weekEvents = useMemo(() => filteredEvents.filter(e => e.week_start === weekStart), [filteredEvents, weekStart]);
+  // Events whose calendar date falls within the 7 displayed days. A Monday-start
+  // week can straddle two Sunday-anchored storage weeks, so we match by date.
+  const weekEnd = addDays(weekStart, 6);
+  const weekEvents = useMemo(
+    () => filteredEvents.filter(e => { const d = getEventDate(e); return d >= weekStart && d <= weekEnd; }),
+    [filteredEvents, weekStart, weekEnd]
+  );
   const isMultiMonth = ['month', 'quarter', 'half', 'year'].includes(view);
   const visibleViews = ALL_VIEWS.filter(v => !OPTIONAL_VIEWS.has(v) || enabledViews.includes(v));
 
@@ -57,9 +64,12 @@ export default function PlanView({
       return;
     }
     if (view === 'day') {
-      // Start from the ACTIVE day, not weekStart (weekStart is the Sunday anchor)
+      // activeDay is an absolute weekday; map it to its date within the displayed
+      // week (weekStart may be Sunday- or Monday-anchored), then step by `dir`.
+      const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
+      const offset = (activeDay - anchorDow + 7) % 7;
       const activeDate = new Date(weekStart + 'T00:00:00');
-      activeDate.setDate(activeDate.getDate() + activeDay + dir);
+      activeDate.setDate(activeDate.getDate() + offset + dir);
       onNavigateToDate?.(activeDate.toISOString().slice(0, 10));
       setActiveDay(activeDate.getDay());
       return;
@@ -91,8 +101,9 @@ export default function PlanView({
       return `${ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${we.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
     if (view === 'day') {
+      const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
       const ws = new Date(weekStart + 'T00:00:00');
-      ws.setDate(ws.getDate() + activeDay);
+      ws.setDate(ws.getDate() + ((activeDay - anchorDow + 7) % 7));
       return ws.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' });
     }
     return '';
@@ -210,6 +221,7 @@ export default function PlanView({
           <CalendarGrid
             events={weekEvents} weekStart={weekStart} precision={precision}
             view={view} activeDay={activeDay}
+            weekStartsOn={weekStartsOn}
             onSlotClick={handleSlotClick} onAllDayClick={handleAllDayClick} onEventClick={handleEventClick}
             onDayHeaderClick={dayIndex => { setActiveDay(dayIndex); setView('day'); }}
             militaryTime={militaryTime}
@@ -223,10 +235,11 @@ export default function PlanView({
             events={filteredEvents} allCategories={allCategories}
             onDayClick={handleDayClick} onWeekClick={handleWeekClick}
             showWeekNumbers={showWeekNumbers}
+            weekStartsOn={weekStartsOn}
           />
         )}
         {(view === 'quarter' || view === 'half' || view === 'year') && multiStart && (
-          <MultiMonthView startYear={multiStart.year} startMonth={multiStart.month} monthCount={monthCount} events={filteredEvents} allCategories={allCategories} onMonthClick={handleMonthClick} />
+          <MultiMonthView startYear={multiStart.year} startMonth={multiStart.month} monthCount={monthCount} events={filteredEvents} allCategories={allCategories} onMonthClick={handleMonthClick} weekStartsOn={weekStartsOn} />
         )}
       </div>
 
@@ -234,7 +247,7 @@ export default function PlanView({
         <AddEventForm
           event={formState.event} defaultDay={formState.defaultDay} defaultSlot={formState.defaultSlot}
           defaultAllDay={formState.allDay ?? false}
-          calendar="plan" weekStart={weekStart} precision={precision}
+          calendar="plan" weekStart={weekStart} weekStartsOn={weekStartsOn} precision={precision}
           allCategories={allCategories} militaryTime={militaryTime}
           eventTitleSuggestions={eventTitleSuggestions}
           onSave={handleSave} onAddEvents={onAddEvents} onDelete={onDeleteEvent}
