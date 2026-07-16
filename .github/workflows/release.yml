@@ -152,12 +152,13 @@ jobs:
 
       - name: Build Tauri app
         env:
-          # --no-sign skips *Apple* code-signing (no cert in CI). The minisign
-          # UPDATER key is separate: providing it makes createUpdaterArtifacts
-          # emit the signed .app.tar.gz used for in-app auto-update.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-        run: npm run tauri:build -- --no-sign
+        # Do NOT pass --no-sign here. It reads as "skip Apple code-signing", but
+        # it also skips minisign UPDATER signing, so the .app.tar.gz ships
+        # without its .sig and macOS drops out of latest.json entirely. Apple
+        # signing is already a no-op without a signing identity configured.
+        run: npm run tauri:build
 
       - name: Stage macOS release assets
         shell: bash
@@ -186,20 +187,20 @@ jobs:
           mkdir -p "$out_dir" "$meta_dir"
 
           shopt -s nullglob
-          # macOS auto-update ships the .app.tar.gz (NOT the DMG). Its .sig may be
-          # absent if the build could not sign — keep macOS updater support
-          # best-effort so a signing hiccup never blocks the whole release.
+          # macOS auto-update ships the .app.tar.gz (NOT the DMG). Fail loudly if
+          # it is unsigned: skipping it here just publishes a release that looks
+          # green while every Mac silently stops receiving updates.
           sigs=(src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)
           if [ "${#sigs[@]}" -eq 0 ]; then
-            echo "::warning::No macOS updater signature for ${{ matrix.arch }} — skipping auto-update metadata (fresh DMG install still ships)."
-            exit 0
+            echo "::error::No macOS updater signature for ${{ matrix.arch }} — Macs would get no auto-updates. Is TAURI_SIGNING_PRIVATE_KEY set, or did a --no-sign flag creep back in?"
+            exit 1
           fi
 
           sig="${sigs[0]}"
           bundle="${sig%.sig}"
           if [ ! -f "$bundle" ]; then
-            echo "::warning::macOS updater bundle missing for ${{ matrix.arch }} — skipping."
-            exit 0
+            echo "::error::macOS updater bundle missing for ${{ matrix.arch }} (found $sig but no $bundle)."
+            exit 1
           fi
 
           case "${{ matrix.arch }}" in
@@ -232,7 +233,7 @@ jobs:
         with:
           name: updater-metadata-macos-${{ matrix.arch }}
           path: updater-metadata/*.json
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   build-linux:
     name: Build Linux (.deb / .AppImage)
@@ -321,11 +322,10 @@ jobs:
           shopt -s nullglob
           # On Linux the AppImage IS the updater artifact; its .sig is over the
           # file bytes, so it stays valid for the renamed copy uploaded above.
-          # Best-effort: a signing hiccup should never block the whole release.
           sigs=(src-tauri/target/release/bundle/appimage/*.AppImage.sig)
           if [ "${#sigs[@]}" -eq 0 ]; then
-            echo "::warning::No Linux updater signature (.AppImage.sig) — skipping auto-update metadata (the .deb/.AppImage downloads still ship)."
-            exit 0
+            echo "::error::No Linux updater signature (.AppImage.sig) — Linux would get no auto-updates. Is TAURI_SIGNING_PRIVATE_KEY set?"
+            exit 1
           fi
 
           SIG_FILE="${sigs[0]}" ASSET_NAME="PLS-Calendar-v${version}-x86_64.AppImage" node -e "
@@ -342,7 +342,7 @@ jobs:
         with:
           name: updater-metadata-linux
           path: updater-metadata/*.json
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   publish:
     name: Publish GitHub Release
@@ -396,11 +396,17 @@ jobs:
             };
           }
 
-          // Windows is the primary desktop target and is reliably signed — if it
-          // is missing something broke, so fail loudly rather than ship a
-          // manifest that silently can't update Windows users.
-          if (!platforms['windows-x86_64']) {
-            throw new Error('latest.json is missing windows-x86_64 — desktop auto-update would break for the primary platform.');
+          // Every platform we ship an installer for must also be updatable. A
+          // manifest missing a platform is invisible in a green release but
+          // freezes those users on whatever they installed — which is exactly
+          // how macOS went un-updatable from v1.2.8 through v1.2.10.
+          const REQUIRED = ['windows-x86_64', 'linux-x86_64', 'darwin-aarch64', 'darwin-x86_64'];
+          const missing = REQUIRED.filter(p => !platforms[p]);
+          if (missing.length) {
+            throw new Error(
+              `latest.json is missing ${missing.join(', ')} — those users would silently never be offered an update. ` +
+              `Got: ${Object.keys(platforms).join(', ') || '(none)'}`
+            );
           }
 
           const latest = {
