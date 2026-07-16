@@ -34,6 +34,22 @@ button, [role="button"] {
   touch-action: manipulation;
 }
 
+/* Tailwind v4's preflight sets buttons to `cursor: default` (v3 used `pointer`),
+   which left every control in the app reading as static text on hover. Restore
+   the pointer for enabled controls only.
+
+   This lives in the `base` layer on purpose: utilities beat base regardless of
+   specificity, so `cursor-move` / `cursor-grab` / `cursor-not-allowed` / an
+   explicit `cursor-default` still win where a component sets one. Unlayered here
+   (like the touch-action rule above) the `:not()` would outrank those utilities
+   and silently break them. */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 /* Prevent text selection during touch swipes */
 .select-none {
   -webkit-user-select: none;

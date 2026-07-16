@@ -6,6 +6,7 @@ import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
+import { useCategoryFilter } from '../hooks/useCategoryFilter';
 import { addDays, getEventDate, toDateStr } from '../lib/utils';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
@@ -25,8 +26,13 @@ export default function ActualView({
   const [activeDay, setActiveDay] = useState(new Date().getDay());
   const [formState, setFormState] = useState(null);
   const [viewDate, setViewDate] = useState(() => new Date(weekStart + 'T00:00:00'));
-  const [categoryFilter, setCategoryFilter] = useState(null);
   const [showViewMenu, setShowViewMenu] = useState(false);
+  const {
+    filters: categoryFilters,
+    toggle: toggleCategoryFilter,
+    clear: clearCategoryFilters,
+    apply: applyCategoryFilter,
+  } = useCategoryFilter(allCategories);
 
   useEffect(() => { setViewDate(new Date(weekStart + 'T00:00:00')); }, [weekStart]);
 
@@ -38,13 +44,13 @@ export default function ActualView({
     setView('day');
   }, [jumpTo?._id]);
 
-  const filteredPlanEvents = useMemo(() =>
-    categoryFilter ? planEvents.filter(e => e.category === categoryFilter) : planEvents,
-    [planEvents, categoryFilter]
+  const filteredPlanEvents = useMemo(
+    () => applyCategoryFilter(planEvents),
+    [planEvents, applyCategoryFilter]
   );
-  const filteredActualEvents = useMemo(() =>
-    categoryFilter ? actualEvents.filter(e => e.category === categoryFilter) : actualEvents,
-    [actualEvents, categoryFilter]
+  const filteredActualEvents = useMemo(
+    () => applyCategoryFilter(actualEvents),
+    [actualEvents, applyCategoryFilter]
   );
 
   // Match by calendar date so a Monday-start week (which can straddle two
@@ -235,8 +241,9 @@ export default function ActualView({
             pinnedCategories={pinnedCategories}
             onTogglePin={onTogglePin}
             onUpdateCategory={onUpdateCategory}
-            categoryFilter={categoryFilter}
-            onSetFilter={setCategoryFilter}
+            categoryFilters={categoryFilters}
+            onToggleFilter={toggleCategoryFilter}
+            onClearFilters={clearCategoryFilters}
             onManage={onManageCategories}
           />
         </div>}

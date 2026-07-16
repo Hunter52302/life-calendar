@@ -1,11 +1,12 @@
 import { DAYS_SHORT } from '../lib/constants';
-import { getMonthDays, getEventsForDate, todayStr } from '../lib/utils';
+import { getMonthDays, getEventsForDate } from '../lib/utils';
+import { useToday } from '../hooks/useToday';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function MiniMonth({ year, month, events, allCategories, onMonthClick, weekStartsOn = 0 }) {
   const days = getMonthDays(year, month, weekStartsOn);
-  const today = todayStr();
+  const today = useToday();
   const numWeeks = days.length / 7;
   const weekdayInitials = Array.from({ length: 7 }, (_, i) => DAYS_SHORT[(weekStartsOn + i) % 7]);
 

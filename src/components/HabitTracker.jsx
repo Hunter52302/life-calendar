@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import HabitHeatmap from './HabitHeatmap.jsx';
+import { useToday } from '../hooks/useToday';
 
 const PRESET_COLORS = [
   '#7C3AED','#3B82F6','#22C55E','#F59E0B','#EF4444',
@@ -12,10 +13,6 @@ const FREQUENCY_PRESETS = [
   { label: 'Weekends', days: [0,6] },
   { label: 'Custom',   days: null },
 ];
-
-function toDateStr(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
 
 function AddHabitForm({ onSave, onCancel, initial }) {
   const [label,      setLabel]      = useState(initial?.label      ?? '');
@@ -97,9 +94,11 @@ function AddHabitForm({ onSave, onCancel, initial }) {
 export default function HabitTracker({ habitsWithStreaks, completions, startDate, endDate, rangeLabel, onToggle, onAdd, onUpdate, onDelete }) {
   const [showAdd,   setShowAdd]   = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const todayStr = toDateStr(new Date());
+  const todayStr = useToday();
 
-  const today = new Date().getDay();
+  // Derived from todayStr rather than a second `new Date()` read, so the weekday
+  // and the date can never disagree across a midnight rollover.
+  const today = new Date(todayStr + 'T00:00:00').getDay();
   const todaysHabits = habitsWithStreaks.filter(h => h.active && (h.target_days ?? [0,1,2,3,4,5,6]).includes(today));
   const otherHabits  = habitsWithStreaks.filter(h => h.active && !(h.target_days ?? [0,1,2,3,4,5,6]).includes(today));
 

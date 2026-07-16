@@ -13,8 +13,9 @@ export default function CategoriesMenu({
   pinnedCategories = [],
   onTogglePin,
   onUpdateCategory,
-  categoryFilter = null,
-  onSetFilter,
+  categoryFilters = [],
+  onToggleFilter,
+  onClearFilters,
   onManage,
 }) {
   const [open, setOpen] = useState(false);
@@ -40,8 +41,13 @@ export default function CategoriesMenu({
     return () => document.removeEventListener('mousedown', handle);
   }, [open]);
 
-  const pinnedCats = allCategories.filter(c => pinnedCategories.includes(c.id));
-  const activeFilterCat = categoryFilter ? allCategories.find(c => c.id === categoryFilter) : null;
+  const hasFilters = categoryFilters.length > 0;
+  // The legend shows pinned categories plus any filtered-on category that isn't
+  // pinned — otherwise filtering from the dropdown would leave no visible trace
+  // of what's active.
+  const legendCats = allCategories.filter(
+    c => pinnedCategories.includes(c.id) || categoryFilters.includes(c.id)
+  );
 
   function commitLabel(cat) {
     const trimmed = labelDraft.trim();
@@ -54,7 +60,7 @@ export default function CategoriesMenu({
     <div className="space-y-0.5">
       {allCategories.map(cat => {
         const isPinned = pinnedCategories.includes(cat.id);
-        const isFiltered = categoryFilter === cat.id;
+        const isFiltered = categoryFilters.includes(cat.id);
         const isPickingColor = editingColor === cat.id;
         const isEditingLabel = editingLabel === cat.id;
 
@@ -114,8 +120,13 @@ export default function CategoriesMenu({
               {/* Only-show filter */}
               <button
                 type="button"
-                title={isFiltered ? 'Show all categories' : 'Only show this category'}
-                onClick={() => onSetFilter?.(isFiltered ? null : cat.id)}
+                aria-pressed={isFiltered}
+                title={
+                  isFiltered ? `Stop filtering by ${cat.label}`
+                  : hasFilters ? `Add ${cat.label} to filter`
+                  : `Only show ${cat.label}`
+                }
+                onClick={() => onToggleFilter?.(cat.id)}
                 className={`flex-shrink-0 text-base leading-none transition-colors ${
                   isFiltered
                     ? 'text-blue-500'
@@ -211,38 +222,54 @@ export default function CategoriesMenu({
 
   return (
     <div className="relative flex items-center gap-1.5" ref={panelRef}>
-      {/* Pinned category legend — dot + name, hidden on mobile, hidden when a filter chip is active */}
-      {!activeFilterCat && pinnedCats.length > 0 && (
+      {/* Category legend — each entry toggles that category into the filter.
+          Hidden on mobile, where the dropdown is the only entry point. */}
+      {legendCats.length > 0 && (
         <>
-          {pinnedCats.map(cat => (
-            <span
-              key={cat.id}
-              className="hidden lg:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
-            >
-              <span
-                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: cat.color }}
-              />
-              <span className="max-w-[72px] truncate">{cat.label}</span>
-            </span>
-          ))}
+          {legendCats.map(cat => {
+            const isFiltered = categoryFilters.includes(cat.id);
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                aria-pressed={isFiltered}
+                title={
+                  isFiltered ? `Stop filtering by ${cat.label}`
+                  : hasFilters ? `Add ${cat.label} to filter`
+                  : `Only show ${cat.label}`
+                }
+                onClick={() => onToggleFilter?.(cat.id)}
+                className={`hidden lg:flex items-center gap-1.5 text-xs whitespace-nowrap rounded-full px-1.5 py-0.5 border transition-all ${
+                  isFiltered
+                    ? 'border-gray-300 dark:border-gray-500 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-medium'
+                    : `border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-200 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-800 dark:hover:text-gray-200 ${
+                        hasFilters ? 'opacity-40 hover:opacity-100' : ''
+                      }`
+                }`}
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: cat.color }}
+                />
+                <span className="max-w-[72px] truncate">{cat.label}</span>
+              </button>
+            );
+          })}
+
+          {/* Clear-all — only meaningful once something is filtered */}
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={() => onClearFilters?.()}
+              title="Show all categories"
+              aria-label="Clear category filter"
+              className="hidden lg:flex w-4 h-4 items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
+            >×</button>
+          )}
+
           {/* Divider between legend and Categories button — only on wide screens where legend is visible */}
           <span className="hidden lg:block w-px h-4 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mx-0.5" />
         </>
-      )}
-
-      {/* Active filter chip */}
-      {activeFilterCat && (
-        <div className="flex items-center gap-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-full pl-1.5 pr-1 py-0.5">
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: activeFilterCat.color }} />
-          <span className="max-w-[80px] truncate">{activeFilterCat.label}</span>
-          <button
-            type="button"
-            onClick={() => onSetFilter?.(null)}
-            className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors flex-shrink-0"
-            aria-label="Clear filter"
-          >×</button>
-        </div>
       )}
 
       {/* Categories button */}
@@ -256,6 +283,11 @@ export default function CategoriesMenu({
         }`}
       >
         Categories
+        {hasFilters && (
+          <span className="ml-1 text-[10px] font-semibold text-blue-500 dark:text-blue-400">
+            {categoryFilters.length}
+          </span>
+        )}
       </button>
 
       {/* Dropdown panel */}

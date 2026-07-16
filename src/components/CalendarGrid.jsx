@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
 import { slotToTime, addDays, formatShortDate, getWeekStart } from '../lib/utils';
+import { useToday } from '../hooks/useToday';
 import EventBlock from './EventBlock';
 
 const TIME_COL_WIDTH = 48;
@@ -25,6 +26,8 @@ export default function CalendarGrid({
   // Calendar date shown in the column for a given day_of_week. For a Monday
   // anchor the trailing Sunday resolves to the *next* Sunday-week's date.
   const colDate = (dow) => addDays(weekStart, (dow - startDow + 7) % 7);
+  const today = useToday();
+  const isTodayCol = (dow) => colDate(dow) === today;
 
   const dayColRefs = useRef({});
   const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
@@ -216,26 +219,41 @@ export default function CalendarGrid({
           {/* Day-name row */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
             <div style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }} className="flex-shrink-0" />
-            {dayIndices.map(dayIndex => (
-              <div
-                key={dayIndex}
-                className={`flex-1 text-center py-2 border-l border-gray-100 dark:border-gray-700 min-w-0 ${
-                  view === 'week' && onDayHeaderClick
-                    ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors rounded-sm'
-                    : ''
-                }`}
-                onClick={view === 'week' && onDayHeaderClick ? () => onDayHeaderClick(dayIndex) : undefined}
-              >
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide font-medium leading-tight">
-                  {DAYS_SHORT[dayIndex]}
+            {dayIndices.map(dayIndex => {
+              const isToday = isTodayCol(dayIndex);
+              return (
+                <div
+                  key={dayIndex}
+                  className={`flex-1 text-center py-2 border-l border-gray-100 dark:border-gray-700 min-w-0 ${
+                    isToday ? 'bg-gray-100/60 dark:bg-gray-800/60' : ''
+                  } ${
+                    view === 'week' && onDayHeaderClick
+                      ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors rounded-sm'
+                      : ''
+                  }`}
+                  onClick={view === 'week' && onDayHeaderClick ? () => onDayHeaderClick(dayIndex) : undefined}
+                >
+                  <div className={`text-[10px] uppercase tracking-wide font-medium leading-tight ${
+                    isToday ? 'text-gray-600 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'
+                  }`}>
+                    {DAYS_SHORT[dayIndex]}
+                  </div>
+                  <div className={`font-semibold leading-tight ${view === 'week' ? 'text-xs' : 'text-sm'}`}>
+                    <span className={`inline-flex items-center justify-center rounded-full ${
+                      view === 'week' ? 'w-5 h-5' : 'px-2 py-0.5'
+                    } ${
+                      isToday
+                        ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900'
+                        : 'text-gray-800 dark:text-gray-200'
+                    }`}>
+                      {view === 'week'
+                        ? parseInt(colDate(dayIndex).slice(-2), 10)
+                        : formatShortDate(colDate(dayIndex))}
+                    </span>
+                  </div>
                 </div>
-                <div className={`font-semibold text-gray-800 dark:text-gray-200 leading-tight ${view === 'week' ? 'text-xs' : 'text-sm'}`}>
-                  {view === 'week'
-                    ? parseInt(colDate(dayIndex).slice(-2), 10)
-                    : formatShortDate(colDate(dayIndex))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* All-day row — always visible so it's clickable even when empty */}
@@ -252,6 +270,8 @@ export default function CalendarGrid({
                 <div
                   key={dayIndex}
                   className={`flex-1 border-l border-gray-100 dark:border-gray-700 min-h-[26px] py-0.5 px-0.5 ${
+                    isTodayCol(dayIndex) ? 'bg-gray-100/60 dark:bg-gray-800/60' : ''
+                  } ${
                     onAllDayClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40' : ''
                   }`}
                   onClick={() => onAllDayClick?.(dayIndex)}
@@ -304,7 +324,9 @@ export default function CalendarGrid({
               <div
                 key={dayIndex}
                 ref={el => { dayColRefs.current[dayIndex] = el; }}
-                className={`flex-1 relative border-l border-gray-100 dark:border-gray-700 min-w-0 ${onSlotClick ? 'cursor-pointer' : 'cursor-default'}`}
+                className={`flex-1 relative border-l border-gray-100 dark:border-gray-700 min-w-0 ${
+                  isTodayCol(dayIndex) ? 'bg-gray-100/40 dark:bg-gray-800/40' : ''
+                } ${onSlotClick ? 'cursor-pointer' : 'cursor-default'}`}
                 style={{ height: totalHeight, marginTop: TOP_PAD }}
                 onClick={e => onSlotClick && handleColumnClick(e, dayIndex)}
               >

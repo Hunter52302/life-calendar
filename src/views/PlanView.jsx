@@ -6,6 +6,7 @@ import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
+import { useCategoryFilter } from '../hooks/useCategoryFilter';
 import { addDays, getEventDate, toDateStr } from '../lib/utils';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
@@ -25,8 +26,13 @@ export default function PlanView({
   const [activeDay, setActiveDay] = useState(new Date().getDay());
   const [formState, setFormState] = useState(null);
   const [viewDate, setViewDate] = useState(() => new Date(weekStart + 'T00:00:00'));
-  const [categoryFilter, setCategoryFilter] = useState(null);
   const [showViewMenu, setShowViewMenu] = useState(false);
+  const {
+    filters: categoryFilters,
+    toggle: toggleCategoryFilter,
+    clear: clearCategoryFilters,
+    apply: applyCategoryFilter,
+  } = useCategoryFilter(allCategories);
 
   useEffect(() => { setViewDate(new Date(weekStart + 'T00:00:00')); }, [weekStart]);
 
@@ -38,9 +44,9 @@ export default function PlanView({
     setView('day');
   }, [jumpTo?._id]);
 
-  const filteredEvents = useMemo(() =>
-    categoryFilter ? events.filter(e => e.category === categoryFilter) : events,
-    [events, categoryFilter]
+  const filteredEvents = useMemo(
+    () => applyCategoryFilter(events),
+    [events, applyCategoryFilter]
   );
   const eventTitleSuggestions = useMemo(
     () => buildEventTitleSuggestions(allEvents, 'plan'),
@@ -202,8 +208,9 @@ export default function PlanView({
             pinnedCategories={pinnedCategories}
             onTogglePin={onTogglePin}
             onUpdateCategory={onUpdateCategory}
-            categoryFilter={categoryFilter}
-            onSetFilter={setCategoryFilter}
+            categoryFilters={categoryFilters}
+            onToggleFilter={toggleCategoryFilter}
+            onClearFilters={clearCategoryFilters}
             onManage={onManageCategories}
           />
         </div>}

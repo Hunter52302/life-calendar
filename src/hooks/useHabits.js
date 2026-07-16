@@ -3,6 +3,7 @@ import { generateId } from '../lib/utils.js';
 import { api } from '../lib/api.js';
 import { encryptRecord, decryptRecord } from '../lib/cryptoRecord.js';
 import { useCrypto } from '../context/CryptoContext.jsx';
+import { useToday } from './useToday.js';
 import { safeSetJSON } from '../lib/storage.js';
 
 const HABITS_KEY      = 'lc-habits';
@@ -84,7 +85,7 @@ export function useHabits(authState) {
   }, [authState, isZkEnabled, masterKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isOnline = authState === 'ready';
-  const todayStr = toDateStr(new Date());
+  const todayStr = useToday();
 
   const habitsWithStreaks = useMemo(() => {
     return habits.map(habit => {

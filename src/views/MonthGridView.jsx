@@ -1,5 +1,6 @@
 import { DAYS_SHORT } from '../lib/constants';
-import { getMonthDays, getEventsForDate, todayStr, getWeekNumber } from '../lib/utils';
+import { getMonthDays, getEventsForDate, getWeekNumber } from '../lib/utils';
+import { useToday } from '../hooks/useToday';
 
 // How many event rows to show before "+N more" based on number of weeks in the month
 const MAX_VISIBLE = { 4: 6, 5: 4, 6: 3 };
@@ -26,7 +27,7 @@ export default function MonthGridView({
 }) {
   const days = getMonthDays(year, month, weekStartsOn);
   const weekdayHeaders = Array.from({ length: 7 }, (_, i) => DAYS_SHORT[(weekStartsOn + i) % 7]);
-  const today = todayStr();
+  const today = useToday();
   const numWeeks = days.length / 7;
   const maxVisible = MAX_VISIBLE[numWeeks] ?? 3;
 
