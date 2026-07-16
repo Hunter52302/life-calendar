@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { formatApproxDuration } from '../lib/reminders.js';
 
 /**
  * useDesktopTray — desktop-only (Tauri) "next event" tray reminder.
@@ -19,7 +20,9 @@ const isTauri = () => typeof window !== 'undefined' && typeof window.__TAURI__ !
 function eventStart(ev) {
   const d = new Date(ev.week_start + 'T00:00:00');
   d.setDate(d.getDate() + (ev.day_of_week ?? 0));
-  d.setMinutes((ev.slot_start ?? 0) * 30);
+  // slot_start is in the event's own precision (0.5h or 1h per slot), not fixed
+  // 30-min slots — convert with precision so hourly-precision events aren't halved.
+  d.setMinutes((ev.slot_start ?? 0) * (ev.precision || 0.5) * 60);
   return d;
 }
 
@@ -133,7 +136,7 @@ export default function useDesktopTray(planEvents, { enabled = true, offsetMinut
           notifiedRef.current.add(key);
           const mins = Math.max(1, Math.round((start - now) / 60000));
           try {
-            sendNotification?.({ title: 'Upcoming event', body: `${ev.label || 'Event'} starts in ${mins} min` });
+            sendNotification?.({ title: 'Upcoming event', body: `${ev.label || 'Event'} starts in ${formatApproxDuration(mins)}` });
           } catch { /* ignore */ }
         }
       }

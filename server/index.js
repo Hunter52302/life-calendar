@@ -173,6 +173,8 @@ app.listen(PORT, () => {
   console.log(`PLS Calendar API  ->  http://localhost:${PORT}`);
   console.log('Location handoffs -> user-triggered only');
   console.log(`VAPID push        ->  ${process.env.VAPID_PUBLIC_KEY ? 'configured' : 'not configured'}`);
+  console.log(`E-mail (SMTP)     ->  ${process.env.SMTP_HOST ? 'configured' : 'not configured'}`);
+  console.log(`SMS (Twilio)      ->  ${process.env.TWILIO_ACCOUNT_SID ? 'configured' : 'not configured'}`);
   console.log(`Google Calendar   ->  ${process.env.GOOGLE_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
   console.log(`Microsoft Calendar->  ${process.env.MS_OAUTH_CLIENT_ID ? 'configured' : 'not configured'}`);
   console.log(`Drive-time buffer ->  ${process.env.ORS_API_KEY ? 'configured' : 'not configured'}`);

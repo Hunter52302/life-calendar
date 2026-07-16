@@ -52,6 +52,17 @@ if (process.env.SMTP_HOST) {
 
 const MAIL_FROM = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'PLS Calendar <no-reply@example.com>';
 
+// ── SMS (Twilio) setup ─────────────────────────────────────────────────────────
+// Delivered over Twilio's REST API with a plain fetch (no extra dependency), the
+// same lightweight approach used for Expo push. Self-hosters set TWILIO_*; when
+// unset, SMS integrations are skipped just like unconfigured VAPID/SMTP.
+
+const smsConfigured = !!(
+  process.env.TWILIO_ACCOUNT_SID &&
+  process.env.TWILIO_AUTH_TOKEN &&
+  process.env.TWILIO_FROM_NUMBER
+);
+
 // ── Timezone helpers ──────────────────────────────────────────────────────────
 
 function nowInTz(tz) {
@@ -85,6 +96,27 @@ function addDaysToDate(dateStr, n) {
   const d = new Date(dateStr + 'T00:00:00');
   d.setDate(d.getDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+// Wall-clock time (a local date + minutes-into-day) as epoch-style ms in a fixed
+// UTC frame. Two such values differ by exactly their wall-clock gap, DST-free —
+// so reminder offsets can safely cross midnight / week boundaries.
+function wallClockMs(dateStr, minutesIntoDay) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Date.UTC(y, m - 1, d) + minutesIntoDay * 60_000;
+}
+
+// Human-readable lead time for reminder copy: 20160 → "2 weeks", 60 → "1 hour".
+function formatLeadTime(minutes) {
+  const m = Math.round(Math.abs(minutes) || 0);
+  if (m <= 0) return 'now';
+  for (const [name, size] of [['week', 10080], ['day', 1440], ['hour', 60], ['minute', 1]]) {
+    if (m % size === 0) {
+      const n = m / size;
+      return `${n} ${name}${n === 1 ? '' : 's'}`;
+    }
+  }
+  return `${m} minutes`;
 }
 
 // ── Dispatch functions ────────────────────────────────────────────────────────
@@ -165,6 +197,33 @@ function escapeHtml(str) {
   ));
 }
 
+async function dispatchSms(to, title, body) {
+  if (!smsConfigured) throw new Error('SMS is not configured on this server (set TWILIO_ACCOUNT_SID)');
+  if (!to) throw new Error('No phone number on this integration');
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+  const form = new URLSearchParams({
+    To: to,
+    From: process.env.TWILIO_FROM_NUMBER,
+    Body: title ? `${title}\n${body}` : body,
+  });
+  try {
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: 'POST',
+      headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+    if (!res.ok) {
+      let detail = String(res.status);
+      try { const j = await res.json(); detail = j.message ?? detail; } catch { /* non-JSON error body */ }
+      throw new Error(`Twilio responded ${detail}`);
+    }
+  } catch (err) {
+    console.warn('[notify] SMS send failed:', err.message);
+    throw err;
+  }
+}
+
 // ── Dispatch router ───────────────────────────────────────────────────────────
 
 async function dispatchToIntegration(integration, title, body, entityId, userId) {
@@ -185,6 +244,8 @@ async function dispatchToIntegration(integration, title, body, entityId, userId)
       await dispatchExpoPush(integration.push_token, title, body);
     } else if (integration.type === 'email' && integration.email_address) {
       await dispatchEmail(integration.email_address, title, body);
+    } else if (integration.type === 'sms' && integration.phone_number) {
+      await dispatchSms(integration.phone_number, title, body);
     }
   } catch {
     status = 'failed';
@@ -204,23 +265,21 @@ function resolveLabel(entity, integration) {
 
 async function getEventsDueForReminder(userId, tzNow, offsetMinutes) {
   const allEvents = (await pocketbaseEvents.getAll(userId)).filter(e => e.calendar === 'plan' && !e.is_all_day);
+  // Compare "now" and each event as wall-clock minutes in the user's timezone.
+  // offsetMinutes is negative for "before", so the reminder is due at
+  // (event start + offset). Working in absolute minutes lets the offset cross
+  // midnight and week boundaries — the old same-day hour math could not, so any
+  // lead time longer than the event's time-of-day silently never fired.
+  const nowMinute = Math.floor(wallClockMs(tzNow.date, tzNow.hour * 60 + tzNow.minute) / 60_000);
   const results = [];
   for (const ev of allEvents) {
-    // Compute event's absolute datetime string in UTC
     const eventDate = addDaysToDate(ev.week_start, ev.day_of_week);
-    const slotMinutes = ev.slot_start * 30;
-    const eventHour = Math.floor(slotMinutes / 60);
-    const eventMin  = slotMinutes % 60;
-    // Check if (eventHour:eventMin + offsetMinutes) ≈ now in user's timezone
-    const reminderHour   = Math.floor((slotMinutes + offsetMinutes) / 60);
-    const reminderMinute = (slotMinutes + offsetMinutes) % 60;
-    if (
-      eventDate === tzNow.date &&
-      tzNow.hour === reminderHour &&
-      Math.abs(tzNow.minute - reminderMinute) < 1
-    ) {
-      results.push(ev);
-    }
+    // slot_start is counted in the event's own precision (0.5h or 1h per slot),
+    // not fixed 30-min slots — so convert with precision, or an hourly-precision
+    // event reminds at the wrong time (e.g. a 10:00 event treated as 05:00).
+    const slotMinutes = (ev.slot_start ?? 0) * (ev.precision || 0.5) * 60;
+    const reminderMinute = Math.floor((wallClockMs(eventDate, slotMinutes) + offsetMinutes * 60_000) / 60_000);
+    if (nowMinute === reminderMinute) results.push(ev);
   }
   return results;
 }
@@ -258,14 +317,17 @@ async function tick() {
 
         if (sched.trigger_type === 'event_reminder') {
           const dueEvents = await getEventsDueForReminder(user.id, tzNow, sched.offset_minutes);
+          const lead = formatLeadTime(sched.offset_minutes);
           for (const ev of dueEvents) {
             for (const integration of targets) {
               const hint = resolveLabel(ev, integration);
               const title = 'Upcoming Event';
               const body  = hint
-                ? `${hint} starts in ${Math.abs(sched.offset_minutes)} min`
-                : `You have an event starting in ${Math.abs(sched.offset_minutes)} min`;
-              await dispatchToIntegration(integration, title, body, ev.id, user.id);
+                ? `${hint} starts in ${lead}`
+                : `You have an event starting in ${lead}`;
+              // Key the de-dupe log by (event, offset) so several lead times for
+              // the same event that happen to land on the same day each fire.
+              await dispatchToIntegration(integration, title, body, `${ev.id}:${sched.offset_minutes}`, user.id);
             }
           }
         }
@@ -337,4 +399,4 @@ export function stopScheduler() {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
 }
 
-export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail };
+export { dispatchToIntegration, dispatchWebhook, discordPayload, slackPayload, dispatchWebPush, dispatchExpoPush, dispatchEmail, dispatchSms };
