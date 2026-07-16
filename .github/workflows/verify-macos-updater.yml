@@ -1,0 +1,80 @@
+name: Verify macOS updater signing (temporary)
+
+# TEMPORARY verification-only workflow. Proves that dropping `--no-sign` makes
+# the macOS build emit the signed .app.tar.gz + .sig that latest.json needs.
+# Publishes nothing. Delete once the fix is confirmed.
+
+on:
+  push:
+    branches:
+      - fix/macos-auto-update-manifest
+  workflow_dispatch:
+
+jobs:
+  verify-macos:
+    name: Verify macOS updater artifacts (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri app (no --no-sign — same as the fixed release job)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: npm run tauri:build
+
+      - name: Assert the signed updater artifact exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          echo "--- bundle/macos contents ---"
+          ls -la src-tauri/target/release/bundle/macos/ || true
+
+          dmgs=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -eq 0 ]; then
+            echo "::error::DMG missing — removing --no-sign broke the DMG build."
+            exit 1
+          fi
+          echo "OK: DMG still builds -> ${dmgs[0]}"
+
+          bundles=(src-tauri/target/release/bundle/macos/*.app.tar.gz)
+          if [ "${#bundles[@]}" -eq 0 ]; then
+            echo "::error::No .app.tar.gz updater bundle was produced."
+            exit 1
+          fi
+          echo "OK: updater bundle -> ${bundles[0]}"
+
+          sigs=(src-tauri/target/release/bundle/macos/*.app.tar.gz.sig)
+          if [ "${#sigs[@]}" -eq 0 ]; then
+            echo "::error::STILL UNSIGNED — the .sig is absent, so ${{ matrix.arch }} would drop out of latest.json again."
+            exit 1
+          fi
+          echo "OK: updater signature -> ${sigs[0]}"
+          echo "--- signature (base64 minisign) ---"
+          cat "${sigs[0]}"
+          echo ""
+          echo "PASS: ${{ matrix.arch }} produces a signed updater artifact; darwin will appear in latest.json."
