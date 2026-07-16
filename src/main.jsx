@@ -1,17 +1,12 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { useRegisterSW } from 'virtual:pwa-register/react'
 import './index.css'
 import App from './App.jsx'
 import LandingRouter from './components/LandingRouter.jsx'
-import UpdatePrompt from './components/UpdatePrompt.jsx'
+import WebUpdateGate from './components/WebUpdateGate.jsx'
 import { CryptoProvider } from './context/CryptoContext.jsx'
-import { isWebBrowser } from './lib/platform.js'
+import { isTauri, isWebBrowser } from './lib/platform.js'
 import { storage } from './lib/storage.js'
-
-// Matches the "Install updates automatically" toggle in the About settings
-// panel (App.jsx), persisted via usePersistentState under the same key.
-const WEB_AUTO_UPDATE_KEY = 'lc-web-auto-update';
 
 // ── Feature flag: public marketing landing page ───────────────────────────────
 // The marketing "front door" (hero + feature grid at /, plus /downloads, /docs
@@ -35,39 +30,6 @@ function Root() {
   const [entered, setEntered] = useState(() =>
     !LANDING_PAGE_ENABLED || !isWebBrowser() || !!storage.getToken());
 
-  // Register the service worker; get a callback to activate a waiting update
-  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
-    onRegistered(r) {
-      if (!r) return;
-      // Poll for updates every hour while the tab stays open.
-      setInterval(() => r.update(), 60 * 60 * 1000);
-      // Also re-check the instant the app returns to the foreground, so a
-      // reopened PWA (whose process the OS kept warm, so the hourly timer never
-      // lapsed) picks up a new release within seconds instead of waiting up to
-      // an hour. Throttled to one check a minute so rapid focus toggling can't
-      // spam sw.js revalidations.
-      let lastCheck = 0;
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState !== 'visible') return;
-        const now = Date.now();
-        if (now - lastCheck < 60 * 1000) return;
-        lastCheck = now;
-        r.update();
-      });
-    },
-    onRegisterError(err) {
-      console.warn('Service worker registration failed:', err);
-    },
-  });
-
-  // When a new version is downloaded, apply it immediately if the user has
-  // opted into auto-updates; otherwise UpdatePrompt below asks them first.
-  useEffect(() => {
-    if (needRefresh && localStorage.getItem(WEB_AUTO_UPDATE_KEY) === 'true') {
-      updateServiceWorker(true);
-    }
-  }, [needRefresh, updateServiceWorker]);
-
   if (!entered) {
     // lc-theme is persisted JSON-encoded by usePersistentState (App.jsx), so it's
     // stored as '"dark"' (with quotes) — read it the same way, or a dark-mode
@@ -84,10 +46,12 @@ function Root() {
     return <LandingRouter onEnter={enter} theme={theme} />;
   }
 
+  // isTauri() is fixed for the life of the process, so gating a component on it
+  // can't change hook order between renders.
   return (
     <>
       <App />
-      <UpdatePrompt updateSW={needRefresh ? updateServiceWorker : null} />
+      {!isTauri() && <WebUpdateGate />}
     </>
   );
 }

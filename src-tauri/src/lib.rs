@@ -1,10 +1,43 @@
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, State, WindowEvent, Wry};
 use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
 const REPO_RELEASES_BASE: &str = "https://github.com/Hunter52302/life-calendar/releases/download";
+
+/// Evicts any PWA service worker a previous build left in the webview.
+///
+/// The desktop build no longer registers one (src/main.jsx), but a worker left
+/// by a build that predates that change outlives the app update: it lives in
+/// the webview's data directory, which the installer does not touch. Left alone it
+/// keeps serving its precached copy of the OLD frontend, so a freshly updated
+/// binary renders the previous release's UI — the bug where About reported
+/// v1.2.8 while the .exe on disk was already v1.2.11.
+///
+/// This runs on every page load and is a no-op once no worker is registered.
+const EVICT_SERVICE_WORKER_JS: &str = r#"
+(async () => {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const regs = await navigator.serviceWorker.getRegistrations();
+    if (!regs.length) return;
+    await Promise.all(regs.map(r => r.unregister()));
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    // Unregistering does not release a page the worker already controls, so the
+    // stale bundle stays on screen until a reload re-fetches it from the Tauri
+    // asset protocol. The early return above is the loop guard: the reloaded
+    // page has no registrations left, so it does not reload again.
+    location.reload();
+  } catch (err) {
+    console.warn('Service worker eviction failed:', err);
+  }
+})();
+"#;
 
 /// Handles to the tray bits the frontend updates as the next event changes.
 struct TrayState {
@@ -126,6 +159,11 @@ pub fn run() {
             revert_update,
             update_next_event
         ])
+        .on_page_load(|webview, payload| {
+            if payload.event() == PageLoadEvent::Finished {
+                let _ = webview.eval(EVICT_SERVICE_WORKER_JS);
+            }
+        })
         .on_window_event(|window, event| {
             // Hide to tray instead of quitting when the window is closed, so the
             // "next event" reminder stays in the menubar. Quit via the tray menu.
