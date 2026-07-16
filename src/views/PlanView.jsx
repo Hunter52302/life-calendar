@@ -6,7 +6,7 @@ import CategoriesMenu from '../components/CategoriesMenu';
 import MonthGridView from './MonthGridView';
 import MultiMonthView from './MultiMonthView';
 import { buildEventTitleSuggestions } from '../lib/eventTitleSuggestions';
-import { addDays, getEventDate } from '../lib/utils';
+import { addDays, getEventDate, toDateStr } from '../lib/utils';
 
 const ALL_VIEWS = ['day', 'week', 'month', 'quarter', 'half', 'year'];
 const OPTIONAL_VIEWS = new Set(['quarter', 'half']);
@@ -60,7 +60,7 @@ export default function PlanView({
     if (view === 'week') {
       const d = new Date(weekStart + 'T00:00:00');
       d.setDate(d.getDate() + 7 * dir);
-      onNavigateToDate?.(d.toISOString().slice(0, 10));
+      onNavigateToDate?.(toDateStr(d));
       return;
     }
     if (view === 'day') {
@@ -70,7 +70,7 @@ export default function PlanView({
       const offset = (activeDay - anchorDow + 7) % 7;
       const activeDate = new Date(weekStart + 'T00:00:00');
       activeDate.setDate(activeDate.getDate() + offset + dir);
-      onNavigateToDate?.(activeDate.toISOString().slice(0, 10));
+      onNavigateToDate?.(toDateStr(activeDate));
       setActiveDay(activeDate.getDay());
       return;
     }

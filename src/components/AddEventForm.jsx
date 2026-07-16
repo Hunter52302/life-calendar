@@ -110,6 +110,15 @@ export default function AddEventForm({
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState('');
   const [estimateInfo, setEstimateInfo] = useState('');
+  // `weekStart` is the display anchor (Sunday or Monday). Events are always
+  // stored Sunday-anchored, so resolve the selected weekday to its actual date
+  // within the displayed week, then derive that date's Sunday-anchored week.
+  // Declared before the useMemo below, which calls weekStartForDow during render.
+  const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
+  const orderedWeekDays = Array.from({ length: 7 }, (_, p) => (anchorDow + p) % 7);
+  const weekStartForDow = (dow) =>
+    getWeekStart(new Date(addDays(weekStart, (dow - anchorDow + 7) % 7) + 'T00:00:00'));
+
   const originAddress = useMemo(
     () => suggestOriginFromEvents(
       siblingEvents,
@@ -149,14 +158,6 @@ export default function AddEventForm({
 
   const selectedCategory = allCategories.find(c => c.id === category);
   const slotDuration = Math.max(1, slotEnd - slotStart);
-
-  // `weekStart` is the display anchor (Sunday or Monday). Events are always
-  // stored Sunday-anchored, so resolve the selected weekday to its actual date
-  // within the displayed week, then derive that date's Sunday-anchored week.
-  const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
-  const orderedWeekDays = Array.from({ length: 7 }, (_, p) => (anchorDow + p) % 7);
-  const weekStartForDow = (dow) =>
-    getWeekStart(new Date(addDays(weekStart, (dow - anchorDow + 7) % 7) + 'T00:00:00'));
 
   function toggleDay(i) {
     setDays(prev =>
