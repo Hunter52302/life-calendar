@@ -95,6 +95,7 @@ import useDesktopUpdater from './hooks/useDesktopUpdater';
 import useDesktopTray from './hooks/useDesktopTray';
 import LeadTimeSelect from './components/LeadTimeSelect';
 import { formatLeadTime } from './lib/reminders.js';
+import { isTouchDevice } from './lib/platform.js';
 
 const TABS = [
   { id: 'plan', label: 'Plan' },
@@ -227,6 +228,7 @@ export default function App() {
   const [newIntPhone, setNewIntPhone] = useState('');
   const [intTestState, setIntTestState] = useState({}); // { [id]: 'testing'|'ok'|'error' }
   const [pushError, setPushError] = useState(''); // surfaced when enabling browser push fails
+  const [newIntError, setNewIntError] = useState(''); // why the add-integration form was rejected
   const [reminderLeadMinutes, setReminderLeadMinutes] = useState(30); // event-reminder picker
   const [accountEmailDraft, setAccountEmailDraft] = useState('');
   const [accountEmailMsg, setAccountEmailMsg] = useState('');
@@ -322,6 +324,9 @@ export default function App() {
   const [precisionVisible,    setPrecisionVisible]    = usePersistentState('lc-show-precision', true);
   const [categoriesVisible,   setCategoriesVisible]   = usePersistentState('lc-show-categories', true);
   const [fabDraggable, setFabDraggable] = usePersistentState('lc-fab-draggable', false);
+  // Drag-to-move events. Defaults off on touch screens, where the grid is small
+  // enough that a drag is usually an accidental re-arrange rather than a move.
+  const [eventDrag, setEventDrag] = usePersistentState('lc-event-drag', !isTouchDevice());
   const [fabPosResetKey, setFabPosResetKey] = useState(0);
   const [settingsSearch, setSettingsSearch] = useState('');
   const [searchKeybind, setSearchKeybind] = usePersistentState('lc-search-keybind', null);
@@ -651,22 +656,50 @@ export default function App() {
   }
 
   async function handleAddIntegration() {
-    if (!newIntLabel.trim()) return;
+    setNewIntError('');
+    // Mirrors useIntegrations' own online check: addIntegration silently no-ops
+    // when signed out or offline, so catch it here where we can say why.
+    if (authState !== 'ready') {
+      setNewIntError('You’re offline. Reconnect to add a notification channel.');
+      return;
+    }
+    if (!newIntLabel.trim()) {
+      setNewIntError('Give this channel a nickname.');
+      return;
+    }
     const data = { type: newIntType, label: newIntLabel.trim() };
     if (['discord_webhook','slack_webhook','generic_webhook'].includes(newIntType)) {
-      if (!newIntUrl.trim()) return;
+      if (!newIntUrl.trim()) {
+        setNewIntError('Enter the webhook URL.');
+        return;
+      }
       data.endpoint_url = newIntUrl.trim();
     }
     if (newIntType === 'email') {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newIntEmail.trim())) return;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newIntEmail.trim())) {
+        setNewIntError('Enter a valid email address, e.g. you@example.com.');
+        return;
+      }
       data.email_address = newIntEmail.trim();
     }
     if (newIntType === 'sms') {
-      if (!/^\+?[1-9]\d{6,14}$/.test(newIntPhone.trim())) return;
-      data.phone_number = newIntPhone.trim();
+      // The server wants strict E.164, but people type "+1 (555) 123-4567".
+      // Normalize the usual separators rather than rejecting the number.
+      const phone = newIntPhone.replace(/[\s().-]/g, '');
+      if (!/^\+?[1-9]\d{6,14}$/.test(phone)) {
+        setNewIntError('Enter the number in international format, e.g. +15551234567.');
+        return;
+      }
+      data.phone_number = phone;
     }
-    await addIntegration(data);
-    setNewIntLabel(''); setNewIntUrl(''); setNewIntEmail(''); setNewIntPhone(''); setAddIntegrationOpen(false);
+    try {
+      await addIntegration(data);
+    } catch (err) {
+      setNewIntError(err?.message || 'Could not add this channel.');
+      return;
+    }
+    setNewIntLabel(''); setNewIntUrl(''); setNewIntEmail(''); setNewIntPhone('');
+    setNewIntError(''); setAddIntegrationOpen(false);
   }
 
   async function handleEnablePush() {
@@ -1681,6 +1714,20 @@ export default function App() {
                               </div>
                             )}
 
+                            {/* ── Event drag-to-move ── */}
+                            {sv(['drag', 'move', 'events', 'reorder', 'touch', 'mobile', 'phone']) && (
+                              <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider pt-2">Events</p>
+                                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                  <span className="text-sm text-gray-600 dark:text-gray-400">Drag to move events</span>
+                                  <Toggle checked={eventDrag} onChange={() => setEventDrag(v => !v)} />
+                                </label>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 -mt-1">
+                                  Drag an event to a new day or time. Off by default on touch screens, where it’s easy to move an event by accident. Tap an event to edit it either way.
+                                </p>
+                              </div>
+                            )}
+
                             {/* ── Floating Button Options ── */}
                             {sv(['floating', 'button', 'drag', 'show']) && (
                               <div className={`pt-1 space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700' : ''}`}>
@@ -2551,7 +2598,7 @@ export default function App() {
                             {/* Add integration form */}
                             {addIntegrationOpen ? (
                               <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-                                <select value={newIntType} onChange={e => setNewIntType(e.target.value)}
+                                <select value={newIntType} onChange={e => { setNewIntType(e.target.value); setNewIntError(''); }}
                                   className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white outline-none">
                                   <option value="discord_webhook">Discord Webhook</option>
                                   <option value="slack_webhook">Slack Webhook</option>
@@ -2577,8 +2624,11 @@ export default function App() {
                                     placeholder="+15551234567"
                                     className="w-full text-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1.5 text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-400" />
                                 )}
+                                {newIntError && (
+                                  <p className="text-[10px] text-red-500 dark:text-red-400 leading-snug">{newIntError}</p>
+                                )}
                                 <div className="flex gap-2">
-                                  <button type="button" onClick={() => setAddIntegrationOpen(false)}
+                                  <button type="button" onClick={() => { setAddIntegrationOpen(false); setNewIntError(''); }}
                                     className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 transition-colors">Cancel</button>
                                   <button type="button" onClick={handleAddIntegration}
                                     className="flex-1 text-sm px-3 py-1.5 rounded-lg bg-violet-500 hover:bg-violet-600 text-white font-medium transition-colors">Add</button>
@@ -3457,6 +3507,7 @@ export default function App() {
             <PlanView
               events={planEvents}
               allEvents={events}
+              allowDrag={eventDrag}
               weekStart={weekStart}
               weekStartsOn={weekStartsOn}
               precision={precision}
@@ -3491,6 +3542,7 @@ export default function App() {
               planEvents={planEvents}
               actualEvents={actualEvents}
               allEvents={events}
+              allowDrag={eventDrag}
               weekStart={weekStart}
               weekStartsOn={weekStartsOn}
               precision={precision}
