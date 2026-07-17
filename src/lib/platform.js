@@ -25,3 +25,17 @@ export function isNativeApp() {
 export function isWebBrowser() {
   return !isNativeApp();
 }
+
+/**
+ * True on phones/tablets and other touch-primary screens.
+ *
+ * `pointer: coarse` asks whether the *primary* pointer is imprecise, which is
+ * the question we actually care about — unlike a bare `'ontouchstart' in window`
+ * check, it stays false on a touchscreen laptop being driven by a mouse. Used to
+ * default event drag-to-move off, since on a phone-sized grid a drag is far more
+ * often a mis-grabbed scroll than an intentional move.
+ */
+export function isTouchDevice() {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(pointer: coarse)').matches;
+}

@@ -13,7 +13,9 @@ export default function CalendarGrid({
   onSlotClick, onEventClick, onAllDayClick, onDayHeaderClick, militaryTime = false,
   stackOverlap = false,
   onUpdateEvent,
+  allowDrag = true,
 }) {
+  const dragEnabled = allowDrag && !!onUpdateEvent;
   const slotCount = precision === 1 ? 24 : 48;
   const totalHeight = slotCount * SLOT_HEIGHT;
   // Column order follows the display anchor: weekStart is a Sunday (start-of-week
@@ -348,7 +350,7 @@ export default function CalendarGrid({
                     gridPrecision={precision}
                     stackOverlap={stackOverlap}
                     onClick={handleEventClick}
-                    onDragStart={onUpdateEvent ? handleDragStart : undefined}
+                    onDragStart={dragEnabled ? handleDragStart : undefined}
                   />
                 ))}
               </div>

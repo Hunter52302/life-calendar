@@ -17,6 +17,7 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 export default function PlanView({
   events, allEvents = [], weekStart, weekStartsOn = 0, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
+  allowDrag = true,
   onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
@@ -234,6 +235,7 @@ export default function PlanView({
             militaryTime={militaryTime}
             stackOverlap={stackOverlap}
             onUpdateEvent={onUpdateEvent}
+            allowDrag={allowDrag}
           />
         )}
         {view === 'month' && (
