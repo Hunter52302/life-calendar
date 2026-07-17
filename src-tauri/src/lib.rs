@@ -62,6 +62,13 @@ fn show_main_window(app: &AppHandle) {
 /// permanently in the menu bar; on Windows/Linux `set_title` is unsupported and
 /// silently does nothing (the hover tooltip covers those platforms instead).
 /// An empty string clears the inline title.
+///
+/// The title is always passed as `Some`, never `None`, even when clearing it:
+/// tray-icon's macOS `set_title_inner` is a no-op for `None` (it only calls
+/// `button.setTitle` inside `if let Some(title)`), so `None` leaves the previous
+/// text sitting in the menu bar forever. `Some("")` sets an empty NSString,
+/// which is what actually clears it — this is why turning off "Show event name
+/// in menu bar" appeared to do nothing on macOS.
 #[tauri::command]
 fn update_next_event(
     app: AppHandle,
@@ -73,7 +80,7 @@ fn update_next_event(
     state.next_item.set_text(label).map_err(|e| e.to_string())?;
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(tooltip));
-        let _ = tray.set_title(if title.is_empty() { None } else { Some(title) });
+        let _ = tray.set_title(Some(title));
     }
     Ok(())
 }
