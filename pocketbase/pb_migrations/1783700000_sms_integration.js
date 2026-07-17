@@ -6,6 +6,13 @@
 //
 // Mirrors the idempotent "repair" style used by the e-mail integration migration
 // so it is safe to run against a collection that already exists.
+//
+// NOTE: the widening below never ran. `type` is a method on a field, not a
+// property, so `typeField.type === "select"` was never true — only the
+// phone_number field was added, which is why POSTing an "sms" integration failed
+// the select's validation. The guard is left in place because this migration is
+// already applied everywhere and this is what it actually did; the select is
+// corrected in 1783800000_integration_type_values_repair.js.
 migrate((app) => {
   const collection = app.findCollectionByNameOrId("user_integrations")
 
