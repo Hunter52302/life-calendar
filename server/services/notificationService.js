@@ -35,7 +35,9 @@ let mailTransport = null;
 let mailConfigured = false;
 
 if (process.env.SMTP_HOST) {
-  const port = parseInt(process.env.SMTP_PORT ?? '587', 10);
+  // `||`, not `??`: an env var supplied but left blank (docker-compose renders an
+  // unset passthrough as "") has to fall back like an absent one.
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
   mailTransport = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port,
@@ -50,7 +52,7 @@ if (process.env.SMTP_HOST) {
   mailConfigured = true;
 }
 
-const MAIL_FROM = process.env.SMTP_FROM ?? process.env.SMTP_USER ?? 'PLS Calendar <no-reply@example.com>';
+const MAIL_FROM = process.env.SMTP_FROM || process.env.SMTP_USER || 'PLS Calendar <no-reply@example.com>';
 
 // ── SMS (Twilio) setup ─────────────────────────────────────────────────────────
 // Delivered over Twilio's REST API with a plain fetch (no extra dependency), the
