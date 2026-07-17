@@ -1,4 +1,15 @@
 import PopoutWindow from './PopoutWindow';
+import { isTauri } from '../lib/platform.js';
+
+// Detaching Settings is built on window.open + a React portal, which the desktop
+// build cannot do: Tauri's macOS webview (WKWebView) returns null from
+// window.open unless the Rust side supplies a new-window handler, and wry's only
+// "allow" path builds a raw WKWebView whose ivars are uninitialized, so the app
+// aborts the moment the new window handles an event. Until the pop-out is
+// rebuilt as a real second Tauri window (its own JS context, state synced rather
+// than shared), hide the control on desktop instead of offering a dead button.
+// Sidebar and popup modes are unaffected.
+const CAN_POP_OUT = !isTauri();
 
 // Small stroke icons matching the app's existing iconography.
 function IconClose() {
@@ -75,7 +86,9 @@ export default function SettingsShell({
             {view === 'sidebar' && (
               <HeaderButton onClick={onToggleMinimize} title="Minimize to edge"><IconCollapse /></HeaderButton>
             )}
-            <HeaderButton onClick={onPopOut} title="Pop out to a separate window"><IconPopOut /></HeaderButton>
+            {CAN_POP_OUT && (
+              <HeaderButton onClick={onPopOut} title="Pop out to a separate window"><IconPopOut /></HeaderButton>
+            )}
           </>
         )}
         <HeaderButton onClick={onClose} title="Close settings"><IconClose /></HeaderButton>
