@@ -88,46 +88,36 @@ function upsertCollection(app, collection) {
   return app.findCollectionByNameOrId(collection.name)
 }
 
+// Field helpers: each removes the field and re-adds it from the canonical spec.
+// The rebuild is unconditional by design. It used to sit behind
+// `existing.type !== "text"`, which was never false — `type` is a method on a
+// field, not a property — so this is the behavior that has always run.
+//
+// Safe on a populated collection: PocketBase derives a field's id from its name,
+// so re-adding under the same name and type regenerates the same id and replaces
+// the field in place, keeping the column and its rows. Only a real type change
+// yields a new id and rebuilds the column, which is the repair these helpers
+// exist to perform.
 function ensureTextField(collection, name, options = {}, position = null) {
-  const existing = collection.fields.getByName(name)
-  if (existing && existing.type !== "text") {
-    collection.fields.removeByName(name)
-  }
-  if (!collection.fields.getByName(name)) {
-    const field = new TextField({ name, ...options })
-    if (position === null) collection.fields.add(field)
-    else collection.fields.addAt(position, field)
-  }
+  collection.fields.removeByName(name)
+  const field = new TextField({ name, ...options })
+  if (position === null) collection.fields.add(field)
+  else collection.fields.addAt(position, field)
 }
 
 function ensureSelectField(collection, name, options = {}) {
-  const existing = collection.fields.getByName(name)
-  if (existing && existing.type !== "select") {
-    collection.fields.removeByName(name)
-  }
-  if (!collection.fields.getByName(name)) {
-    collection.fields.add(new SelectField({ name, ...options }))
-  }
+  collection.fields.removeByName(name)
+  collection.fields.add(new SelectField({ name, ...options }))
 }
 
 function ensureNumberField(collection, name, options = {}) {
-  const existing = collection.fields.getByName(name)
-  if (existing && existing.type !== "number") {
-    collection.fields.removeByName(name)
-  }
-  if (!collection.fields.getByName(name)) {
-    collection.fields.add(new NumberField({ name, ...options }))
-  }
+  collection.fields.removeByName(name)
+  collection.fields.add(new NumberField({ name, ...options }))
 }
 
 function ensureJsonField(collection, name, options = {}) {
-  const existing = collection.fields.getByName(name)
-  if (existing && existing.type !== "json") {
-    collection.fields.removeByName(name)
-  }
-  if (!collection.fields.getByName(name)) {
-    collection.fields.add(new JSONField({ name, ...options }))
-  }
+  collection.fields.removeByName(name)
+  collection.fields.add(new JSONField({ name, ...options }))
 }
 
 function finalizeCollection(app, collection) {
