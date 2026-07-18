@@ -204,7 +204,6 @@ export default function CalendarGrid({
     });
   });
 
-  const hasAnyAllDay = Object.keys(allDayByDay).length > 0;
 
   function handleColumnClick(e, dayIndex) {
     const rect = e.currentTarget.getBoundingClientRect();

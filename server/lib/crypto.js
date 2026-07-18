@@ -19,7 +19,6 @@ import { createCipheriv, createDecipheriv, scryptSync, randomBytes } from 'crypt
 const SALT      = 'lc-secrets-v1-salt';   // Fixed — changing this breaks existing ciphertext
 const KEY_LEN   = 32;                      // 256-bit key for AES-256-GCM
 const IV_LEN    = 12;                      // GCM standard IV length
-const TAG_LEN   = 16;
 
 // Derive once per process — cached at module level
 let _key = null;

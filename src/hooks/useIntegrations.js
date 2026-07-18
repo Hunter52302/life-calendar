@@ -22,7 +22,7 @@ export function useIntegrations(authState) {
       if (data.integrations) setIntegrations(data.integrations);
       if (data.schedules)    setSchedules(data.schedules);
     }).catch(() => {});
-  }, [authState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState]);
 
   const isOnline = authState === 'ready';
 

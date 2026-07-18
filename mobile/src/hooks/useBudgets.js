@@ -29,7 +29,7 @@ export function useBudgets(authState) {
     api.sync().then(data => {
       if (data.budgets) setBudgetsState(data.budgets);
     }).catch(() => {});
-  }, [authState, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState, ready]);
 
   const isOnline = authState === 'ready';
 

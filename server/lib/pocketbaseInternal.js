@@ -35,10 +35,6 @@ function encodeFilter(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function asString(value, fallback = '') {
-  return value === null || value === undefined ? fallback : String(value);
-}
-
 function asNullableString(value) {
   if (value === null || value === undefined || value === '') return null;
   return String(value);

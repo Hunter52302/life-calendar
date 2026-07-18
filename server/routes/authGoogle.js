@@ -40,7 +40,7 @@ import { encryptToken, decryptToken } from '../lib/tokenCrypto.js';
 import * as google from '../lib/oauth/google.js';
 import { pocketbaseUsers, pocketbaseGoogleTickets } from '../lib/pocketbaseInternal.js';
 import { pocketbaseCalendarConnections } from '../lib/pocketbaseOperational.js';
-import { makeToken, authPayload } from './auth.js';
+import { authPayload } from './auth.js';
 
 const router = Router();
 const SECRET = process.env.JWT_SECRET;

@@ -3,7 +3,7 @@
 // This file is imported by the SW precache manifest entry.
 
 self.addEventListener('push', event => {
-  let data = {};
+  let data;
   try { data = event.data?.json() ?? {}; } catch { data = { title: 'PLS Calendar' }; }
   event.waitUntil(
     self.registration.showNotification(data.title ?? 'PLS Calendar', {

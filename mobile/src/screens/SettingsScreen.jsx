@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect, useRef } from 'react';
+import { useContext, useState, useEffect } from 'react';
 import {
   View, Text, Pressable, ScrollView, StyleSheet, Switch, Alert,
   TextInput, Modal, FlatList, ActivityIndicator,
@@ -22,8 +22,7 @@ const UPDATE_STATUS_LABEL = {
 };
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api';
-const ADMIN_TOKEN_KEY = 'lc-admin-token'; // sessionStorage not available on RN — use module var
-let _adminToken = null;
+let _adminToken = null; // sessionStorage is unavailable in React Native.
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -721,7 +720,6 @@ export default function SettingsScreen() {
     defaultView,         setDefaultView,
     pushEnabled,         setPushEnabled,
     minimalistMode,      setMinimalistMode,
-    showQuickAdd,        setShowQuickAdd,
     showPrecisionToggle, setShowPrecisionToggle,
     showCategoriesMenu,  setShowCategoriesMenu,
     showFab,             setShowFab,
@@ -774,7 +772,6 @@ export default function SettingsScreen() {
   }
 
   // No Touchy admin state
-  const [noTouchyOpen,    setNoTouchyOpen]    = useState(false);
   const [adminAuthed,     setAdminAuthed]     = useState(false);
   const [adminPwDraft,    setAdminPwDraft]    = useState('');
   const [adminAuthErr,    setAdminAuthErr]    = useState('');
@@ -785,7 +782,7 @@ export default function SettingsScreen() {
   async function adminFetch(method, path, body) {
     const res = await fetch(`${BASE_URL}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...((_adminToken) ? { Authorization: `Bearer ${_adminToken}` } : {}) },
+      headers: { 'Content-Type': 'application/json', ...(_adminToken ? { Authorization: `Bearer ${_adminToken}` } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
     if (res.status === 401 || res.status === 403) { _adminToken = null; setAdminAuthed(false); throw new Error('Session expired'); }
@@ -980,7 +977,7 @@ export default function SettingsScreen() {
             {/* ── Font ── */}
             <View style={s.fontSection}>
               <Text style={[s.subHeader, { color: T.textFaint }]}>FONT</Text>
-              {FONT_OPTIONS.map((f, i) => (
+              {FONT_OPTIONS.map(f => (
                 <Pressable
                   key={f.key}
                   style={s.fontRow}

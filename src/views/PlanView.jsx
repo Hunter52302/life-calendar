@@ -34,16 +34,17 @@ export default function PlanView({
     clear: clearCategoryFilters,
     apply: applyCategoryFilter,
   } = useCategoryFilter(allCategories);
+  const jumpId = jumpTo?._id;
+  const jumpDay = jumpTo?.dayOfWeek;
 
   useEffect(() => { setViewDate(new Date(weekStart + 'T00:00:00')); }, [weekStart]);
 
   // Jump to a specific day when navigating from search results
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!jumpTo) return;
-    setActiveDay(jumpTo.dayOfWeek);
+    if (jumpDay == null) return;
+    setActiveDay(jumpDay);
     setView('day');
-  }, [jumpTo?._id]);
+  }, [jumpId, jumpDay]);
 
   const filteredEvents = useMemo(
     () => applyCategoryFilter(events),

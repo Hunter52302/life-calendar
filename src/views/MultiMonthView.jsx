@@ -4,7 +4,7 @@ import { useToday } from '../hooks/useToday';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-function MiniMonth({ year, month, events, allCategories, onMonthClick, weekStartsOn = 0 }) {
+function MiniMonth({ year, month, events, onMonthClick, weekStartsOn = 0 }) {
   const days = getMonthDays(year, month, weekStartsOn);
   const today = useToday();
   const numWeeks = days.length / 7;
@@ -73,7 +73,7 @@ function MiniMonth({ year, month, events, allCategories, onMonthClick, weekStart
   );
 }
 
-export default function MultiMonthView({ startYear, startMonth, monthCount, events, allCategories, onMonthClick, weekStartsOn = 0 }) {
+export default function MultiMonthView({ startYear, startMonth, monthCount, events, onMonthClick, weekStartsOn = 0 }) {
   const months = [];
   for (let i = 0; i < monthCount; i++) {
     let y = startYear;
@@ -100,7 +100,6 @@ export default function MultiMonthView({ startYear, startMonth, monthCount, even
             year={year}
             month={month}
             events={events}
-            allCategories={allCategories}
             onMonthClick={onMonthClick}
             weekStartsOn={weekStartsOn}
           />

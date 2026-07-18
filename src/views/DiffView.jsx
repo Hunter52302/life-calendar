@@ -92,7 +92,7 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
 
   useEffect(() => {
     onDiffChange?.({ diff, startDate, endDate });
-  }, [diff, startDate, endDate]);
+  }, [diff, startDate, endDate, onDiffChange]);
 
   return (
     <div className="lc-surface overflow-y-auto h-full dark:bg-gray-900">

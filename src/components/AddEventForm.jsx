@@ -113,21 +113,23 @@ export default function AddEventForm({
   // `weekStart` is the display anchor (Sunday or Monday). Events are always
   // stored Sunday-anchored, so resolve the selected weekday to its actual date
   // within the displayed week, then derive that date's Sunday-anchored week.
-  // Declared before the useMemo below, which calls weekStartForDow during render.
   const anchorDow = new Date(weekStart + 'T00:00:00').getDay();
   const orderedWeekDays = Array.from({ length: 7 }, (_, p) => (anchorDow + p) % 7);
-  const weekStartForDow = (dow) =>
+  const weekStartForDow = dow =>
     getWeekStart(new Date(addDays(weekStart, (dow - anchorDow + 7) % 7) + 'T00:00:00'));
 
-  const originAddress = useMemo(
-    () => suggestOriginFromEvents(
+  const originAddress = useMemo(() => {
+    const selectedDay = days[0];
+    const selectedWeekStart = getWeekStart(
+      new Date(addDays(weekStart, (selectedDay - anchorDow + 7) % 7) + 'T00:00:00')
+    );
+    return suggestOriginFromEvents(
       siblingEvents,
-      { week_start: weekStartForDow(days[0]), day_of_week: days[0], startMinutes: slotStart * formPrecision * 60 },
+      { week_start: selectedWeekStart, day_of_week: selectedDay, startMinutes: slotStart * formPrecision * 60 },
       homeAddress,
       { excludeId: event?.id }
-    ),
-    [siblingEvents, weekStart, days, slotStart, formPrecision, homeAddress, event?.id]
-  );
+    );
+  }, [siblingEvents, weekStart, anchorDow, days, slotStart, formPrecision, homeAddress, event?.id]);
 
   async function estimateTravelBuffer() {
     const from = originAddress.trim();

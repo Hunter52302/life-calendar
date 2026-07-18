@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { DEFAULT_CATEGORIES } from './lib/constants';
 
 // ── Common IANA timezones for the timezone picker ─────────────────────────────
@@ -53,7 +53,7 @@ const PRESET_COLORS = [
   '#6366F1', '#8B5CF6', '#A855F7', '#EC4899',
   '#6B7280', '#374151',
 ];
-import { getWeekStart, getEventDate, addDays, formatShortDate, generateRepeatInstances, generateId, shortHash } from './lib/utils';
+import { getWeekStart, getEventDate, addDays, generateRepeatInstances, generateId, shortHash } from './lib/utils';
 import { api } from './lib/api.js';
 import { safeSetItem } from './lib/storage.js';
 import { useEvents, IMPORT_COLORS } from './hooks/useEvents';
@@ -218,7 +218,6 @@ export default function App() {
   const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
   const [aiParsingOpen, setAiParsingOpen] = useState(false);
   const [zkOpen, setZkOpen] = useState(false);
-  const [zkEnabling, setZkEnabling] = useState(false);
   const [recoveryCodeToShow, setRecoveryCodeToShow] = useState(null);
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
   const [newIntType, setNewIntType] = useState('discord_webhook');
@@ -382,6 +381,7 @@ export default function App() {
   const [pendingDelete, setPendingDelete] = useState(null); // linked calendar id pending removal confirmation
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
+  const handleDiffChange = useCallback(state => { diffStateRef.current = state; }, []);
 
   useEffect(() => { safeSetItem('lc-precision', String(precision)); }, [precision]);
   // theme / militaryTime / enabledViews / showWeekNumbers / pinnedCategories persist themselves via usePersistentState
@@ -404,7 +404,7 @@ export default function App() {
       }
       document.documentElement.style.setProperty('--lc-font', preset.value);
     }
-  }, [fontKey, customFont]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fontKey, customFont]);
 
   // Ctrl+K / Cmd+K (default) + optional custom keybind open search
   useEffect(() => {
@@ -780,8 +780,8 @@ export default function App() {
   const { keywordMap } = useCategoryKeywords(authState);
   const { llmSettings, setLlmSettings } = useLlmSettings(authState);
   const { habits, habitsWithStreaks, completions, addHabit, updateHabit, deleteHabit, toggleCompletion } = useHabits(authState);
-  const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush, unsubscribePush } = useIntegrations(authState);
-  const { masterKey, isZkEnabled, dek, setDek, lock, sessionRestored } = useCrypto();
+  const { integrations, schedules, addIntegration, updateIntegration, deleteIntegration, testIntegration, addSchedule, deleteSchedule, subscribePush } = useIntegrations(authState);
+  const { isZkEnabled, dek, setDek, lock, sessionRestored } = useCrypto();
 
   // After a reload the token is valid but the DEK is only in memory. If the
   // user opted to "stay unlocked on this device", CryptoContext restores it
@@ -806,17 +806,6 @@ export default function App() {
 
   const planEvents = getEvents('plan');
   const actualEvents = getEvents('actual');
-  // The displayed week is the 7 dates starting at the (Sun- or Mon-anchored)
-  // weekStart. Membership is by calendar date, so a Monday-anchored week can
-  // span two Sunday-anchored storage buckets without dropping events.
-  const weekEnd = addDays(weekStart, 6);
-  const weekPlanEvents = planEvents.filter(e => {
-    const d = getEventDate(e); return d >= weekStart && d <= weekEnd;
-  });
-  const weekActualEvents = actualEvents.filter(e => {
-    const d = getEventDate(e); return d >= weekStart && d <= weekEnd;
-  });
-
   // Desktop (Tauri) only: surface the next planned event in the system tray and
   // fire a native reminder before it starts. No-ops on web/PWA.
   useDesktopTray(planEvents, {
@@ -1044,25 +1033,6 @@ export default function App() {
   function handleLiveExportIcal() {
     downloadIcal(eventsToIcal(actualEvents, 'Life Calendar – Live'), 'life-calendar-live.ics');
   }
-  function handleLiveImportIcal(e) {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const content = ev.target.result;
-      const calName = parseIcalCalName(content) || file.name.replace(/\.ics$/i, '');
-      const { id: calId, color: calColor } = addLinkedCalendar({
-        name: calName,
-        filename: file.name,
-        calendar: 'actual',
-        importedAt: new Date().toISOString().split('T')[0],
-      });
-      const appEvents = icsToAppEvents(content, 'actual', precision, calId, calColor);
-      if (appEvents.length > 0) addEvents(appEvents);
-      showImportNotice(appEvents.length);
-    };
-    reader.readAsText(file); e.target.value = '';
-  }
-
   async function handleRealityCheckExport() {
     if (!diffStateRef.current) return;
     setExporting(true);
@@ -1985,7 +1955,7 @@ export default function App() {
                             {/* Timezone list */}
                             <div className="space-y-1">
                               {timezones.map((tz, idx) => {
-                                let timeStr = '';
+                                let timeStr;
                                 try {
                                   timeStr = new Intl.DateTimeFormat(undefined, {
                                     timeZone: tz, hour: '2-digit', minute: '2-digit',
@@ -3531,7 +3501,7 @@ export default function App() {
               actualEvents={actualEvents}
               allCategories={allCategories}
               linkedCalendars={linkedCalendars}
-              onDiffChange={state => { diffStateRef.current = state; }}
+              onDiffChange={handleDiffChange}
               budgets={budgets}
               habitsWithStreaks={habitsWithStreaks}
               completions={completions}

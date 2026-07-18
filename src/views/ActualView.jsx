@@ -18,7 +18,7 @@ export default function ActualView({
   planEvents, actualEvents, allEvents = [], weekStart, weekStartsOn = 0, precision, onPrecisionChange, allCategories, militaryTime, stackOverlap = false, enabledViews = [],
   showWeekNumbers = false, pinnedCategories = [], onTogglePin, onManageCategories,
   allowDrag = true,
-  onAddEvent, onAddEvents, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
+  onAddEvent, onUpdateEvent, onDeleteEvent, onUpdateSeries, onDeleteSeries, onUpdateCategory, onAddCategory, onNavigateToDate,
   homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
@@ -34,16 +34,17 @@ export default function ActualView({
     clear: clearCategoryFilters,
     apply: applyCategoryFilter,
   } = useCategoryFilter(allCategories);
+  const jumpId = jumpTo?._id;
+  const jumpDay = jumpTo?.dayOfWeek;
 
   useEffect(() => { setViewDate(new Date(weekStart + 'T00:00:00')); }, [weekStart]);
 
   // Jump to a specific day when navigating from search results
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!jumpTo) return;
-    setActiveDay(jumpTo.dayOfWeek);
+    if (jumpDay == null) return;
+    setActiveDay(jumpDay);
     setView('day');
-  }, [jumpTo?._id]);
+  }, [jumpId, jumpDay]);
 
   const filteredPlanEvents = useMemo(
     () => applyCategoryFilter(planEvents),
@@ -57,9 +58,14 @@ export default function ActualView({
   // Match by calendar date so a Monday-start week (which can straddle two
   // Sunday-anchored storage weeks) still gathers every day's events.
   const weekEnd = addDays(weekStart, 6);
-  const inWeek = e => { const d = getEventDate(e); return d >= weekStart && d <= weekEnd; };
-  const weekPlanEvents = useMemo(() => filteredPlanEvents.filter(inWeek), [filteredPlanEvents, weekStart, weekEnd]);
-  const weekActualEvents = useMemo(() => filteredActualEvents.filter(inWeek), [filteredActualEvents, weekStart, weekEnd]);
+  const weekPlanEvents = useMemo(
+    () => filteredPlanEvents.filter(e => { const d = getEventDate(e); return d >= weekStart && d <= weekEnd; }),
+    [filteredPlanEvents, weekStart, weekEnd]
+  );
+  const weekActualEvents = useMemo(
+    () => filteredActualEvents.filter(e => { const d = getEventDate(e); return d >= weekStart && d <= weekEnd; }),
+    [filteredActualEvents, weekStart, weekEnd]
+  );
   const eventTitleSuggestions = useMemo(
     () => buildEventTitleSuggestions(allEvents, 'actual'),
     [allEvents]

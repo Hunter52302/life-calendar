@@ -19,7 +19,7 @@ export function useCategoryKeywords(authState) {
     api.sync().then(data => {
       if (data.categoryKeywords) setKeywordMap(data.categoryKeywords);
     }).catch(() => {});
-  }, [authState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authState]);
 
   return { keywordMap };
 }
