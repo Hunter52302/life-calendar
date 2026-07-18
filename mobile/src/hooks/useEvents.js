@@ -158,6 +158,12 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
   // to 'manual') is how the user corrects anything that didn't go to plan.
   useEffect(() => {
     if (!ready || !assumeCompleted) return;
+    // Calendars the user excluded from See Your Life. We never "assume completed"
+    // their events — an imported feed (e.g. a gym's open hours) isn't a personal
+    // plan, so fabricating live time from it would just pollute that category.
+    const excludedCalIds = new Set(
+      linkedCalendars.filter(c => c.excludeFromReality).map(c => c.id)
+    );
     // Computes "due" against the updater's `prev`, not the outer `events` closure,
     // so two calls in quick succession (e.g. React StrictMode's double-invoke on
     // mount) can't both see the plan event as unlogged and double-materialize it.
@@ -171,6 +177,8 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
         const due = prev.filter(e => {
           if (e.calendar !== 'plan' || e.is_all_day) return false;
           if (loggedPlanIds.has(e.id) || dismissedAutoIds.includes(e.id)) return false;
+          // Skip imported calendars the user excluded from See Your Life.
+          if (e.source_calendar_id && excludedCalIds.has(e.source_calendar_id)) return false;
           const endMs = getEventEndDateTime(e).getTime();
           return endMs <= now && endMs >= cutoff;
         });
@@ -181,6 +189,10 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
           week_start: pe.week_start, day_of_week: pe.day_of_week,
           slot_start: pe.slot_start, slot_duration: pe.slot_duration, precision: pe.precision,
           calendar: 'actual', source: 'auto-completed', plan_event_id: pe.id,
+          // Carry the source-calendar lineage so the live copy stays attributable
+          // to its imported calendar (Skip SYL can then exclude it).
+          ...(pe.source_calendar_id ? { source_calendar_id: pe.source_calendar_id } : {}),
+          ...(pe.series_id ? { series_id: pe.series_id } : {}),
         }));
         if (isOnline) {
           Promise.all(materialized.map(encryptEventForApi))
@@ -192,7 +204,7 @@ export function useEvents(authState, masterKey = null, isZkEnabled = false, assu
     materializePastDue();
     const id = setInterval(materializePastDue, AUTO_COMPLETE_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [ready, assumeCompleted, dismissedAutoIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, assumeCompleted, dismissedAutoIds, linkedCalendars]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateEvent(id, updates) {
     setEvents(p => p.map(e => e.id === id ? { ...e, ...updates } : e));

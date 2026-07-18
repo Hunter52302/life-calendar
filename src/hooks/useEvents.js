@@ -355,6 +355,14 @@ export function useEvents(authState, assumeCompleted = true) {
   // to 'manual') is how the user corrects anything that didn't go to plan.
   useEffect(() => {
     if (!assumeCompleted) return;
+    // Calendars the user excluded from See Your Life. We never "assume completed"
+    // their events: an imported feed (e.g. a gym's open hours) isn't a personal
+    // plan, so fabricating live time from it would just pollute the excluded
+    // calendar's own category. Any phantom rows a past version already created
+    // from these calendars are cleaned up below.
+    const excludedCalIds = new Set(
+      linkedCalendars.filter(c => c.excludeFromReality).map(c => c.id)
+    );
     // Computes "due" against the updater's `prev`, not the outer `events` closure,
     // so two calls in quick succession (e.g. React StrictMode's double-invoke on
     // mount) can't both see the plan event as unlogged and double-materialize it.
@@ -362,35 +370,63 @@ export function useEvents(authState, assumeCompleted = true) {
       const now = Date.now();
       const cutoff = now - AUTO_COMPLETE_WINDOW_MS;
       setEvents(prev => {
+        const planById = new Map(
+          prev.filter(e => e.calendar === 'plan').map(e => [e.id, e])
+        );
         const loggedPlanIds = new Set(
           prev.filter(e => e.calendar === 'actual' && e.plan_event_id && !e.deleted).map(e => e.plan_event_id)
         );
-        const due = prev.filter(e => {
+        // Retire any auto-completed live rows that trace back to a Skip-SYL
+        // calendar — these are the phantoms an earlier version fabricated (and
+        // that dropped their source_calendar_id). Tombstone so the removal
+        // propagates across devices instead of being resurrected on merge.
+        const cleanupTs = tick();
+        const tombstoned = [];
+        const carried = prev.map(e => {
+          if (e.deleted || e.source !== 'auto-completed') return e;
+          const parent = e.plan_event_id ? planById.get(e.plan_event_id) : null;
+          const originCal = parent?.source_calendar_id ?? e.source_calendar_id;
+          if (originCal && excludedCalIds.has(originCal)) {
+            const tomb = { ...e, deleted: true, updatedAt: cleanupTs };
+            tombstoned.push(tomb);
+            return tomb;
+          }
+          return e;
+        });
+        const due = carried.filter(e => {
           if (e.calendar !== 'plan' || e.is_all_day || e.deleted) return false;
           if (loggedPlanIds.has(e.id) || dismissedAutoIds.includes(e.id)) return false;
+          // Skip imported calendars the user excluded from See Your Life.
+          if (e.source_calendar_id && excludedCalIds.has(e.source_calendar_id)) return false;
           const endMs = getEventEndDateTime(e).getTime();
           return endMs <= now && endMs >= cutoff;
         });
-        if (due.length === 0) return prev;
+        if (due.length === 0 && tombstoned.length === 0) return prev;
         const materialized = due.map(pe => ({
           id: generateId(),
           label: pe.label, category: pe.category, color: pe.color,
           week_start: pe.week_start, day_of_week: pe.day_of_week,
           slot_start: pe.slot_start, slot_duration: pe.slot_duration, precision: pe.precision,
           calendar: 'actual', source: 'auto-completed', plan_event_id: pe.id,
+          // Carry the source-calendar lineage so the live copy stays attributable
+          // to its imported calendar — Skip SYL can then exclude it, and it never
+          // looks like an orphaned/unlinked event.
+          ...(pe.source_calendar_id ? { source_calendar_id: pe.source_calendar_id } : {}),
+          ...(pe.series_id ? { series_id: pe.series_id } : {}),
           updatedAt: tick(),
         }));
         if (isOnline) {
-          Promise.all(materialized.map(encryptEventForApi))
+          const toPush = [...tombstoned, ...materialized];
+          Promise.all(toPush.map(encryptEventForApi))
             .then(p => api.events.batch(p)).catch(console.warn);
         }
-        return [...prev, ...materialized];
+        return [...carried, ...materialized];
       });
     }
     materializePastDue();
     const id = setInterval(materializePastDue, AUTO_COMPLETE_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [assumeCompleted, dismissedAutoIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [assumeCompleted, dismissedAutoIds, linkedCalendars]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Replace every event matching `predicate` with `additions`, tombstoning the
@@ -615,13 +651,6 @@ export function useEvents(authState, assumeCompleted = true) {
     if (isOnline) api.linkedCalendars.update(id, { excludeFromReality: exclude }).catch(console.warn);
   }
 
-  function clearLegacyEvents(calendar) {
-    const isLegacy = e => e.calendar === calendar && !e.source_calendar_id && e.source !== 'manual';
-    // Tombstone rather than hard-delete so the removal propagates by HLC instead
-    // of being resurrected by a device that still holds these events.
-    replaceMatching(isLegacy);
-  }
-
   return {
     events: liveEvents, syncing,
     customCategories, categoryOverrides,
@@ -631,6 +660,6 @@ export function useEvents(authState, assumeCompleted = true) {
     addCategory, deleteCategory, updateCategory,
     deletedDefaultIds, replaceEventsBySource, replaceEventsBySourceCalendar,
     linkedCalendars, addLinkedCalendar, deleteLinkedCalendar, updateLinkedCalendar,
-    updateLinkedCalendarColor, updateLinkedCalendarCategory, updateLinkedCalendarExclude, clearLegacyEvents,
+    updateLinkedCalendarColor, updateLinkedCalendarCategory, updateLinkedCalendarExclude,
   };
 }

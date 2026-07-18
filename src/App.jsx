@@ -380,7 +380,7 @@ export default function App() {
   const [mobileDefaultView, setMobileDefaultView] = usePersistentState('lc-mobile-default-view', 'month');
   const [exporting, setExporting] = useState(false);
   const [importNotice, setImportNotice] = useState(null);
-  const [pendingDelete, setPendingDelete] = useState(null); // cal id or '__legacy_plan' / '__legacy_actual'
+  const [pendingDelete, setPendingDelete] = useState(null); // linked calendar id pending removal confirmation
   const [editingCalColor, setEditingCalColor] = useState(null); // linked calendar id being color-edited
   const diffStateRef = useRef(null);
 
@@ -773,7 +773,6 @@ export default function App() {
     updateLinkedCalendarColor = () => {},
     updateLinkedCalendarCategory = () => {},
     updateLinkedCalendarExclude = () => {},
-    clearLegacyEvents = () => {},
     clearAllEvents = async () => {},
     syncing = false,
   } = useEvents(authState, assumeCompleted);
@@ -2834,14 +2833,14 @@ export default function App() {
 
                               {/* ── Linked Calendars list ── */}
                               {(() => {
-                                const legacyPlan   = events.filter(e => e.calendar === 'plan'   && !e.source_calendar_id && e.source !== 'manual').length;
-                                const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
-                                if (linkedCalendars.length === 0 && legacyPlan === 0 && legacyActual === 0) return null;
+                                if (linkedCalendars.length === 0) return null;
                                 return (
                                   <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700 space-y-1">
                                     <p className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider px-1 pb-0.5">Linked Calendars</p>
                                     {[...linkedCalendars].reverse().map(cal => {
-                                      const count = events.filter(e => e.source_calendar_id === cal.id).length;
+                                      // Count only the events imported from the feed — not the
+                                      // "assumed-completed" live copies the app derives from them.
+                                      const count = events.filter(e => e.source_calendar_id === cal.id && e.source !== 'auto-completed').length;
                                       const isConfirming = pendingDelete === cal.id;
                                       const calColor = cal.color || '#6B7280';
                                       const isPickingColor = editingCalColor === cal.id;
@@ -2925,44 +2924,6 @@ export default function App() {
                                               <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {count} event{count !== 1 ? 's' : ''}?</span>
                                               <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
                                               <button type="button" onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-
-                                    {/* Legacy / untracked rows */}
-                                    {[
-                                      { key: '__legacy_plan', label: 'Unlinked plan events', count: legacyPlan, calendar: 'plan' },
-                                      { key: '__legacy_actual', label: 'Unlinked live events', count: legacyActual, calendar: 'actual' },
-                                    ].filter(r => r.count > 0).map(row => {
-                                      const isConfirming = pendingDelete === row.key;
-                                      return (
-                                        <div key={row.key} className="rounded-lg overflow-hidden">
-                                          <div className="flex items-start gap-2 py-1 opacity-70">
-                                            <div className="flex-1 min-w-0">
-                                              <div className="flex items-center gap-1.5">
-                                                <span className="inline-flex text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
-                                                  {row.calendar === 'plan' ? 'Plan' : 'Live'}
-                                                </span>
-                                                <span className="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">{row.label}</span>
-                                              </div>
-                                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-0.5">
-                                                {row.count} event{row.count !== 1 ? 's' : ''} · not linked to a source
-                                              </p>
-                                            </div>
-                                            {!isConfirming && (
-                                              <button type="button" onClick={() => setPendingDelete(row.key)}
-                                                className="flex-shrink-0 mt-0.5 w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none"
-                                                title="Remove unlinked events"
-                                              >×</button>
-                                            )}
-                                          </div>
-                                          {isConfirming && (
-                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {row.count} unlinked event{row.count !== 1 ? 's' : ''}?</span>
-                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                              <button type="button" onClick={() => { clearLegacyEvents(row.calendar); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
                                             </div>
                                           )}
                                         </div>
@@ -3435,13 +3396,6 @@ export default function App() {
                     )}
 
                     {/* Linked Calendars — now lives inside Connected Calendars above */}
-                    {(() => {
-                      const legacyPlan = events.filter(e => e.calendar === 'plan' && !e.source_calendar_id && e.source !== 'manual').length;
-                      const legacyActual = events.filter(e => e.calendar === 'actual' && !e.source_calendar_id && e.source !== 'manual').length;
-                      const hasAny = linkedCalendars.length > 0 || legacyPlan > 0 || legacyActual > 0;
-                      if (!hasAny || !sv(SECTION_KWS.linked)) return null;
-                      return null; // Linked calendars now shown inside Connected Calendars
-                    })()}
 
                       {/* ── Download Desktop App ── */}
                       {sv(['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native']) && (
