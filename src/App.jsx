@@ -358,7 +358,6 @@ export default function App() {
     setSearchOptionsOpen(false);
     setTimezonesOpen(false);
     setDownloadOpen(false);
-    setShowCalUrlForm(false);
     setAddingHabit(false);
   }
   // Closing Settings (from any code path) also drops the detached window and

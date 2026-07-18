@@ -30,8 +30,42 @@ env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
+  preflight:
+    name: Release preflight
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build production web app
+        run: npm run build
+
+      - name: Validate server and migration syntax
+        run: |
+          node --check server/index.js
+          find pocketbase/pb_migrations -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
   build-windows:
     name: Build Windows installers
+    needs: preflight
     runs-on: windows-latest
 
     steps:
@@ -122,6 +156,7 @@ jobs:
 
   build-macos:
     name: Build macOS DMG (${{ matrix.arch }})
+    needs: preflight
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -237,6 +272,7 @@ jobs:
 
   build-linux:
     name: Build Linux (.deb / .AppImage)
+    needs: preflight
     # Pin to 22.04: the AppImage links against the runner's glibc, so building on
     # the oldest supported runner keeps it runnable on more user systems.
     runs-on: ubuntu-22.04
@@ -426,45 +462,57 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: PLS Calendar ${{ env.RELEASE_TAG }}
+          prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           files: release-assets/*
           fail_on_unmatched_files: true
-          make_latest: true
+          make_latest: ${{ contains(env.RELEASE_TAG, '-') && 'false' || 'true' }}
 
   mobile-ota:
     name: Publish mobile OTA update
+    needs: preflight
     runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
+      - name: Skip mobile OTA when Expo token is absent
+        if: env.EXPO_TOKEN == ''
+        run: echo "::notice::EXPO_TOKEN is not configured; mobile OTA publication was skipped."
+
       - name: Checkout repository
+        if: env.EXPO_TOKEN != ''
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up Node.js
+        if: env.EXPO_TOKEN != ''
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: env.EXPO_TOKEN != ''
         run: npm ci
 
       - name: Set up EAS
+        if: env.EXPO_TOKEN != ''
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+          token: ${{ env.EXPO_TOKEN }}
 
       - name: Publish EAS Update
+        if: env.EXPO_TOKEN != ''
         working-directory: mobile
         run: eas update --branch production --message "${RELEASE_TAG}" --non-interactive
 
   deploy-coolify:
     name: Deploy web + API (Coolify)
+    needs: preflight
     runs-on: ubuntu-latest
-    # No `needs:` — the web/API deploy is independent of the (slow) desktop
-    # builds so the live site updates promptly and isn't blocked by a macOS/
-    # Windows build hiccup. Coolify rebuilds the frontend + backend resources
-    # from their configured branch (master), which is where the tag lives.
+    # Deploy after preflight, but remain independent of the slower desktop
+    # builds. Coolify rebuilds from master, where the tag lives.
     steps:
       - name: Trigger Coolify deployments
         # COOLIFY_RESOURCE_UUIDS is a comma-separated list of the frontend and

@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { AppContext } from '../context/AppContext.js';
+import { countImportedCalendarEvents } from '../lib/realityEvents.js';
 import { generateId } from '../lib/utils.js';
 import { deriveAuthVerifier } from '../lib/zkEnvelope.js';
 
@@ -1481,7 +1482,7 @@ export default function SettingsScreen() {
               ) : (
                 events.linkedCalendars.map((cal, i) => {
                   const isConfirming = pendingDelCal === cal.id;
-                  const count = events.events.filter(e => e.source_calendar_id === cal.id).length;
+                  const count = countImportedCalendarEvents(events.events, cal.id);
                   return (
                     <View key={cal.id}>
                       <View style={s.calRow}>

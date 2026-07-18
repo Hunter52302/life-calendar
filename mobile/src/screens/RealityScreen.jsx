@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppContext } from '../context/AppContext.js';
 import { formatWeekRange, slotsToHours } from '../lib/utils.js';
+import { getRealityWeekEvents } from '../lib/realityEvents.js';
 
 function BudgetBadge({ actual, budget }) {
   if (budget == null) return null;
@@ -31,8 +32,14 @@ function hoursLabel(h) {
 export default function RealityScreen() {
   const { events, weekStart, prevWeek, nextWeek, T, budgets } = useContext(AppContext);
 
-  const weekPlan   = useMemo(() => events.events.filter(e => e.calendar === 'plan'   && e.week_start === weekStart), [events.events, weekStart]);
-  const weekActual = useMemo(() => events.events.filter(e => e.calendar === 'actual' && e.week_start === weekStart), [events.events, weekStart]);
+  const weekPlan = useMemo(
+    () => getRealityWeekEvents(events.events, events.linkedCalendars, weekStart, 'plan'),
+    [events.events, events.linkedCalendars, weekStart],
+  );
+  const weekActual = useMemo(
+    () => getRealityWeekEvents(events.events, events.linkedCalendars, weekStart, 'actual'),
+    [events.events, events.linkedCalendars, weekStart],
+  );
 
   const summary = useMemo(() => {
     const byCat = {};

@@ -21,7 +21,7 @@
     "pb:migrate:history-sync": "./pocketbase/pocketbase migrate history-sync --migrationsDir=./pocketbase/pb_migrations",
     "build": "vite build",
     "lint": "eslint .",
-    "test": "node --test \"src/**/*.test.js\" \"shared/**/*.test.js\"",
+    "test": "node --test \"src/**/*.test.js\" \"shared/**/*.test.js\" \"mobile/**/*.test.mjs\"",
     "preview": "vite preview",
     "mobile": "npm run start --workspace=mobile",
     "tauri": "tauri",
