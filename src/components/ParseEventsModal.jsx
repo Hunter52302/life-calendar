@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { parseEventText } from '../lib/parserRouter.js';
-import { buildSegments, dateToWeekData } from '../lib/calendarUtils.js';
-import { generateId, generateRepeatInstances } from '../lib/utils.js';
+import { draftOccurrenceCount, draftSegmentCount, draftsToEvents, REPEAT_TOTAL } from '../lib/parsedEventDrafts.js';
 import { enrichPeople, mergeContactIntoPeople } from '../../shared/peopleSuggestions.js';
 import { contactPickerSupported, pickContact } from '../lib/contactPicker.js';
 import { useVoiceInput } from '../hooks/useVoiceInput.js';
@@ -17,7 +16,6 @@ const REPEAT_OPTIONS = [
 ];
 // How many instances generateRepeatInstances() creates per frequency — shown on
 // the badge so the number of events added is never a surprise.
-const REPEAT_TOTAL = { daily: 365, weekly: 52, biweekly: 26, monthly: 12, yearly: 3 };
 const REPEAT_SHORT = { daily: 'daily', weekly: 'weekly', biweekly: 'every 2 wks', monthly: 'monthly', yearly: 'yearly' };
 
 // ── Tiny UI primitives (self-contained to avoid coupling to QuickAddFAB) ──────
@@ -38,6 +36,17 @@ function Field({ label, children, className = '' }) {
 function CategoryPills({ allCategories, value, onChange }) {
   return (
     <div className="flex flex-wrap gap-1.5">
+      <button
+        type="button" onClick={() => onChange(null)}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+          value == null
+            ? 'border-gray-500 bg-gray-500 text-white'
+            : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'
+        }`}
+      >
+        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-400" />
+        No category
+      </button>
       {allCategories.map(cat => (
         <button
           key={cat.id} type="button" onClick={() => onChange(cat.id)}
@@ -90,6 +99,7 @@ function fmtTime(hhmm, military) {
 function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggle }) {
   const [expanded, setExpanded] = useState(false);
   const isMultiDay = draft.endDate !== draft.startDate;
+  const segmentCount = draftSegmentCount(draft);
 
   return (
     <div className={`border rounded-xl p-3 transition-opacity ${
@@ -121,11 +131,11 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             <ConfidenceBadge confidence={draft.confidence} />
             {!draft.catId && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                uncategorized
+                no category
               </span>
             )}
-            {isMultiDay && (
-              <span className="text-[10px] text-amber-500 font-medium">2 segments</span>
+            {segmentCount > 1 && (
+              <span className="text-[10px] text-amber-500 font-medium">{segmentCount} segments</span>
             )}
             {draft.meeting_url && (
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
@@ -163,7 +173,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
             <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: allCategories.find(c => c.id === draft.catId)?.color ?? '#6B7280' }} />
-            {allCategories.find(c => c.id === draft.catId)?.label ?? (draft.catId || 'Uncategorized')}
+            {allCategories.find(c => c.id === draft.catId)?.label ?? (draft.catId || 'No category')}
             {' · '}
             {draft.calendar === 'plan' ? 'Plan' : 'Live'}
           </p>
@@ -221,7 +231,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
           </label>
           <Field label="Category">
             <CategoryPills allCategories={allCategories} value={draft.catId}
-              onChange={catId => onChange({ ...draft, catId: draft.catId === catId ? null : catId })} />
+              onChange={catId => onChange({ ...draft, catId })} />
           </Field>
           <Field label="Repeat">
             <select
@@ -231,7 +241,7 @@ function ParsedEventCard({ draft, allCategories, militaryTime, onChange, onToggl
             >
               {REPEAT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-            {draft.recurrence && isMultiDay && (
+            {draft.recurrence && segmentCount > 1 && (
               <p className="text-[11px] text-amber-500 mt-1">Repeat applies to single-day events only; this multi-day event will be added once.</p>
             )}
           </Field>
@@ -309,6 +319,9 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
   const [rawText, setRawText] = useState(initialText);
   const [drafts,  setDrafts]  = useState(null); // null = input step
   const [detecting, setDetecting] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState('keep');
+  const [bulkRepeat, setBulkRepeat] = useState('keep');
+  const [groupAsSeries, setGroupAsSeries] = useState(false);
   const textareaRef = useRef(null);
   const voice = useVoiceInput();
   const voiceBaseRef = useRef('');
@@ -360,67 +373,38 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
   }
 
   function toggleDraft(id) {
-    setDrafts(prev => prev.map(d => d.id === id ? { ...d, enabled: !d.enabled } : d));
+    const next = drafts.map(d => d.id === id ? { ...d, enabled: !d.enabled } : d);
+    setDrafts(next);
+    if (next.filter(d => d.enabled).length < 2) setGroupAsSeries(false);
   }
   function updateDraft(updated) {
     setDrafts(prev => prev.map(d => d.id === updated.id ? updated : d));
   }
 
+  function applyBulkCategory(value) {
+    setBulkCategory(value);
+    if (value === 'keep') return;
+    const catId = value === 'none' ? null : value;
+    setDrafts(prev => prev.map(d => d.enabled ? { ...d, catId } : d));
+  }
+
+  function applyBulkRepeat(value) {
+    setBulkRepeat(value);
+    if (value === 'keep') return;
+    const recurrence = value === 'none' ? null : value;
+    setDrafts(prev => prev.map(d => d.enabled ? { ...d, recurrence } : d));
+  }
+
   function handleAdd() {
-    const toAdd = (drafts ?? []).filter(d => d.enabled).flatMap(d => {
-      const cat  = allCategories.find(c => c.id === d.catId);
-      const extra = {
-        ...(d.meeting_url ? { meeting_url: d.meeting_url } : {}),
-        ...(d.location ? { location: d.location } : {}),
-        ...(d.people?.length ? { people: d.people } : {}),
-      };
-
-      // Recurring, single-day events expand into a linked series (one shared
-      // series_id) via the same generator the Add Event form uses. Multi-day
-      // recurrence isn't expressible in the series model, so those fall through
-      // to the per-segment path below.
-      if (d.recurrence && d.startDate === d.endDate) {
-        const { week_start, day_of_week } = dateToWeekData(d.startDate);
-        const [seg] = buildSegments(d.startDate, d.startTime, d.endDate, d.endTime);
-        const base = {
-          label: d.label.trim() || 'Event',
-          category: d.catId,
-          color: cat?.color ?? '#6B7280',
-          week_start, day_of_week,
-          slot_start:    seg.slotStart,
-          slot_duration: seg.slotDuration,
-          precision:  0.5,
-          calendar:   d.calendar,
-          source:     'paste',
-          is_all_day: !!d.allDay,
-          series_id:  generateId(),
-        };
-        return generateRepeatInstances(base, d.recurrence).map(e => ({ ...e, ...extra }));
-      }
-
-      const segs = buildSegments(d.startDate, d.startTime, d.endDate, d.endTime);
-      return segs.map(seg => {
-        const { week_start, day_of_week } = dateToWeekData(seg.date);
-        return {
-          label: d.label.trim() || 'Event',
-          category: d.catId,
-          color: cat?.color ?? '#6B7280',
-          week_start, day_of_week,
-          slot_start:    seg.slotStart,
-          slot_duration: seg.slotDuration,
-          precision:  0.5,
-          calendar:   d.calendar,
-          source:     'paste',
-          is_all_day: !!d.allDay,
-          ...extra,
-        };
-      });
-    });
+    const toAdd = draftsToEvents(drafts ?? [], allCategories, { groupAsSeries: groupAsSeries && enabledCount > 1 });
     onAddEvents(toAdd);
     onClose();
   }
 
   const enabledCount = drafts ? drafts.filter(d => d.enabled).length : 0;
+  const addCount = drafts
+    ? drafts.filter(d => d.enabled).reduce((sum, draft) => sum + draftOccurrenceCount(draft), 0)
+    : 0;
 
   return (
     <div
@@ -428,7 +412,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -529,7 +513,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
               <div className="flex items-center gap-3 pb-1">
                 <button type="button" onClick={() => setDrafts(prev => prev.map(d => ({ ...d, enabled: true  })))}
                   className="text-xs text-purple-600 dark:text-purple-400 hover:underline">Select all</button>
-                <button type="button" onClick={() => setDrafts(prev => prev.map(d => ({ ...d, enabled: false })))}
+                <button type="button" onClick={() => { setDrafts(prev => prev.map(d => ({ ...d, enabled: false }))); setGroupAsSeries(false); }}
                   className="text-xs text-gray-400 hover:underline">None</button>
                 <button type="button" onClick={() => setDrafts(null)}
                   className="text-xs text-gray-400 hover:underline ml-auto">← Re-paste</button>
@@ -546,6 +530,41 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
                 />
               ))}
 
+              <div className="rounded-xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/60 dark:bg-purple-950/20 p-3 space-y-3">
+                <div>
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">Apply to {enabledCount} selected</p>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Bulk changes leave unselected cards untouched.</p>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  <Field label="Category">
+                    <select value={bulkCategory} onChange={e => applyBulkCategory(e.target.value)} className={inputCls}>
+                      <option value="keep">Keep each category</option>
+                      <option value="none">No category</option>
+                      {allCategories.map(cat => <option key={cat.id} value={cat.id}>{cat.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Repeat">
+                    <select value={bulkRepeat} onChange={e => applyBulkRepeat(e.target.value)} className={inputCls}>
+                      <option value="keep">Keep each repeat setting</option>
+                      {REPEAT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <label className={`flex items-start gap-2 select-none ${enabledCount > 1 ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}>
+                  <input
+                    type="checkbox"
+                    checked={groupAsSeries}
+                    disabled={enabledCount < 2}
+                    onChange={e => setGroupAsSeries(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded accent-purple-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-gray-700 dark:text-gray-200">Group selected events as one series</span>
+                    <span className="block text-[11px] text-gray-400 dark:text-gray-500">Series edits can update or delete the selected schedule together.</span>
+                  </span>
+                </label>
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={onClose}
                   className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -558,7 +577,7 @@ export default function ParseEventsModal({ allCategories = [], initialText = '',
                   className="px-4 py-2 text-sm text-white rounded-lg font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
                   style={{ backgroundColor: '#8B5CF6' }}
                 >
-                  Add {enabledCount} event{enabledCount !== 1 ? 's' : ''}
+                  Add {addCount} event{addCount !== 1 ? 's' : ''}
                 </button>
               </div>
             </div>

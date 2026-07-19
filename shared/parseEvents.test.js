@@ -43,6 +43,34 @@ test('multiple shift lines parse into multiple events', () => {
   assert.equal(r[1].label, '2A');
 });
 
+test('copied weekly business hours preserve time ranges and 24-hour days', () => {
+  const text = [
+    'Sunday\t7\u202fAM–7\u202fPM',
+    'Monday\t5\u202fAM–12\u202fAM',
+    'Tuesday\tOpen 24 hours',
+    'Wednesday\tOpen 24 hours',
+    'Thursday\tOpen 24 hours',
+    'Friday\t12\u202fAM–9\u202fPM',
+    'Saturday\t7\u202fAM–7\u202fPM',
+  ].join('\n');
+  const r = parse(text);
+
+  assert.equal(r.length, 7);
+  assert.deepEqual(r.map(e => e.label), ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']);
+  assert.deepEqual(r.map(e => e.startDate), [
+    '2026-06-07', '2026-06-01', '2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05', '2026-06-06',
+  ]);
+  assert.deepEqual(
+    r.slice(2, 5).map(e => ({ allDay: e.allDay, startTime: e.startTime, endTime: e.endTime })),
+    Array(3).fill({ allDay: true, startTime: '00:00', endTime: '23:59' }),
+  );
+  assert.equal(r[1].startTime, '05:00');
+  assert.equal(r[1].endTime, '00:00');
+  assert.equal(r[1].endDate, '2026-06-02');
+  assert.equal(r[5].startTime, '00:00');
+  assert.equal(r[5].endTime, '21:00');
+});
+
 test('shift lines take priority over natural-language parsing', () => {
   // A line matching the shift format should never also produce an NL event.
   const r = parse('June 18: Night 2300 – 0700');

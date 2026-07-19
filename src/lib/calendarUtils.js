@@ -1,4 +1,4 @@
-import { getWeekStart } from './utils';
+import { getWeekStart } from './utils.js';
 
 /** "HH:MM" → half-hour slot index */
 export function timeToSlot(t) {

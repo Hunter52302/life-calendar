@@ -123,6 +123,17 @@ function SaveRow({ onClose, onSave, disabled, label, color }) {
 function CategoryPills({ allCategories, value, onChange }) {
   return (
     <div className="flex flex-wrap gap-1.5">
+      <button
+        type="button" onClick={() => onChange(null)}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+          value == null
+            ? 'border-gray-500 bg-gray-500 text-white'
+            : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
+        }`}
+      >
+        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-gray-400" />
+        No category
+      </button>
       {allCategories.map(cat => (
         <button
           key={cat.id} type="button" onClick={() => onChange(cat.id)}
@@ -285,7 +296,7 @@ function EventForm({ allCategories, allEvents = [], calendar = 'plan', militaryT
       </label>
       <Field label="Category">
         <CategoryPills allCategories={allCategories} value={catId}
-          onChange={id => setCatId(c => c === id ? null : id)} />
+          onChange={setCatId} />
       </Field>
       <SaveRow
         onClose={onClose} onSave={handleSave}
@@ -794,5 +805,4 @@ export default function QuickAddFAB({
     </>
   );
 }
-
 

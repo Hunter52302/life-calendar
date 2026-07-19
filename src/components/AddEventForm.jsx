@@ -74,7 +74,10 @@ export default function AddEventForm({
   const slotCount = formPrecision === 1 ? 24 : 48;
 
   const [label, setLabel]       = useState(source?.label ?? '');
-  const [category, setCategory] = useState(source?.category ?? allCategories[0]?.id ?? 'sleep');
+  const initialCategory = source && Object.prototype.hasOwnProperty.call(source, 'category')
+    ? source.category
+    : allCategories[0]?.id ?? 'sleep';
+  const [category, setCategory] = useState(initialCategory);
   const [days, setDays]         = useState([source?.day_of_week ?? defaultDay ?? 0]);
   const [isAllDay, setIsAllDay] = useState(source?.is_all_day ?? defaultAllDay ?? false);
   const [slotStart, setSlotStart] = useState(source?.slot_start ?? defaultSlot ?? 8);
@@ -328,6 +331,15 @@ export default function AddEventForm({
 
             {!categoryMode ? (
               <div className="grid grid-cols-2 gap-1.5">
+                <button type="button" onClick={() => setCategory(null)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all text-left ${
+                    category == null
+                      ? 'font-medium text-gray-700 dark:text-gray-100 border-gray-500 bg-gray-100 dark:bg-gray-700'
+                      : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-500'
+                  }`}>
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-gray-400" />
+                  <span className="truncate">No category</span>
+                </button>
                 {allCategories.map(cat => (
                   <div key={cat.id} className="relative group">
                     <button type="button" onClick={() => setCategory(c => c === cat.id ? null : cat.id)}
@@ -719,4 +731,3 @@ export default function AddEventForm({
     </>
   );
 }
-

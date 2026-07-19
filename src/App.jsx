@@ -420,7 +420,8 @@ export default function App() {
   const settingsOpenCount = [
     appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
     habitsOpen, notificationsOpen, liveBehaviorOpen, aiParsingOpen, zkOpen,
-    searchOptionsOpen, timezonesOpen, downloadOpen,
+    searchOptionsOpen, timezonesOpen, downloadOpen, dangerOpen, profileOpen,
+    addIntegrationOpen,
   ].filter(Boolean).length;
 
   function collapseAllSettings() {
@@ -438,7 +439,13 @@ export default function App() {
     setSearchOptionsOpen(false);
     setTimezonesOpen(false);
     setDownloadOpen(false);
+    setProfileOpen(false);
+    setAddIntegrationOpen(false);
+    setAddingTz(false);
     setAddingHabit(false);
+    // Search results are intentionally expanded. Clear the query so those
+    // force-open matches can collapse with everything else.
+    setSettingsSearch('');
   }
   // Closing Settings (from any code path) also drops the detached window.
   useEffect(() => {
@@ -1136,7 +1143,7 @@ export default function App() {
     tutorial:   ['tutorial', 'help', 'guide', 'learn', 'topics'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag', 'budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget', 'allocate', 'allocation'],
-    connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
+    connected:  ['connected calendars', 'connected', 'connection', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete', 'clear', 'calendar', 'events', 'testing'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
@@ -2760,7 +2767,7 @@ export default function App() {
                       )}
 
                       {/* ── Connected Calendars (collapsible) ── */}
-                      {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
+                      {sv(SECTION_KWS.connected) && (
                         <div className="rounded-lg overflow-hidden" style={{ order: 4 }}>
                           <button
                             type="button"
@@ -2774,18 +2781,18 @@ export default function App() {
                             <div className="px-2 pb-2 space-y-1">
                               <button
                                 type="button"
-                                onClick={activeTab === 'plan' ? handlePlanExportIcal : handleLiveExportIcal}
+                                onClick={activeTab === 'actual' ? handleLiveExportIcal : handlePlanExportIcal}
                                 className="w-full text-left text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                               >
                                 ↑ Export .ics
                               </button>
-                              {activeTab === 'plan' && (
+                              {activeTab !== 'actual' && (
                                 <label className="flex w-full text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer">
                                   ↓ Import .ics
                                   <input type="file" accept=".ics" className="hidden" onChange={handlePlanImportIcal} />
                                 </label>
                               )}
-                              {activeTab !== 'plan' && (
+                              {activeTab === 'actual' && (
                                 <p className="px-2 pt-0.5 pb-1 text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
                                   To import an .ics, go to the{' '}
                                   <button
@@ -3397,9 +3404,9 @@ export default function App() {
                             className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Download Desktop App</span>
-                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{downloadOpen ? '▲' : 'Windows · Linux'}</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(downloadOpen, SECTION_KWS.download) ? '▲' : 'Windows · Linux'}</span>
                           </button>
-                          {downloadOpen && (
+                          {so(downloadOpen, SECTION_KWS.download) && (
                             <div className="px-2 pb-2 space-y-0.5">
                               <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug px-1 mb-1.5">
                                 Native desktop builds for Windows, Linux, and macOS.

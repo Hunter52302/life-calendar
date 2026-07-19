@@ -12,6 +12,13 @@ import * as chrono from 'chrono-node';
 //      "2A 1400 – 2200"
 const SHIFT_RE = /^(.*?)\s+(\d{4})\s*[–\-—]+\s*(\d{4})/;
 
+// Business-hours rows copied from map/listing sites, for example:
+// "Monday  5 AM–12 AM" or "Tuesday\tOpen 24 hours". chrono-node treats the
+// number in "24 hours" as a time near the reference clock, so these rows need a
+// small deterministic parser before the natural-language pass.
+const WEEKDAY_HOURS_RE = /^(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s*:?\s+(?:(open\s+24\s+hours)|((?:1[0-2]|[1-9])(?::[0-5]\d)?\s*[ap]\.?\s*m\.?)\s*[–—-]\s*((?:1[0-2]|[1-9])(?::[0-5]\d)?\s*[ap]\.?\s*m\.?))$/i;
+const WEEKDAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+
 // chrono-node fails to merge a time phrase with a date phrased as
 // "the Nth of MONTH" (ordinal-before-month order); rewrite to "MONTH N"
 // so it merges into one match like every other phrasing order does.
@@ -146,6 +153,20 @@ function milToHHMM(hhmm) {
 
 function padHHMM(h, m) {
   return `${String(h).padStart(2, '0')}:${String(m ?? 0).padStart(2, '0')}`;
+}
+
+function parseMeridiemTime(text) {
+  const m = text.replace(/[.\s]/g, '').match(/^(1[0-2]|[1-9])(?::([0-5]\d))?([AP])M$/i);
+  if (!m) return null;
+  let hour = Number(m[1]) % 12;
+  if (m[3].toUpperCase() === 'P') hour += 12;
+  return padHHMM(hour, Number(m[2] ?? 0));
+}
+
+function nextWeekdayDate(dayName, referenceDate) {
+  const ref = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate(), 12);
+  ref.setDate(ref.getDate() + ((WEEKDAY_INDEX[dayName.toLowerCase()] - ref.getDay() + 7) % 7));
+  return toDateStr(ref);
 }
 
 /**
@@ -392,6 +413,36 @@ function dateMatchToEvent(dateMatch, label, meetingUrl) {
 export function parseEvents(rawText, referenceDate = new Date()) {
   const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const meetingUrl = rawText.match(URL_RE)?.[0] ?? '';
+
+  // ── Pass 0: copied weekly business hours ───────────────────────────────────
+  const hoursResults = [];
+  for (const line of lines) {
+    const m = WEEKDAY_HOURS_RE.exec(line);
+    if (!m) continue;
+    const [, rawDay, open24, rawStart, rawEnd] = m;
+    const label = rawDay[0].toUpperCase() + rawDay.slice(1).toLowerCase();
+    const startDate = nextWeekdayDate(rawDay, referenceDate);
+    if (open24) {
+      hoursResults.push({
+        label, startDate, startTime: '00:00', endDate: startDate,
+        endTime: '23:59', allDay: true, confidence: 'high',
+        ...(meetingUrl ? { meeting_url: meetingUrl } : {}),
+      });
+      continue;
+    }
+    const startTime = parseMeridiemTime(rawStart);
+    const endTime = parseMeridiemTime(rawEnd);
+    if (!startTime || !endTime) continue;
+    const startMinutes = Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3));
+    const endMinutes = Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3));
+    const endDate = endMinutes <= startMinutes ? addDayStr(startDate) : startDate;
+    hoursResults.push({
+      label, startDate, startTime, endDate, endTime,
+      allDay: false, confidence: 'high',
+      ...(meetingUrl ? { meeting_url: meetingUrl } : {}),
+    });
+  }
+  if (hoursResults.length > 0) return hoursResults;
 
   // ── Pass 1: structured HHMM shift format ───────────────────────────────────
   const shiftResults = [];
