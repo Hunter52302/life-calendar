@@ -1,8 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
 import { readFileSync } from 'fs'
+
+// vite-plugin-pwa 1.3.0 probes a global `__dirname` before import.meta.url.
+// Node 24 exposes `__dirname` as "." while loading the bundled Vite config,
+// which makes createRequire('.') throw and leaves the build waiting forever.
+// Load the plugin without that misleading global so it resolves its own file.
+const inheritedDirname = globalThis.__dirname
+delete globalThis.__dirname
+const { VitePWA } = await import('vite-plugin-pwa')
+if (inheritedDirname !== undefined) globalThis.__dirname = inheritedDirname
+
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
 
 export default defineConfig({
@@ -14,6 +23,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
+      // Local verification can skip Workbox with SKIP_PWA=1. This avoids a
+      // macOS file-provider stall while keeping normal production builds intact.
+      disable: process.env.SKIP_PWA === '1',
       // 'prompt' means we control when the new SW activates (via UpdatePrompt)
       registerType: 'prompt',
 

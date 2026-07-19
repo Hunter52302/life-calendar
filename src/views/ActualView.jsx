@@ -308,6 +308,7 @@ export default function ActualView({
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
           homeAddress={homeAddress} savedAddresses={savedAddresses}
           siblingEvents={weekActualEvents}
+          allEvents={allEvents}
           onClose={() => setFormState(null)}
         />
       )}

@@ -128,6 +128,19 @@ function fmtKeybind(kb) {
   return parts.join('+');
 }
 
+function eventPreviewText(event) {
+  const date = new Date(`${getEventDate(event)}T00:00:00`);
+  const dateText = Number.isNaN(date.getTime())
+    ? getEventDate(event)
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  if (event.is_all_day) return `${dateText} · All day`;
+  const slotMinutes = event.precision === 0.5 ? 30 : 60;
+  const totalMinutes = (event.slot_start ?? 0) * slotMinutes;
+  const time = new Date(2000, 0, 1, Math.floor(totalMinutes / 60) % 24, totalMinutes % 60)
+    .toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${dateText} · ${time}`;
+}
+
 /**
  * Parse raw ICS text into app events for a given calendar, expanding RRULEs.
  * Shared by file imports and URL subscriptions.
@@ -175,6 +188,75 @@ function Toggle({ checked, onChange }) {
   );
 }
 
+function AboutSettingsSection({ open, onToggle, desktopUpdater, webAutoUpdate, setWebAutoUpdate }) {
+  const version = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+  const isDesktop = typeof window.__TAURI__ !== 'undefined';
+  const platform = isDesktop
+    ? 'Tauri Desktop'
+    : window.matchMedia('(display-mode: standalone)').matches ? 'PWA' : 'Web';
+
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ order: 0 }}>
+      <button type="button" onClick={onToggle}
+        className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">About</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-2 pb-3 space-y-2">
+          <div className="flex items-center gap-2.5 pt-1">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">PLS Calendar</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">v{version} · {platform}</p>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Build</span>
+              <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400">v{version}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Platform</span>
+              <span className="text-[11px] text-gray-500 dark:text-gray-400">{platform}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-gray-400 dark:text-gray-500">Source</span>
+              <button type="button" onClick={async () => {
+                const url = 'https://github.com/Hunter52302/life-calendar';
+                if (isDesktop) {
+                  const { open } = await import('@tauri-apps/plugin-opener');
+                  await open(url);
+                } else window.open(url, '_blank');
+              }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
+            </div>
+          </div>
+          {isDesktop ? (
+            <UpdateSettings updater={desktopUpdater} />
+          ) : (
+            <div className="pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
+              <a href="https://github.com/Hunter52302/life-calendar/releases/latest" target="_blank" rel="noopener noreferrer"
+                className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Check for Updates</span>
+                <span className="text-gray-300 dark:text-gray-600">↗</span>
+              </a>
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Install updates automatically</span>
+                <Toggle checked={webAutoUpdate} onChange={() => setWebAutoUpdate(!webAutoUpdate)} />
+              </div>
+            </div>
+          )}
+          <p className="text-[10px] text-gray-300 dark:text-gray-700 text-center">© {new Date().getFullYear()} PLS Calendar</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const { authState, zkInfo, accountEmail, prelogin, register, login, loginWithGoogle, recoveryEnvelope, resetPassword, logout, continueOffline, markUnlocked, setAccountEmail, deleteAccount, chooseLocal, chooseAccount, switchToAccount, backToChoose, serverReachable } = useAuth();
   const [activeTab, setActiveTab] = useState('plan');
@@ -192,12 +274,9 @@ export default function App() {
     'lc-pinned-cats', () => ['sleep', 'work', 'school', 'personal', 'free-time']
   );
   const [showSettings, setShowSettings] = useState(false);
-  // Settings menu presentation: 'sidebar' (default — a dockable drawer that
-  // leaves the calendar visible) or 'popup' (classic centered modal). Either
-  // form can be detached into its own window (settingsPoppedOut).
-  const [settingsView, setSettingsView] = usePersistentState('lc-settings-view', 'sidebar');
+  // Settings is app chrome. It defaults right and can dock to any screen edge.
+  const [settingsDock, setSettingsDock] = usePersistentState('lc-settings-dock', 'right');
   const [settingsPoppedOut, setSettingsPoppedOut] = useState(false);
-  const [settingsMinimized, setSettingsMinimized] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [connectedOpen, setConnectedOpen] = useState(false);
@@ -340,7 +419,7 @@ export default function App() {
   // Derived: how many settings sections are currently open
   const settingsOpenCount = [
     appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
-    habitsOpen, notificationsOpen, zkOpen,
+    habitsOpen, notificationsOpen, liveBehaviorOpen, aiParsingOpen, zkOpen,
     searchOptionsOpen, timezonesOpen, downloadOpen,
   ].filter(Boolean).length;
 
@@ -353,17 +432,18 @@ export default function App() {
     setAboutOpen(false);
     setHabitsOpen(false);
     setNotificationsOpen(false);
+    setLiveBehaviorOpen(false);
+    setAiParsingOpen(false);
     setZkOpen(false);
     setSearchOptionsOpen(false);
     setTimezonesOpen(false);
     setDownloadOpen(false);
     setAddingHabit(false);
   }
-  // Closing Settings (from any code path) also drops the detached window and
-  // un-minimizes, so it reopens in a clean docked state next time.
+  // Closing Settings (from any code path) also drops the detached window.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!showSettings) { setSettingsPoppedOut(false); setSettingsMinimized(false); }
+    if (!showSettings) setSettingsPoppedOut(false);
   }, [showSettings]);
   const [addingTz, setAddingTz]           = useState(false);
   const [tzSearch,  setTzSearch]          = useState('');
@@ -1050,6 +1130,10 @@ export default function App() {
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
     appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency', 'settings', 'sidebar', 'popup', 'drawer', 'panel', 'menu', 'window', 'popout', 'detach'],
+    about:      ['about', 'app', 'application', 'build', 'version', 'platform', 'source', 'github', 'update'],
+    download:   ['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native'],
+    export:     ['export', 'download', 'data', 'csv', 'json', 'pdf'],
+    tutorial:   ['tutorial', 'help', 'guide', 'learn', 'topics'],
     search:     ['search', 'shortcut', 'keybind', 'keyboard', 'hotkey', 'find'],
     categories: ['category', 'categories', 'color', 'label', 'tag', 'budget', 'budgets', 'target', 'hours', 'weekly', 'goal', 'time budget', 'allocate', 'allocation'],
     connected:  ['connected', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
@@ -1062,11 +1146,16 @@ export default function App() {
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
     zk:            ['encrypt', 'encryption', 'zero-knowledge', 'privacy', 'secure', 'security', 'bitwarden', 'zk', 'password', 'private'],
   };
+  function settingsMatch(kws) {
+    if (!sq) return true;
+    const haystack = kws.join(' ');
+    return sq.split(/\s+/).every(term => haystack.includes(term));
+  }
   // sv: is this section visible given the current search query?
-  function sv(kws) { return !sq || kws.some(kw => kw.includes(sq)); }
+  function sv(kws) { return settingsMatch(kws); }
   // so: should this section be open? (force-open when search matches)
-  function so(open, kws) { return (!!sq && kws.some(kw => kw.includes(sq))) || open; }
-  const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(kws => sv(kws));
+  function so(open, kws) { return (!!sq && settingsMatch(kws)) || open; }
+  const settingsNoResults = !!sq && !Object.values(SECTION_KWS).some(settingsMatch);
 
   // Show auth screen when not yet authenticated, ZK-locked, or while the user
   // still needs to save their one-time recovery code after registering.
@@ -1131,7 +1220,10 @@ export default function App() {
           precision={precision}
           initialConnectionId={pendingConnectionId}
           addLinkedCalendar={addLinkedCalendar}
+          deleteLinkedCalendar={deleteLinkedCalendar}
           replaceEventsBySourceCalendar={replaceEventsBySourceCalendar}
+          linkedCalendars={linkedCalendars}
+          events={events}
           showNotice={(msg) => flashNotice(msg)}
           onClose={() => { setConnectModalOpen(false); setPendingConnectionId(null); }}
         />
@@ -1149,7 +1241,7 @@ export default function App() {
           onBack={() => { setTutorialTopic(null); setShowTutorialHub(true); }}
         />
       )}
-      <div className="lc-surface flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe">
+      <div className={`lc-app-frame lc-surface flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe ${showSettings && !settingsPoppedOut ? `lc-settings-open lc-settings-${settingsDock}` : ''}`}>
         {/* Header */}
         <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
@@ -1262,11 +1354,7 @@ export default function App() {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => {
-                  // If minimized to the edge, the gear re-expands rather than closing.
-                  if (showSettings && settingsMinimized) setSettingsMinimized(false);
-                  else setShowSettings(s => !s);
-                }}
+                onClick={() => setShowSettings(s => !s)}
                 className={`p-2 rounded-lg transition-colors text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 ${showSettings ? 'bg-gray-100 dark:bg-gray-700' : ''}`}
                 aria-label="Menu & settings"
               >
@@ -1277,13 +1365,11 @@ export default function App() {
 
               {showSettings && (
                 <SettingsShell
-                  view={settingsView}
+                  dock={settingsDock}
                   poppedOut={settingsPoppedOut}
-                  minimized={settingsMinimized}
                   onClose={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }}
-                  onPopOut={() => { setSettingsMinimized(false); setSettingsPoppedOut(true); }}
+                  onPopOut={() => setSettingsPoppedOut(true)}
                   onDockBack={() => setSettingsPoppedOut(false)}
-                  onToggleMinimize={() => setSettingsMinimized(m => !m)}
                   onPopoutWindowClosed={() => { setShowSettings(false); setEditingCalColor(null); setSettingsSearch(''); }}
                 >
                     {/* Settings search filter */}
@@ -1323,11 +1409,11 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="space-y-1">
+                    <div className="flex flex-col gap-1">
 
                       {/* ── Appearance (collapsible) ── */}
                       {sv(SECTION_KWS.appearance) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 2 }}>
                         <button
                           type="button"
                           onClick={() => setAppearanceOpen(v => !v)}
@@ -1383,20 +1469,20 @@ export default function App() {
                                 <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                               </label>
                             )}
-                            {sv(['settings', 'menu', 'sidebar', 'popup', 'drawer', 'panel', 'window', 'popout']) && (
+                            {sv(['settings', 'menu', 'dock', 'position', 'right', 'left', 'top', 'bottom', 'panel', 'window', 'popout']) && (
                               <div className="flex items-center justify-between gap-3">
                                 <div>
-                                  <span className="text-sm text-gray-600 dark:text-gray-400">Settings menu style</span>
-                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Dock as a sidebar or open as a centered popup. Either can pop out into its own window.</p>
+                                  <span className="text-sm text-gray-600 dark:text-gray-400">Settings dock</span>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Choose which edge of the app holds Settings.</p>
                                 </div>
-                                <div className="flex gap-0.5 rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5 flex-shrink-0">
-                                  {[['sidebar', 'Sidebar'], ['popup', 'Popup']].map(([val, label]) => (
+                                <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-gray-100 dark:bg-gray-700 p-0.5 flex-shrink-0">
+                                  {[['right', 'Right'], ['left', 'Left'], ['top', 'Top'], ['bottom', 'Bottom']].map(([val, label]) => (
                                     <button
                                       key={val}
                                       type="button"
-                                      onClick={() => setSettingsView(val)}
+                                      onClick={() => setSettingsDock(val)}
                                       className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-                                        settingsView === val
+                                        settingsDock === val
                                           ? 'bg-white dark:bg-gray-500 text-gray-900 dark:text-white shadow-sm'
                                           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                                       }`}
@@ -1525,12 +1611,6 @@ export default function App() {
                                         checked={enabledViews.includes('half')}
                                         onChange={() => toggleView('half')}
                                       />
-                                    </label>
-                                  )}
-                                  {sv(['week', 'numbers']) && (
-                                    <label className="flex items-center justify-between gap-3 cursor-pointer">
-                                      <span className="text-sm text-gray-600 dark:text-gray-400">Week numbers</span>
-                                      <Toggle checked={showWeekNumbers} onChange={() => setShowWeekNumbers(v => !v)} />
                                     </label>
                                   )}
                                 </div>
@@ -1731,7 +1811,7 @@ export default function App() {
 
                       {/* ── Live Calendar Behavior (collapsible) ── */}
                       {sv(SECTION_KWS.liveBehavior) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 7 }}>
                         <button
                           type="button"
                           onClick={() => setLiveBehaviorOpen(v => !v)}
@@ -1763,7 +1843,7 @@ export default function App() {
 
                       {/* ── Text/Voice Parsing (collapsible) ── */}
                       {sv(SECTION_KWS.aiParsing) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 10 }}>
                         <button
                           type="button"
                           onClick={() => setAiParsingOpen(v => !v)}
@@ -1838,7 +1918,7 @@ export default function App() {
 
                       {/* ── Search Options (collapsible, calendar only) ── */}
                       {sv(SECTION_KWS.search) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 9 }}>
                         <button
                           type="button"
                           onClick={() => setSearchOptionsOpen(v => !v)}
@@ -1937,7 +2017,7 @@ export default function App() {
 
                       {/* ── Time Zones (collapsible) ── */}
                       {sv(SECTION_KWS.timezone) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 11 }}>
                         <button
                           type="button"
                           onClick={() => setTimezonesOpen(v => !v)}
@@ -2064,7 +2144,7 @@ export default function App() {
 
                       {/* ── Categories & Time Budgets (collapsible) ── */}
                       {sv(SECTION_KWS.categories) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 3 }}>
                         <button
                           type="button"
                           onClick={() => setCategoriesOpen(v => !v)}
@@ -2339,7 +2419,7 @@ export default function App() {
 
                       {/* ── Habit Tracker Settings (collapsible) ── */}
                       {sv(SECTION_KWS.habits) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 6 }}>
                         <button
                           type="button"
                           onClick={() => setHabitsOpen(v => !v)}
@@ -2464,7 +2544,7 @@ export default function App() {
 
                       {/* ── Notifications & Integrations (collapsible) ── */}
                       {sv(SECTION_KWS.notifications) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 8 }}>
                         <button type="button" onClick={() => setNotificationsOpen(v => !v)}
                           className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Notifications & Integrations</span>
@@ -2648,7 +2728,7 @@ export default function App() {
 
                       {/* ── Zero-Knowledge Encryption (collapsible) ── */}
                       {sv(SECTION_KWS.zk) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 13 }}>
                         <button type="button" onClick={() => setZkOpen(v => !v)}
                           className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                           <div className="flex items-center gap-2">
@@ -2681,7 +2761,7 @@ export default function App() {
 
                       {/* ── Connected Calendars (collapsible) ── */}
                       {(activeTab === 'plan' || activeTab === 'actual') && sv(SECTION_KWS.connected) && (
-                        <div className="rounded-lg overflow-hidden">
+                        <div className="rounded-lg overflow-hidden" style={{ order: 4 }}>
                           <button
                             type="button"
                             onClick={() => setConnectedOpen(v => !v)}
@@ -2809,7 +2889,10 @@ export default function App() {
                                     {[...linkedCalendars].reverse().map(cal => {
                                       // Count only the events imported from the feed — not the
                                       // "assumed-completed" live copies the app derives from them.
-                                      const count = events.filter(e => e.source_calendar_id === cal.id && e.source !== 'auto-completed').length;
+                                      const calEvents = events
+                                        .filter(e => e.source_calendar_id === cal.id && e.source !== 'auto-completed')
+                                        .sort((a, b) => getEventDate(a).localeCompare(getEventDate(b)) || (a.slot_start ?? 0) - (b.slot_start ?? 0));
+                                      const count = calEvents.length;
                                       const isConfirming = pendingDelete === cal.id;
                                       const calColor = cal.color || '#6B7280';
                                       const isPickingColor = editingCalColor === cal.id;
@@ -2889,10 +2972,22 @@ export default function App() {
                                             )}
                                           </div>
                                           {isConfirming && (
-                                            <div className="flex items-center gap-2 pb-1.5 pl-0.5">
-                                              <span className="text-xs text-red-500 dark:text-red-400 flex-1">Remove {count} event{count !== 1 ? 's' : ''}?</span>
-                                              <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-                                              <button type="button" onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Delete</button>
+                                            <div className="pb-2 pl-0.5 space-y-2">
+                                              <p className="text-xs text-red-500 dark:text-red-400">Remove “{cal.name}” and these {count} event{count !== 1 ? 's' : ''}?</p>
+                                              {calEvents.length > 0 && (
+                                                <div className="max-h-40 overflow-y-auto rounded-lg border border-red-100 dark:border-red-900/40 bg-red-50/60 dark:bg-red-950/20 divide-y divide-red-100 dark:divide-red-900/30">
+                                                  {calEvents.map(event => (
+                                                    <div key={event.id} className="px-2 py-1.5">
+                                                      <p className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{event.label || 'Untitled event'}</p>
+                                                      <p className="text-[10px] text-gray-400 dark:text-gray-500">{eventPreviewText(event)}</p>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              )}
+                                              <div className="flex justify-end gap-2">
+                                                <button type="button" onClick={() => setPendingDelete(null)} className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+                                                <button type="button" onClick={() => { deleteLinkedCalendar(cal.id); setPendingDelete(null); }} className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium transition-colors">Remove calendar</button>
+                                              </div>
                                             </div>
                                           )}
                                         </div>
@@ -2913,9 +3008,19 @@ export default function App() {
                         </div>
                       )}
 
+                      {sv(SECTION_KWS.about) && (
+                        <AboutSettingsSection
+                          open={so(aboutOpen, SECTION_KWS.about)}
+                          onToggle={() => setAboutOpen(v => !v)}
+                          desktopUpdater={desktopUpdater}
+                          webAutoUpdate={webAutoUpdate}
+                          setWebAutoUpdate={setWebAutoUpdate}
+                        />
+                      )}
+
                       {/* ── Account Settings (collapsible) ── */}
                       {sv(SECTION_KWS.account) && (
-                      <div className="rounded-lg overflow-hidden">
+                      <div className="rounded-lg overflow-hidden" style={{ order: 1 }}>
                         <button
                           type="button"
                           onClick={() => setAccountOpen(v => !v)}
@@ -3243,103 +3348,20 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* ── About (nested collapsible inside Account Settings) ── */}
-                            <div className="rounded-lg overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => setAboutOpen(v => !v)}
-                                className="flex items-center justify-between w-full px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                              >
-                                <span className="text-sm text-gray-600 dark:text-gray-400">About</span>
-                                <span className="text-[10px] text-gray-400 dark:text-gray-500">{aboutOpen ? '▲' : '▼'}</span>
-                              </button>
-                              {aboutOpen && (
-                                <div className="px-2 pb-3 space-y-2">
-                                  {/* App identity */}
-                                  <div className="flex items-center gap-2.5 pt-1">
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                                      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                      </svg>
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-tight">PLS Calendar</p>
-                                      <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">
-                                        v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
-                                        {' · '}
-                                        {typeof window.__TAURI__ !== 'undefined' ? '🖥 Desktop' : window.matchMedia('(display-mode: standalone)').matches ? '📱 PWA' : '🌐 Web'}
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  {/* Info rows */}
-                                  <div className="space-y-1">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Build</span>
-                                      <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400">v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Platform</span>
-                                      <span className="text-[11px] text-gray-500 dark:text-gray-400">{typeof window.__TAURI__ !== 'undefined' ? 'Tauri Desktop' : 'Web / PWA'}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-[11px] text-gray-400 dark:text-gray-500">Source</span>
-                                      <button type="button" onClick={async () => {
-                                        const url = 'https://github.com/Hunter52302/life-calendar';
-                                        if (typeof window.__TAURI__ !== 'undefined') {
-                                          const { open } = await import('@tauri-apps/plugin-opener');
-                                          await open(url);
-                                        } else { window.open(url, '_blank'); }
-                                      }} className="text-[11px] text-indigo-500 dark:text-indigo-400 hover:underline">GitHub →</button>
-                                    </div>
-                                  </div>
-
-                                  {/* Check for Updates */}
-                                  {typeof window.__TAURI__ !== 'undefined' ? (
-                                    <UpdateSettings updater={desktopUpdater} />
-                                  ) : (
-                                    <div className="pt-1 border-t border-gray-100 dark:border-gray-800 space-y-2">
-                                      <a href="https://github.com/Hunter52302/life-calendar/releases/latest" target="_blank" rel="noopener noreferrer"
-                                        className="w-full flex items-center justify-between px-1 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Check for Updates</span>
-                                        <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-                                      </a>
-                                      <div className="flex items-center justify-between px-1">
-                                        <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300">Install updates automatically</span>
-                                        <button
-                                          type="button"
-                                          role="switch"
-                                          aria-checked={webAutoUpdate}
-                                          onClick={() => setWebAutoUpdate(!webAutoUpdate)}
-                                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webAutoUpdate ? 'bg-indigo-500' : 'bg-gray-300 dark:bg-gray-600'}`}
-                                        >
-                                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${webAutoUpdate ? 'translate-x-[18px]' : 'translate-x-1'}`} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <p className="text-[10px] text-gray-300 dark:text-gray-700 text-center">© {new Date().getFullYear()} PLS Calendar</p>
-                                </div>
-                              )}
-                            </div>
-
                           </div>
                         )}
                       </div>
                       )}
 
-                    </div>
-
                     {/* No-results state */}
                     {settingsNoResults && (
-                      <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6">
+                      <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-6" style={{ order: 99 }}>
                         No results for &ldquo;<span className="font-medium text-gray-500 dark:text-gray-400">{settingsSearch}</span>&rdquo;
                       </p>
                     )}
 
-                    {activeTab === 'reality' && (
-                      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                    {activeTab === 'reality' && sv(SECTION_KWS.export) && (
+                      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700" style={{ order: 5.5 }}>
                         <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">Export Data</p>
                         <div className="flex gap-1 rounded-lg bg-gray-100 dark:bg-gray-700 p-1 mb-2">
                           {['csv', 'json', 'pdf'].map(fmt => (
@@ -3367,8 +3389,8 @@ export default function App() {
                     {/* Linked Calendars — now lives inside Connected Calendars above */}
 
                       {/* ── Download Desktop App ── */}
-                      {sv(['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native']) && (
-                        <div className="rounded-lg overflow-hidden">
+                      {sv(SECTION_KWS.download) && (
+                        <div className="rounded-lg overflow-hidden" style={{ order: 5 }}>
                           <button
                             type="button"
                             onClick={() => setDownloadOpen(v => !v)}
@@ -3404,7 +3426,8 @@ export default function App() {
                       )}
 
                       {/* ── Tutorial (page-specific) ── */}
-                      <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
+                      {sv(SECTION_KWS.tutorial) && (
+                      <div className="pt-1 border-t border-gray-100 dark:border-gray-700 mt-1" style={{ order: 12 }}>
                         <button
                           type="button"
                           onClick={() => { setShowSettings(false); setShowTutorialHub(true); }}
@@ -3417,6 +3440,9 @@ export default function App() {
                           <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500">13 topics</span>
                         </button>
                       </div>
+                      )}
+
+                    </div>
 
                 </SettingsShell>
               )}

@@ -8,7 +8,7 @@ import { isTauri } from '../lib/platform.js';
 // aborts the moment the new window handles an event. Until the pop-out is
 // rebuilt as a real second Tauri window (its own JS context, state synced rather
 // than shared), hide the control on desktop instead of offering a dead button.
-// Sidebar and popup modes are unaffected.
+// The in-app dock remains available on every edge.
 const CAN_POP_OUT = !isTauri();
 
 // Small stroke icons matching the app's existing iconography.
@@ -33,14 +33,6 @@ function IconDockBack() {
     </svg>
   );
 }
-function IconCollapse() {
-  return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-    </svg>
-  );
-}
-
 function HeaderButton({ onClick, title, children }) {
   return (
     <button
@@ -56,22 +48,15 @@ function HeaderButton({ onClick, title, children }) {
 }
 
 /**
- * Chrome for the main Settings menu. Wraps the (unchanged) settings content and
- * renders it as one of three presentations:
- *   • sidebar  — a right-docked drawer that leaves the calendar visible and
- *                interactive (no dimming backdrop), so appearance changes can be
- *                previewed live. Can be minimized to a slim edge tab.
- *   • popup    — the classic centered modal with a dimming backdrop.
- *   • popped-out — detached into its own OS window via <PopoutWindow>.
+ * Chrome for the main Settings menu. It stays attached to the chosen app edge
+ * and leaves the calendar visible. Web builds can also detach it into a window.
  */
 export default function SettingsShell({
-  view = 'sidebar',
+  dock = 'right',
   poppedOut = false,
-  minimized = false,
   onClose,
   onPopOut,
   onDockBack,
-  onToggleMinimize,
   onPopoutWindowClosed,
   children,
 }) {
@@ -83,9 +68,6 @@ export default function SettingsShell({
           <HeaderButton onClick={onDockBack} title="Dock back into window"><IconDockBack /></HeaderButton>
         ) : (
           <>
-            {view === 'sidebar' && (
-              <HeaderButton onClick={onToggleMinimize} title="Minimize to edge"><IconCollapse /></HeaderButton>
-            )}
             {CAN_POP_OUT && (
               <HeaderButton onClick={onPopOut} title="Pop out to a separate window"><IconPopOut /></HeaderButton>
             )}
@@ -114,55 +96,21 @@ export default function SettingsShell({
     );
   }
 
-  // ── Minimized sidebar: just a slim tab on the right edge ──────────────────
-  if (view === 'sidebar' && minimized) {
-    return (
-      <button
-        type="button"
-        onClick={onToggleMinimize}
-        title="Open settings"
-        aria-label="Open settings"
-        className="fixed top-1/2 right-0 -translate-y-1/2 z-50 flex items-center gap-1 py-3 pl-2 pr-1.5 rounded-l-xl bg-white dark:bg-gray-800 border border-r-0 border-gray-200 dark:border-gray-700 shadow-lg text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
-        style={{ writingMode: 'vertical-rl' }}
-      >
-        <svg className="w-4 h-4 rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-        <span className="text-[11px] font-semibold uppercase tracking-wider">Settings</span>
-      </button>
-    );
-  }
+  const dockClasses = {
+    right:  'inset-y-0 right-0 w-full sm:w-[22rem] border-l',
+    left:   'inset-y-0 left-0 w-full sm:w-[22rem] border-r',
+    top:    'inset-x-0 top-0 h-full sm:h-[18rem] border-b',
+    bottom: 'inset-x-0 bottom-0 h-full sm:h-[18rem] border-t',
+  };
 
-  // ── Sidebar drawer (default) ──────────────────────────────────────────────
-  if (view === 'sidebar') {
-    return (
-      <div
-        className="fixed top-0 right-0 h-full z-50 w-full sm:w-[22rem] max-w-full flex flex-col bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-2xl"
-        style={{ animation: 'lc-slide-in-right 0.18s ease-out', paddingTop: 'env(safe-area-inset-top, 0px)' }}
-      >
-        {header}
-        {body}
-      </div>
-    );
-  }
-
-  // ── Centered popup (classic) ──────────────────────────────────────────────
   return (
-    <>
-      <div
-        className="fixed inset-0 z-40 bg-black/40 dark:bg-black/60"
-        style={{ animation: 'lc-fade-in 0.15s ease-out' }}
-        onClick={onClose}
-      />
-      <div
-        className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-4 pointer-events-none"
-        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}
-      >
-        <div className="pointer-events-auto w-full max-w-md flex flex-col bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl max-h-[92vh] sm:max-h-[85vh] overflow-hidden">
-          {header}
-          {body}
-        </div>
-      </div>
-    </>
+    <aside
+      data-settings-dock={dock}
+      className={`fixed z-50 flex flex-col bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 ${dockClasses[dock] || dockClasses.right}`}
+      style={{ paddingTop: ['right', 'left', 'top'].includes(dock) ? 'env(safe-area-inset-top, 0px)' : undefined }}
+    >
+      {header}
+      {body}
+    </aside>
   );
 }

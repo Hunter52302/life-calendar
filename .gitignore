@@ -42,6 +42,8 @@ mobile/.env.local
 mobile/node_modules/
 mobile/.expo/
 mobile/dist/
+mobile/ios/
+mobile/android/
 
 # Shared package build artifacts
 shared/dist/

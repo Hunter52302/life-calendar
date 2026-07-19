@@ -4,6 +4,7 @@ import DiffSummary from '../components/DiffSummary';
 import DiffDayBars from '../components/DiffDayBars';
 import HabitTracker from '../components/HabitTracker';
 import { addDays, todayStr, getWeekStart, formatShortDate } from '../lib/utils';
+import { filterRealityEvents } from '../lib/realityEvents.js';
 
 // Named presets — id is what gets stored in activePreset
 const NAMED_PRESETS = [
@@ -42,28 +43,25 @@ export default function DiffView({ planEvents, actualEvents, allCategories, link
     setActivePreset(id);
   }
 
-  // IDs of linked calendars the user has opted out of Reality Check
-  const excludedCalIds = useMemo(
-    () => new Set(linkedCalendars.filter(c => c.excludeFromReality).map(c => c.id)),
-    [linkedCalendars]
+  const realityEvents = useMemo(
+    () => filterRealityEvents(planEvents, actualEvents, linkedCalendars),
+    [planEvents, actualEvents, linkedCalendars]
   );
 
   const filteredPlan = useMemo(() =>
-    planEvents.filter(e => {
-      if (excludedCalIds.has(e.source_calendar_id)) return false;
+    realityEvents.planEvents.filter(e => {
       const d = addDays(e.week_start, e.day_of_week);
       return d >= startDate && d <= endDate;
     }),
-    [planEvents, startDate, endDate, excludedCalIds]
+    [realityEvents, startDate, endDate]
   );
 
   const filteredActual = useMemo(() =>
-    actualEvents.filter(e => {
-      if (excludedCalIds.has(e.source_calendar_id)) return false;
+    realityEvents.actualEvents.filter(e => {
       const d = addDays(e.week_start, e.day_of_week);
       return d >= startDate && d <= endDate;
     }),
-    [actualEvents, startDate, endDate, excludedCalIds]
+    [realityEvents, startDate, endDate]
   );
 
   const diff = useMemo(

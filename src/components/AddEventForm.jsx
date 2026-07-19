@@ -56,6 +56,7 @@ export default function AddEventForm({
   homeAddress = '',
   savedAddresses = [],
   siblingEvents = [],
+  allEvents = [],
   eventTitleSuggestions = [],
   onSave,
   onAddEvents,
@@ -84,6 +85,21 @@ export default function AddEventForm({
   // When editing/deleting an occurrence that belongs to a series, ask the user
   // which occurrences the action applies to before committing.
   const [scopePrompt, setScopePrompt] = useState(null); // null | { mode:'save'|'delete', payload? }
+  const seriesEvents = useMemo(() => {
+    if (!event?.series_id) return [];
+    return allEvents
+      .filter(item => item.series_id === event.series_id && item.calendar === event.calendar)
+      .sort((a, b) => addDays(a.week_start, a.day_of_week).localeCompare(addDays(b.week_start, b.day_of_week)) || (a.slot_start ?? 0) - (b.slot_start ?? 0));
+  }, [allEvents, event]);
+
+  function scopedSeriesEvents(scope) {
+    const anchorDate = addDays(event.week_start, event.day_of_week);
+    return seriesEvents.filter(item => {
+      const date = addDays(item.week_start, item.day_of_week);
+      return scope === 'all' || scope === 'this' && item.id === event.id ||
+        scope === 'future' && date >= anchorDate || scope === 'previous' && date <= anchorDate;
+    });
+  }
 
   // User-triggered handoff fields
   const [location, setLocation] = useState(source?.location ?? '');
@@ -117,6 +133,7 @@ export default function AddEventForm({
   const orderedWeekDays = Array.from({ length: 7 }, (_, p) => (anchorDow + p) % 7);
   const weekStartForDow = dow =>
     getWeekStart(new Date(addDays(weekStart, (dow - anchorDow + 7) % 7) + 'T00:00:00'));
+  const eventId = event?.id;
 
   const originAddress = useMemo(() => {
     const selectedDay = days[0];
@@ -127,9 +144,9 @@ export default function AddEventForm({
       siblingEvents,
       { week_start: selectedWeekStart, day_of_week: selectedDay, startMinutes: slotStart * formPrecision * 60 },
       homeAddress,
-      { excludeId: event?.id }
+      { excludeId: eventId }
     );
-  }, [siblingEvents, weekStart, anchorDow, days, slotStart, formPrecision, homeAddress, event?.id]);
+  }, [siblingEvents, weekStart, anchorDow, days, slotStart, formPrecision, homeAddress, eventId]);
 
   async function estimateTravelBuffer() {
     const from = originAddress.trim();
@@ -232,7 +249,10 @@ export default function AddEventForm({
 
   function applySeriesScope(scope) {
     if (scopePrompt?.mode === 'save') onUpdateSeries(event, scopePrompt.payload, scope);
-    else if (scopePrompt?.mode === 'delete') onDeleteSeries(event, scope);
+    else if (scopePrompt?.mode === 'delete' && !scopePrompt.scope) {
+      setScopePrompt({ ...scopePrompt, scope });
+      return;
+    } else if (scopePrompt?.mode === 'delete') onDeleteSeries(event, scopePrompt.scope);
     setScopePrompt(null);
     onClose();
   }
@@ -641,12 +661,31 @@ export default function AddEventForm({
           onClick={e => e.stopPropagation()}
         >
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {scopePrompt.mode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'}
+            {scopePrompt.mode === 'delete' && scopePrompt.scope ? 'Confirm event deletion' : scopePrompt.mode === 'delete' ? 'Delete recurring event' : 'Edit recurring event'}
           </h3>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 mb-3">
-            This event is part of a series. Apply to:
+            {scopePrompt.mode === 'delete' && scopePrompt.scope
+              ? `These ${scopedSeriesEvents(scopePrompt.scope).length} events will be deleted:`
+              : 'This event is part of a series. Apply to:'}
           </p>
-          <div className="space-y-1.5">
+          {scopePrompt.mode === 'delete' && scopePrompt.scope ? (
+            <div className="space-y-3">
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-red-100 dark:border-red-900/40 divide-y divide-red-100 dark:divide-red-900/30">
+                {scopedSeriesEvents(scopePrompt.scope).map(item => (
+                  <div key={item.id} className="px-2 py-1.5">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{item.label || 'Untitled event'}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500">{addDays(item.week_start, item.day_of_week)}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setScopePrompt(p => ({ ...p, scope: null }))}
+                  className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400">Back</button>
+                <button type="button" onClick={() => applySeriesScope(scopePrompt.scope)}
+                  className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium">Delete events</button>
+              </div>
+            </div>
+          ) : <div className="space-y-1.5">
             {[
               { scope: 'this',     label: 'This event only' },
               { scope: 'future',   label: 'This and following events' },
@@ -666,7 +705,7 @@ export default function AddEventForm({
                 {opt.label}
               </button>
             ))}
-          </div>
+          </div>}
           <button
             type="button"
             onClick={() => setScopePrompt(null)}
@@ -680,6 +719,4 @@ export default function AddEventForm({
     </>
   );
 }
-
-
 

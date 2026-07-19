@@ -265,6 +265,7 @@ export default function PlanView({
           onUpdateCategory={onUpdateCategory} onAddCategory={onAddCategory}
           homeAddress={homeAddress} savedAddresses={savedAddresses}
           siblingEvents={weekEvents}
+          allEvents={allEvents}
           onClose={() => setFormState(null)}
         />
       )}

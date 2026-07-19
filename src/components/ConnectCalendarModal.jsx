@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import { PROVIDERS, providerEventToAppEvent } from '../lib/calendarProviders';
+import { addDays } from '../lib/utils.js';
 
 /**
  * Connect & import a Google/Outlook calendar.
@@ -17,7 +18,10 @@ export default function ConnectCalendarModal({
   precision = 1,
   initialConnectionId = null,
   addLinkedCalendar,
+  deleteLinkedCalendar,
   replaceEventsBySourceCalendar,
+  linkedCalendars = [],
+  events = [],
   showNotice,
   onClose,
 }) {
@@ -29,6 +33,24 @@ export default function ConnectCalendarModal({
   const target = 'plan';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [pendingDisconnect, setPendingDisconnect] = useState(null);
+
+  function connectionContents(connectionId) {
+    const calendarsForConnection = linkedCalendars.filter(cal => String(cal.connectionId) === String(connectionId));
+    const calendarIds = new Set(calendarsForConnection.map(cal => String(cal.id)));
+    const affectedEvents = events
+      .filter(event => calendarIds.has(String(event.source_calendar_id ?? event.sourceCalendarId)) && event.source !== 'auto-completed')
+      .sort((a, b) => addDays(a.week_start, a.day_of_week).localeCompare(addDays(b.week_start, b.day_of_week)));
+    return { calendarsForConnection, affectedEvents };
+  }
+
+  async function confirmDisconnect(connectionId) {
+    const { calendarsForConnection } = connectionContents(connectionId);
+    await api.calendarConnections.delete(connectionId);
+    calendarsForConnection.forEach(calendar => deleteLinkedCalendar?.(calendar.id));
+    setConnections(prev => prev.filter(connection => connection.id !== connectionId));
+    setPendingDisconnect(null);
+  }
 
   useEffect(() => {
     api.calendarConnections.list()
@@ -145,21 +167,46 @@ export default function ConnectCalendarModal({
                 <div className="pt-2">
                   <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-1.5">Already connected</p>
                   <div className="space-y-1.5">
-                    {connections.map(c => (
-                      <div key={c.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                        <button type="button" onClick={() => setActiveConnId(c.id)}
-                          className="flex-1 text-left text-sm text-gray-700 dark:text-gray-200 truncate">
-                          {PROVIDERS[c.provider]?.short ?? c.provider}
-                          {c.accountEmail ? ` · ${c.accountEmail}` : ''}
-                        </button>
-                        <button type="button" title="Disconnect"
-                          onClick={async () => {
-                            await api.calendarConnections.delete(c.id).catch(() => {});
-                            setConnections(prev => prev.filter(x => x.id !== c.id));
-                          }}
-                          className="text-xs text-gray-400 hover:text-red-500 flex-shrink-0">✕</button>
-                      </div>
-                    ))}
+                    {connections.map(c => {
+                      const { calendarsForConnection, affectedEvents } = connectionContents(c.id);
+                      const confirming = pendingDisconnect === c.id;
+                      return (
+                        <div key={c.id} className="px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <button type="button" onClick={() => setActiveConnId(c.id)}
+                              className="flex-1 text-left text-sm text-gray-700 dark:text-gray-200 truncate">
+                              {PROVIDERS[c.provider]?.short ?? c.provider}
+                              {c.accountEmail ? ` · ${c.accountEmail}` : ''}
+                            </button>
+                            <button type="button" title="Disconnect"
+                              onClick={() => setPendingDisconnect(confirming ? null : c.id)}
+                              className="text-xs text-gray-400 hover:text-red-500 flex-shrink-0">✕</button>
+                          </div>
+                          {confirming && (
+                            <div className="space-y-2">
+                              <p className="text-xs text-red-500 dark:text-red-400">
+                                Disconnecting removes {calendarsForConnection.length} imported calendar{calendarsForConnection.length !== 1 ? 's' : ''} and {affectedEvents.length} event{affectedEvents.length !== 1 ? 's' : ''}.
+                              </p>
+                              {affectedEvents.length > 0 && (
+                                <div className="max-h-40 overflow-y-auto rounded-lg border border-red-100 dark:border-red-900/40 divide-y divide-red-100 dark:divide-red-900/30">
+                                  {affectedEvents.map(event => (
+                                    <div key={event.id} className="px-2 py-1.5">
+                                      <p className="text-xs font-medium text-gray-700 dark:text-gray-200 truncate">{event.label || 'Untitled event'}</p>
+                                      <p className="text-[10px] text-gray-400 dark:text-gray-500">{addDays(event.week_start, event.day_of_week)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setPendingDisconnect(null)} className="text-xs text-gray-500 dark:text-gray-400">Cancel</button>
+                                <button type="button" onClick={() => confirmDisconnect(c.id).catch(err => setError(err.message || 'Could not disconnect account.'))}
+                                  className="text-xs px-2 py-1 rounded bg-red-500 hover:bg-red-600 text-white font-medium">Disconnect</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
