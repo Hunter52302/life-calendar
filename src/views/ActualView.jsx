@@ -22,6 +22,7 @@ export default function ActualView({
   homeAddress = '', savedAddresses = [],
   jumpTo = null, mobileDefaultView = 'month',
   showPrecisionToggle = true, showCategoriesMenu = true,
+  timezones = [], showTimeZoneColumns = false,
 }) {
   const [view, setView] = useState(() => window.innerWidth < 640 ? mobileDefaultView : 'week');
   const [activeDay, setActiveDay] = useState(new Date().getDay());
@@ -277,6 +278,8 @@ export default function ActualView({
             stackOverlap={stackOverlap}
             onUpdateEvent={onUpdateEvent}
             allowDrag={allowDrag}
+            timezones={timezones}
+            showTimeZoneColumns={showTimeZoneColumns}
           />
         )}
         {view === 'month' && (

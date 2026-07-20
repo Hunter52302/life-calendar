@@ -88,7 +88,7 @@ export default function SettingsShell({
   if (poppedOut) {
     return (
       <PopoutWindow title="PLS Calendar — Settings" width={460} height={840} onClose={onPopoutWindowClosed}>
-        <div className="flex flex-col h-screen bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+        <div className="lc-glass-panel flex flex-col h-screen bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
           {header}
           {body}
         </div>
@@ -106,7 +106,7 @@ export default function SettingsShell({
   return (
     <aside
       data-settings-dock={dock}
-      className={`fixed z-50 flex flex-col bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 ${dockClasses[dock] || dockClasses.right}`}
+      className={`lc-glass-panel fixed z-50 flex flex-col bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 ${dockClasses[dock] || dockClasses.right}`}
       style={{ paddingTop: ['right', 'left', 'top'].includes(dock) ? 'env(safe-area-inset-top, 0px)' : undefined }}
     >
       {header}

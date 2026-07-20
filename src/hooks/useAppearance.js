@@ -27,6 +27,9 @@ export const DEFAULT_APPEARANCE_VISUALS = {
   // wallpaper shows through the calendar right away while staying readable; 1 =
   // fully solid (wallpaper hidden).
   panelAlpha: 0.6,
+  // 0..100. At 0 the app uses solid panels; higher values make the main
+  // surfaces clearer and increase the backdrop blur/saturation.
+  glassIntensity: 0,
 };
 
 export const DEFAULT_APPEARANCE = {
@@ -61,6 +64,12 @@ export function normalize(a) {
     blur: clamp(s.blur, 0, 20, 0),
     dim: clamp(s.dim, 0, 0.9, 0.35),
     panelAlpha: clamp(s.panelAlpha, 0.3, 1, 1),
+    // Migrate the abandoned Go build's older boolean/strength pair when it is
+    // present in synced appearance data.
+    glassIntensity: clamp(
+      s.glassIntensity ?? (s.glassEffect ? Number(s.glassStrength ?? 0.55) * 100 : 0),
+      0, 100, 0
+    ),
   };
 }
 

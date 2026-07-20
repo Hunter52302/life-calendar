@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { SLOT_HEIGHT, DAYS_SHORT } from '../lib/constants';
 import { slotToTime, addDays, formatShortDate, getWeekStart } from '../lib/utils';
+import { formatTimeZoneSlot, shortTimeZoneName } from '../lib/timeZones';
 import { useToday } from '../hooks/useToday';
 import EventBlock from './EventBlock';
 
 const TIME_COL_WIDTH = 48;
 const TOP_PAD = 12;
 const DRAG_THRESH = 5;
+const MIN_WEEK_DAY_WIDTH = 92;
 
 export default function CalendarGrid({
   events, weekStart, precision, view = 'week', activeDay = 0,
@@ -14,6 +16,8 @@ export default function CalendarGrid({
   stackOverlap = false,
   onUpdateEvent,
   allowDrag = true,
+  timezones = [],
+  showTimeZoneColumns = false,
 }) {
   const dragEnabled = allowDrag && !!onUpdateEvent;
   const slotCount = precision === 1 ? 24 : 48;
@@ -30,6 +34,14 @@ export default function CalendarGrid({
   const colDate = (dow) => addDays(weekStart, (dow - startDow + 7) % 7);
   const today = useToday();
   const isTodayCol = (dow) => colDate(dow) === today;
+  const validTimezones = [...new Set(timezones.filter(Boolean))];
+  const primaryTimeZone = validTimezones[0] || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  // The primary zone stays closest to the calendar. Secondary zones grow left.
+  const axisTimezones = showTimeZoneColumns && validTimezones.length > 1
+    ? [...validTimezones].reverse()
+    : [primaryTimeZone];
+  const timeAxesWidth = axisTimezones.length * TIME_COL_WIDTH;
+  const minGridWidth = timeAxesWidth + dayIndices.length * (view === 'week' ? MIN_WEEK_DAY_WIDTH : 180);
 
   const dayColRefs = useRef({});
   const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
@@ -213,18 +225,41 @@ export default function CalendarGrid({
   }
 
   return (
-    <div className="lc-surface flex flex-col h-full select-none dark:bg-gray-900">
+    <div
+      className="lc-surface flex flex-col h-full select-none dark:bg-gray-900"
+      style={{ minWidth: minGridWidth }}
+    >
       <div className="overflow-y-auto flex-1">
         {/* Sticky header (day names + all-day row) */}
         <div className="lc-surface sticky top-0 z-20 bg-white dark:bg-gray-900">
           {/* Day-name row */}
-          <div className="flex border-b border-gray-200 dark:border-gray-700">
-            <div style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }} className="flex-shrink-0" />
+          <div data-calendar-row="day-header" className="flex border-b border-gray-200 dark:border-gray-700">
+            {axisTimezones.map((timeZone, index) => (
+              <div
+                key={timeZone}
+                data-time-zone={timeZone}
+                title={timeZone}
+                style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }}
+                className="flex-shrink-0 flex flex-col items-center justify-center border-r border-gray-100 dark:border-gray-700 px-0.5"
+              >
+                <span className={`max-w-full truncate text-[9px] font-semibold leading-tight ${
+                  index === axisTimezones.length - 1 && axisTimezones.length > 1
+                    ? 'text-blue-500 dark:text-blue-400'
+                    : 'text-gray-400 dark:text-gray-500'
+                }`}>
+                  {shortTimeZoneName(timeZone, weekStart)}
+                </span>
+                {index === axisTimezones.length - 1 && axisTimezones.length > 1 && (
+                  <span className="text-[7px] uppercase tracking-wide text-gray-400 dark:text-gray-500">primary</span>
+                )}
+              </div>
+            ))}
             {dayIndices.map(dayIndex => {
               const isToday = isTodayCol(dayIndex);
               return (
                 <div
                   key={dayIndex}
+                  data-calendar-day={dayIndex}
                   className={`flex-1 text-center py-2 border-l border-gray-100 dark:border-gray-700 min-w-0 ${
                     isToday ? 'bg-gray-100/60 dark:bg-gray-800/60' : ''
                   } ${
@@ -258,9 +293,9 @@ export default function CalendarGrid({
           </div>
 
           {/* All-day row — always visible so it's clickable even when empty */}
-          <div className="flex border-b border-gray-200 dark:border-gray-700">
+          <div data-calendar-row="all-day" className="flex border-b border-gray-200 dark:border-gray-700">
             <div
-              style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }}
+              style={{ width: timeAxesWidth, minWidth: timeAxesWidth }}
               className="flex-shrink-0 flex items-start justify-end pr-2 pt-1"
             >
               <span className="text-[9px] text-gray-400 dark:text-gray-500 uppercase tracking-wide leading-none">all‑day</span>
@@ -270,7 +305,8 @@ export default function CalendarGrid({
               return (
                 <div
                   key={dayIndex}
-                  className={`flex-1 border-l border-gray-100 dark:border-gray-700 min-h-[26px] py-0.5 px-0.5 ${
+                  data-calendar-day={dayIndex}
+                  className={`flex-1 min-w-0 border-l border-gray-100 dark:border-gray-700 min-h-[26px] py-0.5 px-0.5 ${
                     isTodayCol(dayIndex) ? 'bg-gray-100/60 dark:bg-gray-800/60' : ''
                   } ${
                     onAllDayClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40' : ''
@@ -301,22 +337,35 @@ export default function CalendarGrid({
         </div>
 
         {/* Grid body */}
-        <div className="flex" style={{ height: totalHeight + TOP_PAD }}>
+        <div data-calendar-row="time-grid" className="flex" style={{ height: totalHeight + TOP_PAD }}>
           {/* Time labels */}
-          <div style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }} className="relative flex-shrink-0">
-            {Array.from({ length: slotCount }, (_, i) => {
-              if (precision === 0.5 && i % 2 !== 0) return null;
-              return (
-                <div
-                  key={i}
-                  className="absolute right-1.5 text-[10px] text-gray-400 dark:text-gray-500 leading-none"
-                  style={{ top: TOP_PAD + i * SLOT_HEIGHT - 7 }}
-                >
-                  {slotToTime(i, precision, militaryTime)}
-                </div>
-              );
-            })}
-          </div>
+          {axisTimezones.map((timeZone, axisIndex) => (
+            <div
+              key={timeZone}
+              data-time-zone={timeZone}
+              style={{ width: TIME_COL_WIDTH, minWidth: TIME_COL_WIDTH }}
+              className="relative flex-shrink-0 border-r border-gray-100 dark:border-gray-700"
+            >
+              {Array.from({ length: slotCount }, (_, i) => {
+                if (precision === 0.5 && i % 2 !== 0) return null;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute right-1.5 text-[10px] leading-none ${
+                      axisIndex === axisTimezones.length - 1
+                        ? 'text-gray-500 dark:text-gray-400'
+                        : 'text-gray-400 dark:text-gray-500'
+                    }`}
+                    style={{ top: TOP_PAD + i * SLOT_HEIGHT - 7 }}
+                  >
+                    {axisTimezones.length === 1
+                      ? slotToTime(i, precision, militaryTime)
+                      : formatTimeZoneSlot(i, precision, timeZone, primaryTimeZone, weekStart, militaryTime)}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
 
           {/* Day columns */}
           {dayIndices.map(dayIndex => {
@@ -324,6 +373,7 @@ export default function CalendarGrid({
             return (
               <div
                 key={dayIndex}
+                data-calendar-day={dayIndex}
                 ref={el => { dayColRefs.current[dayIndex] = el; }}
                 className={`flex-1 relative border-l border-gray-100 dark:border-gray-700 min-w-0 ${
                   isTodayCol(dayIndex) ? 'bg-gray-100/40 dark:bg-gray-800/40' : ''

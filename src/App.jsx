@@ -174,12 +174,13 @@ function icsToAppEvents(content, calendar, precision, calId, calColor) {
   });
 }
 
-function Toggle({ checked, onChange }) {
+function Toggle({ checked, onChange, ariaLabel }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       onClick={onChange}
       className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${checked ? 'bg-blue-500' : 'bg-gray-200 dark:bg-gray-600'}`}
     >
@@ -332,6 +333,17 @@ export default function App() {
   const [bgEditorOpen, setBgEditorOpen] = useState(false);
   const bgFileInputRef = useRef(null);
   const hasBackground = appearance.enabled && !!appearance.image;
+  const glassIntensity = Math.max(0, Math.min(100, Number(appearance.glassIntensity) || 0));
+  const hasGlass = glassIntensity > 0;
+  const appearanceStyle = {
+    ...(hasBackground ? { '--lc-panel-alpha': appearance.panelAlpha } : {}),
+    ...(hasGlass ? {
+      '--lc-glass-panel-alpha': (100 - glassIntensity * 0.78) / 100,
+      '--lc-glass-topbar-alpha': (100 - glassIntensity * 0.82) / 100,
+      '--lc-glass-blur': `${Math.round(8 + glassIntensity * 0.24)}px`,
+      '--lc-glass-saturation': (1 + glassIntensity / 140).toFixed(2),
+    } : {}),
+  };
 
   async function handleBackgroundFile(file) {
     if (!file) return;
@@ -414,6 +426,7 @@ export default function App() {
   const [timezones, setTimezones] = usePersistentState(
     'lc-timezones', () => [Intl.DateTimeFormat().resolvedOptions().timeZone]
   );
+  const [showTimeZoneColumns, setShowTimeZoneColumns] = usePersistentState('lc-timezone-columns', false);
   const [timezonesOpen, setTimezonesOpen] = useState(false);
 
   // Derived: how many settings sections are currently open
@@ -1136,7 +1149,7 @@ export default function App() {
   // ── Settings search helpers ──────────────────────────────────────────────
   const sq = settingsSearch.trim().toLowerCase();
   const SECTION_KWS = {
-    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency', 'settings', 'sidebar', 'popup', 'drawer', 'panel', 'menu', 'window', 'popout', 'detach'],
+    appearance: ['appearance', 'dark', 'theme', 'mode', 'military', 'time', 'stack', 'overlap', 'overlapping', 'cascade', 'week', 'numbers', 'views', 'quarter', 'half', 'floating', 'button', 'drag', 'mobile', 'phone', 'default', 'view', 'minimalist', 'minimal', 'simple', 'live', 'reality', 'search', 'precision', 'categories', 'font', 'typeface', 'dyslexic', 'opendyslexic', 'readable', 'accessibility', 'text', 'upload', 'background', 'image', 'wallpaper', 'photo', 'picture', 'opacity', 'blur', 'transparency', 'glass', 'liquid', 'clarity', 'settings', 'sidebar', 'popup', 'drawer', 'panel', 'menu', 'window', 'popout', 'detach'],
     about:      ['about', 'app', 'application', 'build', 'version', 'platform', 'source', 'github', 'update'],
     download:   ['download', 'desktop', 'app', 'windows', 'linux', 'mac', 'install', 'native'],
     export:     ['export', 'download', 'data', 'csv', 'json', 'pdf'],
@@ -1146,7 +1159,7 @@ export default function App() {
     connected:  ['connected calendars', 'connected', 'connection', 'calendar', 'calendars', 'import', 'export', 'ics', 'subscribe', 'subscription', 'url', 'feed', 'publish', 'google', 'outlook', 'apple', 'sync', 'webcal'],
     account:    ['account', 'profile', 'user', 'birthday', 'address', 'home', 'email', 'phone', 'phones', 'delete', 'clear', 'calendar', 'events', 'testing'],
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
-    timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country'],
+    timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country', 'stack', 'column', 'compare', 'comparison'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp', 'sms', 'text', 'twilio', 'phone'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
@@ -1192,8 +1205,8 @@ export default function App() {
   return (
     <div
       data-app-root
-      className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}${isThemed ? ' lc-themed' : ''}`}
-      style={hasBackground ? { '--lc-panel-alpha': appearance.panelAlpha } : undefined}
+      className={`${theme === 'dark' ? 'dark' : ''}${hasBackground ? ' has-app-bg' : ''}${hasGlass ? ' has-glass' : ''}${isThemed ? ' lc-themed' : ''}`}
+      style={appearanceStyle}
     >
       <AppBackground appearance={appearance} />
       {importNotice && (
@@ -1250,7 +1263,7 @@ export default function App() {
       )}
       <div className={`lc-app-frame lc-surface flex flex-col h-[100dvh] bg-white dark:bg-gray-900 overflow-hidden pl-safe pr-safe ${showSettings && !settingsPoppedOut ? `lc-settings-open lc-settings-${settingsDock}` : ''}`}>
         {/* Header */}
-        <header className="relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
+        <header className="lc-glass-chrome relative flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-900" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top, 0px))' }}>
           <div className="flex items-center gap-2 min-w-0">
             {/* App title */}
             <span className="text-base font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
@@ -1402,7 +1415,7 @@ export default function App() {
 
                     {/* ── Collapse-all button — sticky so it stays visible while scrolling ── */}
                     {settingsOpenCount > 1 && (
-                      <div className="sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-gray-800">
+                      <div className="lc-glass-chrome sticky top-0 z-10 -mx-4 px-4 pt-3 pb-2 bg-white dark:bg-gray-800">
                         <button
                           type="button"
                           onClick={collapseAllSettings}
@@ -1553,6 +1566,42 @@ export default function App() {
                                     >↺ Reset custom colors</button>
                                   </div>
                                 )}
+                              </div>
+                            )}
+                            {/* ── Glass / Liquid Glass ── */}
+                            {sv(['glass', 'liquid', 'clarity', 'transparent', 'transparency', 'blur', 'appearance']) && (
+                              <div className={`space-y-2${!sq ? ' border-t border-gray-100 dark:border-gray-700 pt-3' : ''}`}>
+                                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Glass / Liquid Glass</p>
+                                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                                  <div>
+                                    <span className="text-sm text-gray-700 dark:text-gray-200">Clear glass effect</span>
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Adds translucent, blurred app surfaces.</p>
+                                  </div>
+                                  <Toggle
+                                    checked={hasGlass}
+                                    onChange={() => setAppearance(a => ({ ...a, glassIntensity: hasGlass ? 0 : 55 }))}
+                                  />
+                                </label>
+                                <label className="block space-y-1 pt-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">Glass clarity</span>
+                                    <span className="text-xs tabular-nums text-gray-400 dark:text-gray-500">{Math.round(glassIntensity)}%</span>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    value={glassIntensity}
+                                    onChange={e => setAppearance(a => ({ ...a, glassIntensity: Number(e.target.value) }))}
+                                    className="w-full accent-blue-500"
+                                  />
+                                  <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500">
+                                    <span>Solid</span>
+                                    <span>Liquid Glass</span>
+                                    <span>Clear</span>
+                                  </div>
+                                </label>
                               </div>
                             )}
                             {/* ── Minimalist Mode ── */}
@@ -2025,18 +2074,30 @@ export default function App() {
                       {/* ── Time Zones (collapsible) ── */}
                       {sv(SECTION_KWS.timezone) && (
                       <div className="rounded-lg overflow-hidden" style={{ order: 11 }}>
-                        <button
-                          type="button"
-                          onClick={() => setTimezonesOpen(v => !v)}
-                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Zones</span>
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(timezonesOpen, SECTION_KWS.timezone) ? '▲' : '▼'}</span>
-                        </button>
+                        <div className="flex items-center rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => setTimezonesOpen(v => !v)}
+                            className="flex flex-1 items-center justify-between min-w-0 px-2 py-2"
+                          >
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Time Zones</span>
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 mr-2">{so(timezonesOpen, SECTION_KWS.timezone) ? '▲' : '▼'}</span>
+                          </button>
+                          <div className="pr-2" title="Show timezone comparison columns">
+                            <Toggle
+                              checked={showTimeZoneColumns}
+                              onChange={() => setShowTimeZoneColumns(v => !v)}
+                              ariaLabel="Show timezone comparison columns"
+                            />
+                          </div>
+                        </div>
                         {so(timezonesOpen, SECTION_KWS.timezone) && (
                           <div className="px-2 pb-3 space-y-2">
                             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
                               Set your primary time zone and add up to 4 more for quick reference — handy for cross-timezone meetings.
+                            </p>
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                              The header toggle only shows or hides comparison columns. It does not disable your saved time zones or primary zone.
                             </p>
 
                             {/* Timezone list */}
@@ -2052,7 +2113,7 @@ export default function App() {
                                 const tzInfo = COMMON_TIMEZONES.find(t => t.id === tz);
                                 const tzLabel = tzInfo?.label ?? tz.replace(/_/g, ' ');
                                 return (
-                                  <div key={tz} className="flex items-center gap-2 py-0.5 px-1">
+                                  <div key={tz} data-settings-time-zone={tz} className="flex items-center gap-2 py-0.5 px-1">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center gap-1.5 flex-wrap">
                                         {idx === 0 && (
@@ -2066,7 +2127,6 @@ export default function App() {
                                       {idx > 0 && (
                                         <button
                                           type="button"
-                                          title="Make primary"
                                           onClick={() => setTimezones(prev => {
                                             const next = [...prev];
                                             next.splice(idx, 1);
@@ -2074,6 +2134,7 @@ export default function App() {
                                             return next;
                                           })}
                                           className="w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors text-sm"
+                                          aria-label={`Set ${tzLabel} as primary`}
                                           title="Set as primary"
                                         >↑</button>
                                       )}
@@ -2082,6 +2143,7 @@ export default function App() {
                                         disabled={timezones.length === 1}
                                         onClick={() => setTimezones(prev => prev.filter((_, i) => i !== idx))}
                                         className="w-6 h-6 flex items-center justify-center rounded text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-base leading-none disabled:opacity-30 disabled:cursor-not-allowed"
+                                        aria-label={`Remove ${tzLabel}`}
                                         title="Remove"
                                       >×</button>
                                     </div>
@@ -3479,6 +3541,8 @@ export default function App() {
               onTogglePin={togglePin}
               onManageCategories={openManageCategories}
               mobileDefaultView={mobileDefaultView}
+              timezones={timezones}
+              showTimeZoneColumns={showTimeZoneColumns}
               onAddEvent={addEvent}
               onAddEvents={addEvents}
               onUpdateEvent={updateEvent}
@@ -3513,6 +3577,8 @@ export default function App() {
               pinnedCategories={pinnedCategories}
               onTogglePin={togglePin}
               mobileDefaultView={mobileDefaultView}
+              timezones={timezones}
+              showTimeZoneColumns={showTimeZoneColumns}
               onManageCategories={openManageCategories}
               onAddEvent={addEvent}
               onAddEvents={addEvents}

@@ -145,3 +145,57 @@ button, [role="button"] {
    the main surfaces transparent when a background image is also active, so the
    photo shows through instead of the theme's solid background. */
 .lc-themed.has-app-bg .lc-surface { background-color: transparent !important; }
+
+/* ── Liquid glass ────────────────────────────────────────────────────────
+   One translucent app sheet keeps the calendar even instead of building up
+   darker bands from nested panels. Only chrome that must float above it gets
+   its own lighter glass layer. Values are derived from the Appearance slider. */
+.has-glass {
+  min-height: 100dvh;
+  background-color: var(--lc-bg, #ffffff);
+}
+.dark.has-glass {
+  background-color: var(--lc-bg, #111827);
+}
+.has-glass .lc-app-frame.lc-surface {
+  background-color: rgba(255, 255, 255, var(--lc-glass-panel-alpha, 1)) !important;
+  backdrop-filter: blur(var(--lc-glass-blur, 18px)) saturate(var(--lc-glass-saturation, 1.3));
+  -webkit-backdrop-filter: blur(var(--lc-glass-blur, 18px)) saturate(var(--lc-glass-saturation, 1.3));
+}
+.dark.has-glass .lc-app-frame.lc-surface {
+  background-color: rgba(17, 24, 39, var(--lc-glass-panel-alpha, 1)) !important;
+}
+.has-glass .lc-app-frame .lc-surface {
+  background-color: transparent !important;
+}
+.has-glass .lc-glass-chrome,
+.has-glass .lc-glass-panel {
+  background-color: rgba(255, 255, 255, var(--lc-glass-topbar-alpha, 1)) !important;
+  backdrop-filter: blur(var(--lc-glass-blur, 18px)) saturate(var(--lc-glass-saturation, 1.3));
+  -webkit-backdrop-filter: blur(var(--lc-glass-blur, 18px)) saturate(var(--lc-glass-saturation, 1.3));
+}
+.dark.has-glass .lc-glass-chrome,
+.dark.has-glass .lc-glass-panel {
+  background-color: rgba(31, 41, 55, var(--lc-glass-topbar-alpha, 1)) !important;
+}
+/* Settings is rendered inside the app header. A backdrop filter on that header
+   would turn it into the containing block for Settings' fixed dock, trapping
+   the dock inside the short header instead of the viewport. The app sheet is
+   already blurred beneath this chrome, so keep only its translucent tint. */
+.has-glass .lc-app-frame > header.lc-glass-chrome {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .has-glass .lc-app-frame.lc-surface,
+  .has-glass .lc-glass-chrome,
+  .has-glass .lc-glass-panel {
+    background-color: rgba(255, 255, 255, 0.86) !important;
+  }
+  .dark.has-glass .lc-app-frame.lc-surface,
+  .dark.has-glass .lc-glass-chrome,
+  .dark.has-glass .lc-glass-panel {
+    background-color: rgba(17, 24, 39, 0.86) !important;
+  }
+}
