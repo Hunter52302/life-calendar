@@ -16,8 +16,9 @@
  *   geocoding → OpenStreetMap Nominatim   (address → lat/lon)
  *   routing   → OpenRouteService          (lat/lon pair → driving seconds)
  *
- * POST /api/travel-time  { origin, destination }
- *   → 200 { minutes, meters, provider }
+ * POST /api/travel-time  { origin, destination, mode? }
+ *   mode ∈ { car (default), walk, bike } → chooses the ORS routing profile.
+ *   → 200 { minutes, meters, mode, provider }
  *   → 400 missing origin/destination
  *   → 422 an address could not be geocoded / no route found
  *   → 502 upstream provider error
@@ -30,8 +31,16 @@ import { getSecret } from '../lib/secrets.js';
 const router = Router();
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
-const ORS_URL       = 'https://api.openrouteservice.org/v2/directions/driving-car';
+const ORS_BASE      = 'https://api.openrouteservice.org/v2/directions';
 const TIMEOUT_MS    = 12_000;
+
+// Travel modes the UI offers → OpenRouteService routing profiles. Transit is
+// intentionally absent: ORS has no free public-transit routing.
+const MODE_PROFILES = {
+  car:  'driving-car',
+  walk: 'foot-walking',
+  bike: 'cycling-regular',
+};
 
 // Free-flow drive time between two fixed points barely changes, so cache
 // aggressively to stay well within free tiers (Nominatim ~1 req/s, ORS
@@ -80,13 +89,13 @@ async function geocode(address) {
 }
 
 /** Origin/dest coords → { seconds, meters } | null (null = no route). */
-async function driveRoute(apiKey, origin, dest) {
-  const key = `${origin.lat},${origin.lon}|${dest.lat},${dest.lon}`;
+async function driveRoute(apiKey, origin, dest, profile) {
+  const key = `${profile}|${origin.lat},${origin.lon}|${dest.lat},${dest.lon}`;
   const cached = cacheGet(routeCache, key, ROUTE_TTL_MS);
   if (cached !== undefined) return cached;
 
   // ORS expects coordinates as [lon, lat].
-  const res = await fetchWithTimeout(ORS_URL, {
+  const res = await fetchWithTimeout(`${ORS_BASE}/${profile}`, {
     method: 'POST',
     headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ coordinates: [[origin.lon, origin.lat], [dest.lon, dest.lat]] }),
@@ -109,6 +118,8 @@ router.post('/', requireAuth, async (req, res) => {
 
   const origin      = String(req.body?.origin ?? '').trim();
   const destination = String(req.body?.destination ?? '').trim();
+  const mode        = String(req.body?.mode ?? 'car').toLowerCase();
+  const profile     = MODE_PROFILES[mode] ?? MODE_PROFILES.car;
   if (!origin || !destination) {
     return res.status(400).json({ error: 'origin and destination are required.' });
   }
@@ -118,12 +129,13 @@ router.post('/', requireAuth, async (req, res) => {
     if (!from) return res.status(422).json({ error: 'Could not find the starting address.' });
     if (!to)   return res.status(422).json({ error: 'Could not find the destination address.' });
 
-    const route = await driveRoute(apiKey, from, to);
-    if (!route) return res.status(422).json({ error: 'No driving route found between those addresses.' });
+    const route = await driveRoute(apiKey, from, to, profile);
+    if (!route) return res.status(422).json({ error: 'No route found between those addresses.' });
 
     res.json({
       minutes: Math.round(route.seconds / 60),
       meters: route.meters,
+      mode: MODE_PROFILES[mode] ? mode : 'car',
       provider: 'openrouteservice',
     });
   } catch (err) {

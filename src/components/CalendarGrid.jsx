@@ -44,20 +44,33 @@ export default function CalendarGrid({
   const minGridWidth = timeAxesWidth + dayIndices.length * (view === 'week' ? MIN_WEEK_DAY_WIDTH : 180);
 
   const dayColRefs = useRef({});
-  const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart }
+  const allDayRowRef = useRef(null);        // bounds of the all-day drop zone
+  const dragRef = useRef(null); // { event, pointerId, startX, startY, hasDragged, dayOfWeek, slotStart, allDay }
   const justDraggedIdRef = useRef(null);
-  const [drag, setDrag] = useState(null); // render snapshot: { id, dayOfWeek, slotStart }
+  const suppressClickRef = useRef(false);   // eat the click a drag-release synthesises
+  const [drag, setDrag] = useState(null); // render snapshot: { id, dayOfWeek, slotStart, allDay }
 
   function handleDragStart(event, pointerId, clientX, clientY) {
+    suppressClickRef.current = false;
     dragRef.current = {
       event, pointerId, startX: clientX, startY: clientY, hasDragged: false,
       dayOfWeek: event.day_of_week, slotStart: event.slot_start,
+      allDay: !!event.is_all_day,
     };
+  }
+
+  // A drag-release fires a synthetic click on whatever is under the pointer; this
+  // lets the grid/all-day cells ignore that one click so a drop never also opens
+  // the add-event form.
+  function eatSuppressedClick() {
+    if (suppressClickRef.current) { suppressClickRef.current = false; return true; }
+    return false;
   }
 
   function handleEventClick(event) {
     if (justDraggedIdRef.current === event.id) {
       justDraggedIdRef.current = null;
+      suppressClickRef.current = false;
       return;
     }
     onEventClick?.(event);
@@ -67,7 +80,7 @@ export default function CalendarGrid({
   // which re-parents the EventBlock into a different day column and remounts it — never
   // loses the rest of the gesture.
   useEffect(() => {
-    function resolveDayAndSlot(clientX, clientY, fallbackDay) {
+    function resolveTarget(clientX, clientY, fallbackDay) {
       let targetDay = fallbackDay;
       for (const key of Object.keys(dayColRefs.current)) {
         const el = dayColRefs.current[key];
@@ -78,42 +91,69 @@ export default function CalendarGrid({
           break;
         }
       }
+      // Over the all-day drop zone? Its cells span the same columns as the grid,
+      // so day resolution by X still holds; only the vertical band differs.
+      const adRect = allDayRowRef.current?.getBoundingClientRect();
+      const overAllDay = !!adRect && clientY >= adRect.top && clientY < adRect.bottom;
       const colEl = dayColRefs.current[targetDay];
       let slot = 0;
-      if (colEl) {
+      if (!overAllDay && colEl) {
         const rect = colEl.getBoundingClientRect();
         slot = Math.max(0, Math.min(slotCount - 1, Math.floor((clientY - rect.top) / SLOT_HEIGHT)));
       }
-      return { dayOfWeek: targetDay, slot };
+      return { dayOfWeek: targetDay, allDay: overAllDay, slot };
     }
     function handlePointerMove(e) {
       const d = dragRef.current;
       if (!d || e.pointerId !== d.pointerId) return;
       if (!d.hasDragged && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) <= DRAG_THRESH) return;
       d.hasDragged = true;
-      const { dayOfWeek, slot } = resolveDayAndSlot(e.clientX, e.clientY, d.dayOfWeek);
-      // Convert from the grid's display precision back to the event's own slot units, and
-      // clamp to that day's last valid slot — display/event precision can differ (e.g. a
-      // 1hr-precision event dragged on a 30min grid), and an unclamped round() can land on
-      // slotCount itself, which actually belongs to the next day.
-      const eventSlotCount = d.event.precision <= 0.5 ? 48 : 24;
-      const slotStart = Math.min(eventSlotCount - 1, Math.round((slot * precision) / d.event.precision));
-      if (dayOfWeek === d.dayOfWeek && slotStart === d.slotStart) return;
+      const { dayOfWeek, allDay, slot } = resolveTarget(e.clientX, e.clientY, d.dayOfWeek);
+      // In the all-day zone the slot is irrelevant — keep the event's own slot so a
+      // drag back out lands where the pointer is, with its stored length intact.
+      // Over the grid, convert from display precision to the event's own slot units,
+      // clamping to that day's last valid slot (display/event precision can differ,
+      // and an unclamped round() can land on slotCount — really the next day).
+      let slotStart = d.slotStart;
+      if (!allDay) {
+        const eventSlotCount = d.event.precision <= 0.5 ? 48 : 24;
+        slotStart = Math.min(eventSlotCount - 1, Math.round((slot * precision) / d.event.precision));
+      }
+      if (dayOfWeek === d.dayOfWeek && slotStart === d.slotStart && allDay === d.allDay) return;
       d.dayOfWeek = dayOfWeek;
       d.slotStart = slotStart;
-      setDrag({ id: d.event.id, dayOfWeek, slotStart });
+      d.allDay = allDay;
+      setDrag({ id: d.event.id, dayOfWeek, slotStart, allDay });
     }
     function handlePointerEnd(e) {
       const d = dragRef.current;
       if (!d || e.pointerId !== d.pointerId) return;
-      if (d.hasDragged && (d.dayOfWeek !== d.event.day_of_week || d.slotStart !== d.event.slot_start)) {
+      const wasAllDay = !!d.event.is_all_day;
+      const moved = d.hasDragged && (
+        d.dayOfWeek !== d.event.day_of_week ||
+        d.slotStart !== d.event.slot_start ||
+        d.allDay !== wasAllDay
+      );
+      if (moved) {
         justDraggedIdRef.current = d.event.id;
+        suppressClickRef.current = true;
         // Persist the Sunday-anchored week_start for the drop target's date — a
         // Monday-start week can move an event into a different storage week.
         const targetDate = addDays(weekStart, (d.dayOfWeek - startDow + 7) % 7);
         const newWeekStart = getWeekStart(new Date(targetDate + 'T00:00:00'));
-        const patch = { day_of_week: d.dayOfWeek, slot_start: d.slotStart };
+        const patch = { day_of_week: d.dayOfWeek };
         if (newWeekStart !== d.event.week_start) patch.week_start = newWeekStart;
+        if (d.allDay && !wasAllDay) {
+          // Timed → all-day. Leave slot_start / slot_duration untouched so dragging
+          // it back out restores the original time and length.
+          patch.is_all_day = true;
+        } else if (!d.allDay && wasAllDay) {
+          // All-day → timed. Land at the drop slot, keeping the stored duration.
+          patch.is_all_day = false;
+          patch.slot_start = d.slotStart;
+        } else if (!d.allDay) {
+          patch.slot_start = d.slotStart;
+        }
         onUpdateEvent?.(d.event.id, patch);
       }
       dragRef.current = null;
@@ -129,16 +169,20 @@ export default function CalendarGrid({
     };
   }, [precision, slotCount, onUpdateEvent, weekStart, startDow]);
 
-  // Separate all-day events from timed events
+  // Separate all-day events from timed events. While a drag is in flight the
+  // dragged event follows the pointer between the two zones, so its *effective*
+  // all-day state comes from the drag snapshot, not its stored flag.
   const allDayByDay = {};
   const rawTimedEvents = [];
   events.forEach(e => {
-    if (e.is_all_day) {
-      const d = e.day_of_week;
+    const isDragged = drag && e.id === drag.id;
+    const effectiveAllDay = isDragged ? drag.allDay : e.is_all_day;
+    if (effectiveAllDay) {
+      const d = isDragged ? drag.dayOfWeek : e.day_of_week;
       if (!allDayByDay[d]) allDayByDay[d] = [];
-      allDayByDay[d].push(e);
-    } else if (drag && e.id === drag.id) {
-      rawTimedEvents.push({ ...e, day_of_week: drag.dayOfWeek, slot_start: drag.slotStart, _isDragPreview: true });
+      allDayByDay[d].push(isDragged ? { ...e, day_of_week: d, is_all_day: true, _isDragPreview: true } : e);
+    } else if (isDragged) {
+      rawTimedEvents.push({ ...e, day_of_week: drag.dayOfWeek, slot_start: drag.slotStart, is_all_day: false, _isDragPreview: true });
     } else {
       rawTimedEvents.push(e);
     }
@@ -292,8 +336,17 @@ export default function CalendarGrid({
             })}
           </div>
 
-          {/* All-day row — always visible so it's clickable even when empty */}
-          <div data-calendar-row="all-day" className="flex border-b border-gray-200 dark:border-gray-700">
+          {/* All-day row — always visible so it's clickable even when empty, and a
+              drop target: drag a timed event up here to make it all-day. */}
+          <div
+            ref={allDayRowRef}
+            data-calendar-row="all-day"
+            className={`flex border-b transition-colors ${
+              drag?.allDay
+                ? 'border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-200 dark:border-gray-700'
+            }`}
+          >
             <div
               style={{ width: timeAxesWidth, minWidth: timeAxesWidth }}
               className="flex-shrink-0 flex items-start justify-end pr-2 pt-1"
@@ -311,25 +364,36 @@ export default function CalendarGrid({
                   } ${
                     onAllDayClick ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40' : ''
                   }`}
-                  onClick={() => onAllDayClick?.(dayIndex)}
+                  onClick={() => { if (eatSuppressedClick()) return; onAllDayClick?.(dayIndex); }}
                 >
-                  {dayAllDay.map(event => (
-                    <div
-                      key={event.id ?? event._planEventId ?? event.label}
-                      className={`text-[10px] leading-tight px-1.5 py-0.5 rounded truncate mb-0.5 cursor-pointer ${
-                        event._isGhost ? 'border border-dashed opacity-50' : ''
-                      }`}
-                      style={{
-                        backgroundColor: event._isGhost ? 'transparent' : event.color + '28',
-                        borderColor: event.color,
-                        borderLeft: event._isGhost ? undefined : `2px solid ${event.color}`,
-                        color: event.color,
-                      }}
-                      onClick={e => { e.stopPropagation(); onEventClick?.(event); }}
-                    >
-                      {event.label}
-                    </div>
-                  ))}
+                  {dayAllDay.map(event => {
+                    const chipDraggable = dragEnabled && !event._isGhost;
+                    return (
+                      <div
+                        key={event.id ?? event._planEventId ?? event.label}
+                        className={`text-[10px] leading-tight px-1.5 py-0.5 rounded truncate mb-0.5 ${
+                          event._isGhost ? 'border border-dashed opacity-50' : ''
+                        }`}
+                        style={{
+                          backgroundColor: event._isGhost ? 'transparent' : event.color + '28',
+                          borderColor: event.color,
+                          borderLeft: event._isGhost ? undefined : `2px solid ${event.color}`,
+                          color: event.color,
+                          cursor: chipDraggable ? 'grab' : 'pointer',
+                          touchAction: chipDraggable ? 'none' : undefined,
+                          opacity: event._isDragPreview ? 0.65 : undefined,
+                        }}
+                        onPointerDown={chipDraggable ? (e => {
+                          if (e.button !== undefined && e.button !== 0) return;
+                          e.stopPropagation();
+                          handleDragStart(event, e.pointerId, e.clientX, e.clientY);
+                        }) : undefined}
+                        onClick={e => { e.stopPropagation(); handleEventClick(event); }}
+                      >
+                        {event.label}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -379,7 +443,7 @@ export default function CalendarGrid({
                   isTodayCol(dayIndex) ? 'bg-gray-100/40 dark:bg-gray-800/40' : ''
                 } ${onSlotClick ? 'cursor-pointer' : 'cursor-default'}`}
                 style={{ height: totalHeight, marginTop: TOP_PAD }}
-                onClick={e => onSlotClick && handleColumnClick(e, dayIndex)}
+                onClick={e => { if (eatSuppressedClick()) return; onSlotClick && handleColumnClick(e, dayIndex); }}
               >
                 {Array.from({ length: slotCount }, (_, i) => (
                   <div

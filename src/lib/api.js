@@ -197,8 +197,9 @@ export const api = {
   },
 
   travelTime: {
-    /** Estimate driving minutes between two plaintext addresses. */
-    estimate: (origin, destination) => request('POST', '/travel-time', { origin, destination }),
+    /** Estimate travel minutes between two plaintext addresses.
+     *  mode ∈ { car, walk, bike } picks the routing profile (default car). */
+    estimate: (origin, destination, mode = 'car') => request('POST', '/travel-time', { origin, destination, mode }),
   },
 
 };

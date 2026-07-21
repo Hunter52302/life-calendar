@@ -91,6 +91,7 @@ import InstallPrompt from './components/InstallPrompt';
 import UpdateBanner from './components/UpdateBanner';
 import UpdateSettings from './components/UpdateSettings';
 import SettingsShell from './components/SettingsShell';
+import SeriesManager from './components/SeriesManager';
 import useDesktopUpdater from './hooks/useDesktopUpdater';
 import useDesktopTray from './hooks/useDesktopTray';
 import LeadTimeSelect from './components/LeadTimeSelect';
@@ -294,6 +295,7 @@ export default function App() {
   const [addingHabit,    setAddingHabit]    = useState(false);
   const [habitDraft,     setHabitDraft]     = useState({ label: '', color: '#7C3AED', target_days: [0,1,2,3,4,5,6] });
   const [habitsOpen, setHabitsOpen] = useState(false);
+  const [seriesOpen, setSeriesOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [liveBehaviorOpen, setLiveBehaviorOpen] = useState(false);
   const [aiParsingOpen, setAiParsingOpen] = useState(false);
@@ -432,7 +434,7 @@ export default function App() {
   // Derived: how many settings sections are currently open
   const settingsOpenCount = [
     appearanceOpen, categoriesOpen, connectedOpen, accountOpen, aboutOpen,
-    habitsOpen, notificationsOpen, liveBehaviorOpen, aiParsingOpen, zkOpen,
+    habitsOpen, seriesOpen, notificationsOpen, liveBehaviorOpen, aiParsingOpen, zkOpen,
     searchOptionsOpen, timezonesOpen, downloadOpen, dangerOpen, profileOpen,
     addIntegrationOpen,
   ].filter(Boolean).length;
@@ -445,6 +447,7 @@ export default function App() {
     setDangerOpen(false);
     setAboutOpen(false);
     setHabitsOpen(false);
+    setSeriesOpen(false);
     setNotificationsOpen(false);
     setLiveBehaviorOpen(false);
     setAiParsingOpen(false);
@@ -1161,6 +1164,7 @@ export default function App() {
     linked:     ['linked', 'calendar', 'calendars', 'sync', 'source'],
     timezone:   ['timezone', 'time zone', 'zone', 'clock', 'utc', 'gmt', 'world', 'international', 'country', 'stack', 'column', 'compare', 'comparison'],
     habits:        ['habit', 'habits', 'streak', 'routine', 'check-in', 'checkin', 'daily', 'tracker'],
+    series:        ['series', 'recurring', 'repeat', 'repeating', 'recurrence', 'occurrence', 'occurrences', 'weekly', 'daily', 'monthly', 'events', 'manage'],
     notifications: ['notification', 'notifications', 'push', 'discord', 'slack', 'webhook', 'reminder', 'alert', 'integration', 'integrations', 'remind', 'email', 'mail', 'smtp', 'sms', 'text', 'twilio', 'phone'],
     liveBehavior:  ['live', 'assume', 'assumed', 'auto-complete', 'auto complete', 'auto-logged', 'autologged', 'completed', 'finished', 'confirm', 'baby', 'planned life'],
     aiParsing:     ['ai', 'llm', 'parsing', 'parse', 'text import', 'voice', 'speech', 'anthropic', 'openai', 'claude', 'gpt', 'api key', 'custom endpoint', 'ollama'],
@@ -2606,6 +2610,34 @@ export default function App() {
                                 </button>
                               );
                             })()}
+                          </div>
+                        )}
+                      </div>
+                      )}
+
+                      {/* ── Recurring Series (collapsible) ── */}
+                      {sv(SECTION_KWS.series) && (
+                      <div className="rounded-lg overflow-hidden" style={{ order: 7 }}>
+                        <button
+                          type="button"
+                          onClick={() => setSeriesOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-2 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recurring Series</span>
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{so(seriesOpen, SECTION_KWS.series) ? '▲' : '▼'}</span>
+                        </button>
+                        {so(seriesOpen, SECTION_KWS.series) && (
+                          <div className="px-2 pb-2">
+                            <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-snug mb-2">
+                              Every repeating event you've created, grouped into its series. Rename or recategorise the whole set, remove single occurrences, or delete the series.
+                            </p>
+                            <SeriesManager
+                              events={events}
+                              allCategories={allCategories}
+                              militaryTime={militaryTime}
+                              onUpdateSeries={updateSeries}
+                              onDeleteSeries={deleteSeries}
+                            />
                           </div>
                         )}
                       </div>

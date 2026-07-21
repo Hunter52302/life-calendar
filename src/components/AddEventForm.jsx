@@ -36,6 +36,14 @@ const REPEAT_OPTIONS = [
   { value: 'yearly', label: 'Yearly' },
 ];
 
+// Travel modes offered for drive/route-time estimates, matching the server's
+// OpenRouteService profile map (car / walk / bike).
+const TRAVEL_MODES = [
+  { id: 'car',  label: 'Car',  icon: '🚗' },
+  { id: 'walk', label: 'Walk', icon: '🚶' },
+  { id: 'bike', label: 'Bike', icon: '🚴' },
+];
+
 const COLOR_SWATCHES = [
   '#3B82F6', '#0EA5E9', '#06B6D4', '#22C55E',
   '#84CC16', '#F59E0B', '#F97316', '#EF4444',
@@ -124,11 +132,14 @@ export default function AddEventForm({
     setSlotEnd(newStart + duration);
   }
 
-  // Automatic drive-time estimate: origin = the previous event on this day
-  // (else home base), destination = this event's location.
+  // Automatic route-time estimate: origin defaults to the previous event on this
+  // day (else home base) but can be overridden; destination is this event's
+  // location; mode chooses the routing profile.
   const [estimating, setEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState('');
-  const [estimateInfo, setEstimateInfo] = useState('');
+  const [estimate, setEstimate] = useState(null); // { minutes, meters, mode, origin, pct } | null
+  const [travelMode, setTravelMode] = useState('car');
+  const [originChoice, setOriginChoice] = useState('auto'); // 'auto' | 'home' | savedAddress id
   // `weekStart` is the display anchor (Sunday or Monday). Events are always
   // stored Sunday-anchored, so resolve the selected weekday to its actual date
   // within the displayed week, then derive that date's Sunday-anchored week.
@@ -151,23 +162,39 @@ export default function AddEventForm({
     );
   }, [siblingEvents, weekStart, anchorDow, days, slotStart, formPrecision, homeAddress, eventId]);
 
+  // The address a trip starts from, per the user's "From" choice.
+  const effectiveOrigin = useMemo(() => {
+    if (originChoice === 'home') return formatAddress(homeAddress);
+    if (originChoice !== 'auto') {
+      const saved = savedAddresses.find(a => a.id === originChoice);
+      return saved ? formatAddress(saved.address) : '';
+    }
+    return originAddress;
+  }, [originChoice, homeAddress, savedAddresses, originAddress]);
+
   async function estimateTravelBuffer() {
-    const from = originAddress.trim();
+    const from = effectiveOrigin.trim();
     const to = location.trim();
     if (!from || !to || estimating) return;
     setEstimating(true);
     setEstimateError('');
-    setEstimateInfo('');
+    setEstimate(null);
     try {
-      const { minutes, meters } = await api.travelTime.estimate(from, to);
-      const hour = Math.floor(slotStart * formPrecision) % 24;
-      const { minutes: padded, pct } = applyTrafficPadding(minutes, days[0], hour);
-      setTravelBufferMinutes(padded);
-      const miles = meters ? ` · ${(meters / 1609.34).toFixed(1)} mi` : '';
-      const pad = pct > 0 ? ` (incl. ~${pct}% traffic)` : '';
-      setEstimateInfo(`Estimated ${padded} min drive${miles}${pad}`);
+      const { minutes, meters, mode } = await api.travelTime.estimate(from, to, travelMode);
+      // Only driving gets the coarse traffic pad — it models congestion, which
+      // doesn't apply to walking or cycling.
+      let finalMinutes = minutes;
+      let pct = 0;
+      if (travelMode === 'car') {
+        const hour = Math.floor(slotStart * formPrecision) % 24;
+        const padded = applyTrafficPadding(minutes, days[0], hour);
+        finalMinutes = padded.minutes;
+        pct = padded.pct;
+      }
+      setTravelBufferMinutes(finalMinutes);
+      setEstimate({ minutes: finalMinutes, meters, mode: mode || travelMode, origin: from, pct });
     } catch (err) {
-      setEstimateError(err.message || 'Could not estimate drive time.');
+      setEstimateError(err.message || 'Could not estimate travel time.');
     } finally {
       setEstimating(false);
     }
@@ -482,7 +509,6 @@ export default function AddEventForm({
                   title="Open in Maps"
                   className="flex-shrink-0 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors text-sm">
                   Open in Maps
-                  x
                 </button>
               )}
             </div>
@@ -512,35 +538,89 @@ export default function AddEventForm({
           </div>
 
           <div className="space-y-2">
-            <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Travel buffer</label>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">Time blocked before the event. Set it manually, or estimate the drive automatically.</p>
+            <label className="block text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Travel time</label>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">Estimate the trip to this location and record it as time blocked before the event.</p>
 
-            {/* Automatic estimate: previous stop (or home) → this event's location */}
+            {/* Route-time estimate: chosen origin → this event's location */}
             {!isAllDay && (
-              <div className="space-y-1">
+              <div className="space-y-2">
+                {/* Mode + origin controls */}
+                <div className="flex gap-2">
+                  <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden flex-shrink-0">
+                    {TRAVEL_MODES.map(m => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setTravelMode(m.id); setEstimate(null); }}
+                        aria-pressed={travelMode === m.id}
+                        title={m.label}
+                        className={`px-2.5 py-1.5 text-sm transition-colors ${
+                          travelMode === m.id
+                            ? 'bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <span aria-hidden>{m.icon}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <select
+                    value={originChoice}
+                    onChange={e => { setOriginChoice(e.target.value); setEstimate(null); }}
+                    title="Start the trip from…"
+                    className="flex-1 min-w-0 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="auto">From: previous stop / home</option>
+                    {formatAddress(homeAddress) && <option value="home">From: Home</option>}
+                    {savedAddresses.map(a => <option key={a.id} value={a.id}>From: {a.label}</option>)}
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   onClick={estimateTravelBuffer}
-                  disabled={!originAddress.trim() || !location.trim() || estimating}
+                  disabled={!effectiveOrigin.trim() || !location.trim() || estimating}
                   className="w-full py-2 rounded-lg border border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 text-sm font-medium hover:bg-orange-100 dark:hover:bg-orange-900/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                  {estimating ? 'Estimating…' : 'Estimate drive time'}
+                  {estimating ? 'Estimating…' : estimate ? 'Re-estimate travel time' : 'Estimate travel time'}
                 </button>
+
+                {/* Result card — the recorded trip, à la Zillow's "Travel times" */}
+                {estimate && (() => {
+                  const m = TRAVEL_MODES.find(x => x.id === estimate.mode) ?? TRAVEL_MODES[0];
+                  return (
+                    <div className="flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/40 px-3 py-2.5">
+                      <span className="text-xl leading-none" aria-hidden>{m.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-gray-800 dark:text-gray-100">
+                          By {m.label.toLowerCase()}{' '}
+                          <span className="font-semibold">{estimate.minutes} min</span>
+                          {estimate.meters ? <span className="text-gray-400 dark:text-gray-500"> · {(estimate.meters / 1609.34).toFixed(1)} mi</span> : null}
+                        </p>
+                        <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate" title={estimate.origin}>
+                          from {estimate.origin}{estimate.pct > 0 ? ` · incl. ~${estimate.pct}% traffic` : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-green-600 dark:text-green-400 flex-shrink-0 whitespace-nowrap">Saved as buffer</span>
+                    </div>
+                  );
+                })()}
+
                 {!location.trim() && (
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Add a location above to estimate the drive.</p>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Add a location above to estimate the trip.</p>
                 )}
-                {location.trim() && !originAddress.trim() && (
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Set a home address in your profile (or add an earlier event with a location) to estimate.</p>
+                {location.trim() && !effectiveOrigin.trim() && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Set a home address in your profile, pick a saved address, or add an earlier event with a location to estimate.</p>
                 )}
-                {location.trim() && originAddress.trim() && !estimateInfo && !estimateError && (
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate" title={originAddress}>From {originAddress} → this location</p>
+                {location.trim() && effectiveOrigin.trim() && !estimate && !estimateError && (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate" title={effectiveOrigin}>From {effectiveOrigin} → this location</p>
                 )}
-                {estimateInfo && <p className="text-[11px] text-green-600 dark:text-green-400">{estimateInfo}</p>}
                 {estimateError && <p className="text-[11px] text-red-500 dark:text-red-400">{estimateError}</p>}
                 {location.trim() && <p className="text-[10px] text-gray-400 dark:text-gray-500">Estimating sends this address to the routing service.</p>}
                 <RouteAttribution />
               </div>
             )}
 
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 pt-1">Or set the time manually:</p>
             <div className="flex flex-wrap gap-1.5">
               {[0, 15, 30, 45, 60].map(minutes => (
                 <button
